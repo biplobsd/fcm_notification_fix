@@ -1,0 +1,6 @@
+id=fcm_notification_fix
+name=HyperOS FCM Notification Fix (On-Device Patcher)
+version=v1.0
+versionCode=1
+author=biplobsd
+description=Zero-PC On-Device Surgical Patch for Google FCM push notifications on HyperOS CN (Wake-on-push for stopped apps, Greeze screen-off thaw, and GMS Doze keepalive). 100% Native, 0 Daemons, 0% CPU.

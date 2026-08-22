@@ -1,0 +1,4 @@
+out/
+.deps/
+module/tools/patcher.jar
+*.log

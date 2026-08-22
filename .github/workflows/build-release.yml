@@ -1,0 +1,67 @@
+name: Build & Release FCM Fix Module
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - master
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release') && 'Build Module + Publish Release' || 'Build Flashable Module' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Build Tools & Platform
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Grant Execute Permission for build.sh
+        run: chmod +x build.sh
+
+      - name: Build Flashable KernelSU / Magisk Module Zip
+        run: ./build.sh
+
+      - name: Upload Module Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HyperOS_FCM_OnTheFly_Fix
+          path: |
+            out/HyperOS_FCM_OnTheFly_Fix.zip
+            out/HyperOS_FCM_OnTheFly_Fix.zip.sha256
+
+      - name: Publish GitHub Release Asset
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/HyperOS_FCM_OnTheFly_Fix.zip
+            out/HyperOS_FCM_OnTheFly_Fix.zip.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
