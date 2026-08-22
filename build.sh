@@ -109,9 +109,12 @@ chmod +x "$DIR/module/service.sh" 2>/dev/null || true
 
 # 6. Package Flashable Module ZIP into out/
 OUT_DIR="$DIR/out"
-ZIP_NAME="HyperOS_FCM_OnTheFly_Fix.zip"
+MODULE_VER=$(grep "^version=" "$DIR/module/module.prop" | cut -d= -f2 | tr -d '\r')
+[ -z "$MODULE_VER" ] && MODULE_VER="v1.0"
+ZIP_NAME="HyperOS_FCM_OnTheFly_Fix-${MODULE_VER}.zip"
 FINAL_ZIP="$OUT_DIR/$ZIP_NAME"
 rm -f "$FINAL_ZIP"
+
 
 echo "[3/4] Packaging flashable KernelSU/Magisk module zip into out/$ZIP_NAME..."
 cd "$DIR/module"

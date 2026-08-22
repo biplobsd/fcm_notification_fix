@@ -93,10 +93,10 @@ Tested on **REDMI K80 (HyperOS 3.0 / Android 16 / SDK 36)**:
 - Rooted with **KernelSU**, **APatch**, or **Magisk**
 
 ### Steps
-1. Download the latest `HyperOS_FCM_OnTheFly_Fix.zip` from the [Releases](https://github.com/biplobsd/fcm_notification_fix/releases) page.
+1. Download the latest `HyperOS_FCM_OnTheFly_Fix-v*.zip` from the [Releases](https://github.com/biplobsd/fcm_notification_fix/releases) page.
 2. Open **KernelSU / APatch / Magisk Manager**.
 3. Navigate to **Modules** $\rightarrow$ **Install from storage**.
-4. Select `HyperOS_FCM_OnTheFly_Fix.zip` and let the on-device engine patch your live framework.
+4. Select the downloaded `.zip` file and let the on-device engine patch your live framework.
 5. Reboot your device.
 
 ---
@@ -148,7 +148,7 @@ chmod +x build.sh
 ./build.sh
 ```
 
-The compiled flashable zip will be generated at `out/HyperOS_FCM_OnTheFly_Fix.zip` along with its SHA256 checksum in `out/HyperOS_FCM_OnTheFly_Fix.zip.sha256`.
+The compiled flashable zip will be generated at `out/HyperOS_FCM_OnTheFly_Fix-<version>.zip` along with its SHA256 checksum in `out/HyperOS_FCM_OnTheFly_Fix-<version>.zip.sha256`.
 
 ---
 

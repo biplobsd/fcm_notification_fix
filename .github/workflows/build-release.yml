@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -52,16 +54,48 @@ jobs:
         with:
           name: HyperOS_FCM_OnTheFly_Fix
           path: |
-            out/HyperOS_FCM_OnTheFly_Fix.zip
-            out/HyperOS_FCM_OnTheFly_Fix.zip.sha256
+            out/*.zip
+            out/*.sha256
+
+      - name: Update update.json and Commit to Main
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+        run: |
+          VERSION=$(grep "^version=" module/module.prop | cut -d= -f2 | tr -d '\r')
+          VERSION_CODE=$(grep "^versionCode=" module/module.prop | cut -d= -f2 | tr -d '\r')
+          TAG_NAME="${{ github.ref_name }}"
+          [ -z "$TAG_NAME" ] && TAG_NAME="$VERSION"
+
+          # Switch to main branch to update update.json
+          git checkout main || git checkout -b main origin/main
+          git pull origin main --rebase || true
+
+          cat <<EOF > update.json
+          {
+            "version": "$VERSION",
+            "versionCode": $VERSION_CODE,
+            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/HyperOS_FCM_OnTheFly_Fix-$VERSION.zip",
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/CHANGELOG.md"
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add update.json
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): auto-update update.json for $VERSION ($VERSION_CODE) [skip ci]"
+            git push origin main
+          fi
 
       - name: Publish GitHub Release Asset
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            out/HyperOS_FCM_OnTheFly_Fix.zip
-            out/HyperOS_FCM_OnTheFly_Fix.zip.sha256
+            out/*.zip
+            out/*.sha256
+            update.json
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
