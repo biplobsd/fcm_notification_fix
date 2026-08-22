@@ -6,9 +6,6 @@ until [ "$(getprop sys.boot_completed)" = "1" ]; do
   sleep 2
 done
 
-# Keep Xiaomi Greezer active globally for battery savings
-cmd greezer enable true 2>/dev/null
-
 # ==============================================================================
 # 1. Global Lockscreen & Always-On Display (AOD) Notification Lighting & Wakeup
 # ==============================================================================
@@ -47,15 +44,61 @@ for fz in "/sys/fs/cgroup/apps/uid_${GMS_UID}/cgroup.freeze" "/sys/fs/cgroup/app
 done
 
 # ==============================================================================
-# 3. Enable Lockscreen & Floating Notification Display for Installed Apps
+# 3. Auto-Grant Lockscreen Visibility to New App Notification Channels
 # ==============================================================================
-for pkg in $(pm list packages -3 2>/dev/null | cut -d: -f2); do
-  [ -z "$pkg" ] && continue
-  cmd appops set "$pkg" 10020 allow >/dev/null 2>&1  # Show on Lockscreen
-  cmd appops set "$pkg" 10021 allow >/dev/null 2>&1  # Floating notification / Banner
-  cmd appops set "$pkg" 10022 allow >/dev/null 2>&1  # Badge
-  cmd appops set "$pkg" 10004 allow >/dev/null 2>&1  # Vibrate
-  cmd appops set "$pkg" 10033 allow >/dev/null 2>&1  # Sound
-  cmd appops set "$pkg" POST_NOTIFICATION allow >/dev/null 2>&1
-  cmd appops set "$pkg" USE_FULL_SCREEN_INTENT allow >/dev/null 2>&1
-done
+# In HyperOS China ROM, unconfigured 3rd-party app channels default to "Don't show"
+# on keyguard due to CN whitelist fallback. We automatically grant lockscreen
+# visibility to newly registered channels while strictly preserving user customizations:
+# if an app/channel already has an entry (whether true or false), it is untouched.
+sync_notification_channels() {
+  XML="/data/user_de/0/com.android.systemui/shared_prefs/app_notification.xml"
+  [ -f "$XML" ] && chcon u:object_r:system_app_data_file:s0 "$XML" 2>/dev/null
+
+  dumpsys notification --noredact 2>/dev/null | awk -v xml="$XML" '
+    BEGIN {
+      if (xml != "") {
+        while ((getline line < xml) > 0) {
+          if (match(line, /name="([^"]+)"/)) {
+            n = substr(line, RSTART+6, RLENGTH-7);
+            existing[n] = 1;
+          }
+        }
+        close(xml);
+      }
+    }
+    /^ *AppSettings: / {
+      sub(/^ *AppSettings: /, "");
+      split($0, a, " ");
+      pkg = a[1];
+      pkg_key = pkg "_keyguard";
+      if (pkg != "" && !(pkg_key in existing)) {
+        print pkg, "";
+        existing[pkg_key] = 1;
+      }
+    }
+    /^ *NotificationChannel\{mId=/ {
+      match($0, /mId=([^,]+)/);
+      id = substr($0, RSTART+4, RLENGTH-4);
+      gsub(/\047/, "", id);
+      if (pkg != "" && id != "") {
+        ch_key = pkg "_" id "_keyguard";
+        if (!(ch_key in existing)) {
+          print pkg, id;
+          existing[ch_key] = 1;
+        }
+      }
+    }
+  ' | while read -r pkg ch; do
+    if [ -z "$ch" ]; then
+      content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
+    else
+      content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra channel_id:s:"$ch" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
+    fi
+  done
+}
+
+# Run sync in background after boot completion
+( sync_notification_channels ) &
+
+
+
