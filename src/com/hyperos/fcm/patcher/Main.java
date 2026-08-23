@@ -71,7 +71,7 @@ public class Main {
         // 2. Execute Vectors 2, 3, 4 Patch (miui-services.jar)
         System.out.println("-------------------------------------------------");
         System.out.println("[*] Phase 2/2: Processing miui-services.jar...");
-        MiuiServicesPatcher.PatchResult miuiResult = MiuiServicesPatcher.patchMiuiServicesJar(miuiServicesSrc, stagedMiuiDest, outDir);
+        MiuiServicesPatcher.PatchResult miuiResult = MiuiServicesPatcher.patchMiuiServicesJar(miuiServicesSrc, stagedMiuiDest, outDir, patcherJar);
 
         // 3. Multi-Vector Verification Checklist
         System.out.println("=================================================");

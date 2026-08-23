@@ -699,11 +699,11 @@
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" id="searchInput" placeholder="Search package name..." oninput="filterApps()">
+            <input type="text" id="searchInput" placeholder="Search package name..." oninput="onSearchInput()">
         </div>
 
         <!-- Dynamic App List -->
-        <div class="app-list" id="appList">
+        <div class="app-list" id="appList" onscroll="handleListScroll()">
             <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">Loading applications...</div>
         </div>
     </div>
@@ -794,14 +794,20 @@
     }
 
     // Format package name for high readability
+    const pkgFormatCache = new Map();
     function renderFormattedPkg(pkg) {
+        if (pkgFormatCache.has(pkg)) return pkgFormatCache.get(pkg);
         const idx = pkg.lastIndexOf('.');
+        let res;
         if (idx !== -1) {
             const prefix = pkg.substring(0, idx + 1);
             const name = pkg.substring(idx + 1);
-            return `<span class="app-pkg-prefix">${prefix}</span><span class="app-pkg-highlight">${name}</span>`;
+            res = `<span class="app-pkg-prefix">${prefix}</span><span class="app-pkg-highlight">${name}</span>`;
+        } else {
+            res = `<span class="app-pkg-highlight">${pkg}</span>`;
         }
-        return `<span class="app-pkg-highlight">${pkg}</span>`;
+        pkgFormatCache.set(pkg, res);
+        return res;
     }
 
     let currentMode = 'ALL';
@@ -810,9 +816,17 @@
     let stoppedApps = new Set();
     let selectedApps = new Set();
 
+    // Lazy Rendering & Virtualization State
+    let filteredApps = [];
+    let renderedCount = 0;
+    const CHUNK_SIZE = 35;
+    let searchDebounceTimer = null;
+    let sentinelObserver = null;
+
     async function loadStatus() {
         try {
-            const cmd = `
+            // Stage 1: Ultra-fast load (Conf + 3rd-party App list in < 30ms)
+            const cmd1 = `
 if [ ! -f /data/system/fcm_wake.conf ]; then
     echo "MODE=ALL" > /data/system/fcm_wake.conf
     chmod 0644 /data/system/fcm_wake.conf
@@ -822,18 +836,15 @@ fi
 cat /data/system/fcm_wake.conf 2>/dev/null
 echo "---FCM_SEP---"
 pm list packages -3 2>/dev/null | sed 's/^package://'
-echo "---FCM_SEP---"
-dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); sub(/\\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}'
 `;
-            const res = await execCommand(cmd);
-            if (!res.success && !res.stdout) {
-                throw new Error(res.stderr || 'Command execution failed');
+            const res1 = await execCommand(cmd1);
+            if (!res1.success && !res1.stdout) {
+                throw new Error(res1.stderr || 'Command execution failed');
             }
 
-            const parts = res.stdout.split('---FCM_SEP---');
+            const parts = res1.stdout.split('---FCM_SEP---');
             const confText = (parts[0] || '').trim();
             const installedText = (parts[1] || '').trim();
-            const stoppedText = (parts[2] || '').trim();
 
             // Parse conf
             currentMode = 'ALL';
@@ -852,11 +863,11 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
             // Parse installed apps
             installedApps = installedText.split('\n').map(s => s.trim()).filter(Boolean).sort();
 
-            // Parse stopped apps
-            stoppedApps = new Set(stoppedText.split('\n').map(s => s.trim()).filter(Boolean));
-
             updateModeUI();
-            renderAppList();
+            filterApps();
+
+            // Stage 2: Background async fetch for stopped status (Zero blocking lag)
+            loadStoppedStatusAsync();
         } catch (e) {
             console.error('Failed to load status:', e);
             document.getElementById('appList').innerHTML = 
@@ -864,9 +875,36 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
         }
     }
 
+    async function loadStoppedStatusAsync() {
+        try {
+            const cmd2 = `dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); sub(/\\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}'`;
+            const res2 = await execCommand(cmd2);
+            if (res2.stdout) {
+                stoppedApps = new Set(res2.stdout.split('\n').map(s => s.trim()).filter(Boolean));
+                updateCounts();
+                updateStoppedBadgesInDOM();
+            }
+        } catch (e) {
+            console.warn('Background stopped state fetch skipped:', e);
+        }
+    }
+
+    function updateStoppedBadgesInDOM() {
+        document.querySelectorAll('[data-badge-pkg]').forEach(badge => {
+            const pkg = badge.getAttribute('data-badge-pkg');
+            const isStopped = stoppedApps.has(pkg);
+            badge.className = `status-pill ${isStopped ? 'status-stopped' : 'status-running'}`;
+            badge.textContent = isStopped ? 'STOPPED' : 'ACTIVE';
+        });
+    }
+
     function setMode(mode) {
         currentMode = mode;
         updateModeUI();
+        // Update slider colors dynamically
+        document.querySelectorAll('.slider').forEach(slider => {
+            slider.className = 'slider ' + (currentMode === 'BLACKLIST' ? 'rose' : (currentMode === 'WHITELIST' ? 'cyan' : ''));
+        });
     }
 
     function setViewFilter(filter) {
@@ -887,7 +925,7 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
             if (filter === 'ACTIVE') tabEl.classList.add('active-app');
             if (filter === 'STOPPED') tabEl.classList.add('stopped-app');
         }
-        renderAppList();
+        filterApps();
     }
 
     function updateModeUI() {
@@ -914,14 +952,14 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
             badge.className = 'status-pill';
             badge.style.background = 'rgba(6, 182, 212, 0.2)';
             badge.style.color = '#22d3ee';
-            desc.innerHTML = '<strong>Whitelist</strong>: ONLY checked apps will wake up on pushes. Unchecked apps (AliExpress, games) stay strictly stopped.';
+            desc.innerHTML = '<strong>Whitelist</strong>: ONLY checked apps will wake up and thaw on pushes. Unchecked apps stay strictly stopped.';
             listTitle.textContent = 'Allowed Packages';
         } else if (currentMode === 'BLACKLIST') {
             badge.textContent = 'BLACKLIST';
             badge.className = 'status-pill';
             badge.style.background = 'rgba(244, 63, 94, 0.2)';
             badge.style.color = '#fb7185';
-            desc.innerHTML = '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking on pushes. All other apps wake up normally.';
+            desc.innerHTML = '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking or thawing on pushes. All other apps wake up normally.';
             listTitle.textContent = 'Blocked Packages';
         }
 
@@ -949,74 +987,169 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
         document.getElementById('selectedCount').textContent = `${enabled} SELECTED`;
     }
 
-    function renderAppList() {
-        const listEl = document.getElementById('appList');
-        const search = document.getElementById('searchInput').value.toLowerCase().trim();
+    function onSearchInput() {
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+            filterApps();
+        }, 80);
+    }
+
+    function filterApps() {
+        const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
 
         if (installedApps.length === 0) {
-            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">No third-party apps found.</div>`;
+            document.getElementById('appList').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">No third-party apps found.</div>`;
             return;
         }
 
-        let html = '';
-        let matchedCount = 0;
-
-        installedApps.forEach(pkg => {
+        filteredApps = installedApps.filter(pkg => {
             const isChecked = selectedApps.has(pkg);
             const isStopped = stoppedApps.has(pkg);
 
-            // View filter check
-            if (viewFilter === 'ENABLED' && !isChecked) return;
-            if (viewFilter === 'DISABLED' && isChecked) return;
-            if (viewFilter === 'ACTIVE' && isStopped) return;
-            if (viewFilter === 'STOPPED' && !isStopped) return;
+            if (viewFilter === 'ENABLED' && !isChecked) return false;
+            if (viewFilter === 'DISABLED' && isChecked) return false;
+            if (viewFilter === 'ACTIVE' && isStopped) return false;
+            if (viewFilter === 'STOPPED' && !isStopped) return false;
 
-            // Search filter check
             if (search && !pkg.toLowerCase().includes(search)) {
-                return;
+                return false;
             }
-
-            matchedCount++;
-
-            html += `
-                <div class="app-item ${isChecked ? 'selected' : ''}">
-                    <div class="app-pkg-container" onclick="copyPkg(event, '${pkg}')" title="Tap to copy package name">
-                        <span class="app-pkg">${renderFormattedPkg(pkg)}</span>
-                        <span class="copy-icon">
-                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </span>
-                    </div>
-                    <div class="app-actions">
-                        <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}">${isStopped ? 'STOPPED' : 'ACTIVE'}</span>
-                        <label class="switch" onclick="event.stopPropagation()">
-                            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleApp('${pkg}', this.checked)">
-                            <span class="slider ${currentMode === 'BLACKLIST' ? 'rose' : (currentMode === 'WHITELIST' ? 'cyan' : '')}"></span>
-                        </label>
-                    </div>
-                </div>
-            `;
+            return true;
         });
 
-        if (matchedCount === 0) {
+        renderedCount = 0;
+        const listEl = document.getElementById('appList');
+        listEl.innerHTML = '';
+
+        if (filteredApps.length === 0) {
             listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.75rem;">No apps matching current filter.</div>`;
-        } else {
-            listEl.innerHTML = html;
+            updateCounts();
+            return;
         }
 
+        renderNextChunk();
         updateCounts();
     }
 
+    function generateAppItemHtml(pkg, isChecked, isStopped) {
+        const sliderClass = currentMode === 'BLACKLIST' ? 'rose' : (currentMode === 'WHITELIST' ? 'cyan' : '');
+        return `
+            <div class="app-item ${isChecked ? 'selected' : ''}" data-pkg="${pkg}">
+                <div class="app-pkg-container" onclick="copyPkg(event, '${pkg}')" title="Tap to copy package name">
+                    <span class="app-pkg">${renderFormattedPkg(pkg)}</span>
+                    <span class="copy-icon">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </span>
+                </div>
+                <div class="app-actions">
+                    <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? 'STOPPED' : 'ACTIVE'}</span>
+                    <label class="switch" onclick="event.stopPropagation()">
+                        <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleApp('${pkg}', this.checked)">
+                        <span class="slider ${sliderClass}"></span>
+                    </label>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderNextChunk() {
+        const listEl = document.getElementById('appList');
+        if (renderedCount >= filteredApps.length) {
+            removeSentinel();
+            return;
+        }
+
+        const nextBatch = filteredApps.slice(renderedCount, renderedCount + CHUNK_SIZE);
+        renderedCount += nextBatch.length;
+
+        let html = '';
+        nextBatch.forEach(pkg => {
+            html += generateAppItemHtml(pkg, selectedApps.has(pkg), stoppedApps.has(pkg));
+        });
+
+        removeSentinel();
+
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        while (temp.firstChild) {
+            listEl.appendChild(temp.firstChild);
+        }
+
+        if (renderedCount < filteredApps.length) {
+            appendSentinel();
+        }
+    }
+
+    function appendSentinel() {
+        const listEl = document.getElementById('appList');
+        const sentinel = document.createElement('div');
+        sentinel.id = 'scrollSentinel';
+        sentinel.style.padding = '8px';
+        sentinel.style.textAlign = 'center';
+        sentinel.style.color = 'var(--text-muted)';
+        sentinel.style.fontSize = '0.68rem';
+        sentinel.textContent = `Scroll for more (${renderedCount}/${filteredApps.length})...`;
+        listEl.appendChild(sentinel);
+
+        if ('IntersectionObserver' in window) {
+            if (!sentinelObserver) {
+                sentinelObserver = new IntersectionObserver((entries) => {
+                    if (entries[0] && entries[0].isIntersecting) {
+                        renderNextChunk();
+                    }
+                }, { root: listEl, rootMargin: '100px' });
+            }
+            sentinelObserver.observe(sentinel);
+        }
+    }
+
+    function removeSentinel() {
+        const sentinel = document.getElementById('scrollSentinel');
+        if (sentinel) {
+            if (sentinelObserver) sentinelObserver.unobserve(sentinel);
+            sentinel.remove();
+        }
+    }
+
+    function handleListScroll() {
+        const listEl = document.getElementById('appList');
+        if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 80) {
+            if (renderedCount < filteredApps.length) {
+                renderNextChunk();
+            }
+        }
+    }
+
     function toggleApp(pkg, forceVal) {
+        let val;
         if (typeof forceVal === 'boolean') {
-            if (forceVal) selectedApps.add(pkg);
+            val = forceVal;
+            if (val) selectedApps.add(pkg);
             else selectedApps.delete(pkg);
         } else {
-            if (selectedApps.has(pkg)) selectedApps.delete(pkg);
-            else selectedApps.add(pkg);
+            if (selectedApps.has(pkg)) {
+                selectedApps.delete(pkg);
+                val = false;
+            } else {
+                selectedApps.add(pkg);
+                val = true;
+            }
         }
-        renderAppList();
+
+        // Fast In-Place DOM Update
+        const el = document.querySelector(`.app-item[data-pkg="${CSS.escape(pkg)}"]`);
+        if (el) {
+            el.classList.toggle('selected', val);
+            const chk = el.querySelector('input[type="checkbox"]');
+            if (chk) chk.checked = val;
+
+            if (viewFilter === 'ENABLED' && !val) el.remove();
+            else if (viewFilter === 'DISABLED' && val) el.remove();
+        }
+
+        updateCounts();
     }
 
     function copyPkg(event, pkg) {
@@ -1036,7 +1169,7 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
                 count++;
             }
         });
-        renderAppList();
+        filterApps();
         showToast(`Selected ${count} Recommended Apps (Bank, Chat, Mail, 2FA) ✓`);
     }
 
@@ -1046,11 +1179,7 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
         } else {
             selectedApps.clear();
         }
-        renderAppList();
-    }
-
-    function filterApps() {
-        renderAppList();
+        filterApps();
     }
 
     /* === Import & Export Preset System === */
@@ -1122,7 +1251,7 @@ dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); s
             }
         });
 
-        renderAppList();
+        filterApps();
         closeModal();
         showToast(`Imported & selected ${matchCount} matching apps ✓`);
     }

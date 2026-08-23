@@ -53,22 +53,7 @@ public class FcmWakeFilter {
             return;
         }
 
-        String targetPkg = intent.getPackage();
-        if (targetPkg == null) {
-            ComponentName cmp = intent.getComponent();
-            if (cmp != null) {
-                targetPkg = cmp.getPackageName();
-            }
-        }
-        if (targetPkg == null && intent.getSelector() != null) {
-            targetPkg = intent.getSelector().getPackage();
-            if (targetPkg == null && intent.getSelector().getComponent() != null) {
-                targetPkg = intent.getSelector().getComponent().getPackageName();
-            }
-        }
-        if (targetPkg != null) {
-            targetPkg = targetPkg.trim();
-        }
+        String targetPkg = getTargetPackage(intent);
 
         if (targetPkg == null || targetPkg.isEmpty()) {
             // No explicit package targeted, allow delivery if in blacklist mode
@@ -93,7 +78,94 @@ public class FcmWakeFilter {
         }
     }
 
-    private static synchronized boolean isPackageInFilterSet(String pkg) {
+    /**
+     * Called from DomesticPolicyManager / GreezeManagerService
+     * during Screen-OFF broadcast evaluation.
+     *
+     * Returns:
+     *   1  -> C2DM broadcast ALLOWED to thaw process in Screen-OFF
+     *   0  -> C2DM broadcast DENIED thaw in Screen-OFF (stays frozen)
+     *  -1  -> Non-C2DM broadcast (defer to original Greeze domestic policy)
+     */
+    public static int checkGreezeBroadcastAllow(String action, String calleePkgName) {
+        if (action == null || !action.equals("com.google.android.c2dm.intent.RECEIVE")) {
+            return -1; // Not C2DM, pass through to stock Greeze policy
+        }
+
+        // Fast sync configuration from /data/system/fcm_wake.conf
+        checkConfig();
+
+        if (sCurrentMode == MODE_ALL) {
+            return 1; // Allow all C2DM thaws
+        }
+
+        String targetPkg = calleePkgName;
+        if (targetPkg != null) {
+            targetPkg = targetPkg.trim();
+        }
+
+        if (targetPkg == null || targetPkg.isEmpty()) {
+            return sCurrentMode == MODE_BLACKLIST ? 1 : 0;
+        }
+
+        boolean inSet = isPackageInFilterSet(targetPkg);
+
+        if (sCurrentMode == MODE_WHITELIST) {
+            return inSet ? 1 : 0;
+        } else if (sCurrentMode == MODE_BLACKLIST) {
+            return !inSet ? 1 : 0;
+        }
+
+        return 1;
+    }
+
+    public static boolean isAllowBroadcast(String action, String calleePkgName) {
+        int res = checkGreezeBroadcastAllow(action, calleePkgName);
+        return res > 0;
+    }
+
+    public static boolean isAllowBroadcast(Intent intent, String calleePkgName) {
+        if (intent == null) {
+            return false;
+        }
+        String pkg = calleePkgName;
+        if (pkg == null || pkg.isEmpty()) {
+            pkg = getTargetPackage(intent);
+        }
+        return isAllowBroadcast(intent.getAction(), pkg);
+    }
+
+    public static boolean isAllowBroadcast(Intent intent) {
+        return isAllowBroadcast(intent, null);
+    }
+
+    public static boolean isAllowBroadcast() {
+        checkConfig();
+        return sCurrentMode == MODE_ALL;
+    }
+
+    public static String getTargetPackage(Intent intent) {
+        if (intent == null) return null;
+        String targetPkg = intent.getPackage();
+        if (targetPkg == null) {
+            ComponentName cmp = intent.getComponent();
+            if (cmp != null) {
+                targetPkg = cmp.getPackageName();
+            }
+        }
+        if (targetPkg == null && intent.getSelector() != null) {
+            targetPkg = intent.getSelector().getPackage();
+            if (targetPkg == null && intent.getSelector().getComponent() != null) {
+                targetPkg = intent.getSelector().getComponent().getPackageName();
+            }
+        }
+        if (targetPkg != null) {
+            targetPkg = targetPkg.trim();
+        }
+        return targetPkg;
+    }
+
+    public static synchronized boolean isPackageInFilterSet(String pkg) {
         if (pkg == null) return false;
         return sPackageFilterSet.contains(pkg) || sPackageFilterSet.contains(pkg.toLowerCase());
     }
