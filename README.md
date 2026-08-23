@@ -6,7 +6,7 @@
 
 [![Build & Release](https://github.com/biplobsd/fcm_notification_fix/actions/workflows/build-release.yml/badge.svg)](https://github.com/biplobsd/fcm_notification_fix/actions/workflows/build-release.yml)
 [![Platform](https://img.shields.io/badge/Platform-HyperOS%20%7C%20MIUI%20(CN)-orange.svg)](https://www.mi.com/hyperos)
-[![Android](https://img.shields.io/badge/Android-13%20%7C%2014%20%7C%2015%20%7C%2016%2B-green.svg)](https://developer.android.com)
+[![Android](https://img.shields.io/badge/Android-16%2B-green.svg)](https://developer.android.com)
 [![Root Support](https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-blue.svg)](https://kernelsu.org)
 [![Overhead](https://img.shields.io/badge/Overhead-0%25%20CPU%20%7C%200%20Daemons-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -115,7 +115,7 @@ Tested on **REDMI K80 (HyperOS 3.0 / Android 16 / SDK 36)**:
 ## 📦 Installation
 
 ### Requirements
-- Xiaomi / Redmi device running **HyperOS 3.0+**
+- Xiaomi / Redmi device running **HyperOS 3+** (CN)
 - **Android 16+**
 - Rooted with **KernelSU**, **APatch**, or **Magisk**
 
