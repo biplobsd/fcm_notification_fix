@@ -97,6 +97,23 @@ sync_notification_channels() {
   done
 }
 
+# ==============================================================================
+# 4. FCM Wake Filter Configuration & WebUI Permissions
+# ==============================================================================
+CONF_FILE="/data/system/fcm_wake.conf"
+if [ ! -f "$CONF_FILE" ]; then
+    cat <<'EOF' > "$CONF_FILE"
+# HyperOS FCM Dynamic Wake Filter Configuration
+# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
+MODE=ALL
+EOF
+fi
+chmod 0644 "$CONF_FILE" 2>/dev/null
+chown system:system "$CONF_FILE" 2>/dev/null
+chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
+
+[ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
+
 # Run sync in background after boot completion
 ( sync_notification_channels ) &
 

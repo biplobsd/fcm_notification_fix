@@ -5,9 +5,6 @@ import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
 import com.android.tools.smali.dexlib2.builder.Label;
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21s;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
@@ -19,11 +16,9 @@ import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
 import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
-import com.android.tools.smali.dexlib2.immutable.reference.ImmutableStringReference;
 import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import com.android.tools.smali.dexlib2.DexFileFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.util.*;
 
@@ -34,7 +29,49 @@ public class ServicesPatcher {
         public String details = "";
     }
 
-    public static PatchResult patchServicesJar(File sourceJar, File destJar, File workDir) {
+    public static ClassDef findClassInJarOrClasspath(File patcherJar, String targetType) {
+        if (patcherJar != null && patcherJar.exists()) {
+            try {
+                MultiDexContainer<? extends DexBackedDexFile> container =
+                    DexFileFactory.loadDexContainer(patcherJar, Opcodes.getDefault());
+                for (String entry : container.getDexEntryNames()) {
+                    DexBackedDexFile df = container.getEntry(entry).getDexFile();
+                    for (ClassDef cd : df.getClasses()) {
+                        if (cd.getType().equals(targetType)) {
+                            return cd;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Warning: Could not read class from patcherJar: " + e.getMessage());
+            }
+        }
+
+        String cp = System.getProperty("java.class.path");
+        if (cp != null) {
+            for (String path : cp.split(File.pathSeparator)) {
+                File f = new File(path);
+                if (f.exists() && (f.getName().endsWith(".jar") || f.getName().endsWith(".dex") || f.getName().endsWith(".apk"))) {
+                    try {
+                        MultiDexContainer<? extends DexBackedDexFile> container =
+                            DexFileFactory.loadDexContainer(f, Opcodes.getDefault());
+                        for (String entry : container.getDexEntryNames()) {
+                            DexBackedDexFile df = container.getEntry(entry).getDexFile();
+                            for (ClassDef cd : df.getClasses()) {
+                                if (cd.getType().equals(targetType)) {
+                                    return cd;
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    public static PatchResult patchServicesJar(File sourceJar, File destJar, File workDir, File patcherJar) {
         PatchResult result = new PatchResult();
 
         try {
@@ -43,6 +80,13 @@ public class ServicesPatcher {
 
             List<String> entryNames = container.getDexEntryNames();
             System.out.println("[services.jar] Scanning Multi-DEX container (" + entryNames.size() + " DEX entries)...");
+
+            ClassDef fcmFilterClassDef = findClassInJarOrClasspath(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
+            if (fcmFilterClassDef != null) {
+                System.out.println("  -> [FOUND] Located FcmWakeFilter ClassDef in patcher engine");
+            } else {
+                System.out.println("  -> [WARNING] FcmWakeFilter ClassDef not found in patcher engine");
+            }
 
             Map<String, byte[]> replacementDexMap = new HashMap<>();
             boolean targetFound = false;
@@ -99,41 +143,21 @@ public class ServicesPatcher {
                                     curP++;
                                 }
 
-                                System.out.println("  -> Injecting C2DM wake flag into " + m.getName() + " (Intent reg: v" + intentReg + ")");
+                                System.out.println("  -> Injecting FcmWakeFilter hook into " + m.getName() + " (Intent reg: v" + intentReg + ")");
 
                                 Label endLabel = mut.newLabelForIndex(0);
 
-                                ImmutableMethodReference getActionRef = new ImmutableMethodReference(
-                                    "Landroid/content/Intent;", "getAction", Collections.emptyList(), "Ljava/lang/String;");
-                                ImmutableMethodReference equalsRef = new ImmutableMethodReference(
-                                    "Ljava/lang/String;", "equals", Collections.singletonList("Ljava/lang/Object;"), "Z");
-                                ImmutableMethodReference addFlagsRef = new ImmutableMethodReference(
-                                    "Landroid/content/Intent;", "addFlags", Collections.singletonList("I"), "Landroid/content/Intent;");
-                                ImmutableStringReference c2dmStr = new ImmutableStringReference("com.google.android.c2dm.intent.RECEIVE");
+                                ImmutableMethodReference applyFlagsRef = new ImmutableMethodReference(
+                                    "Lcom/android/server/am/FcmWakeFilter;", "applyFlags",
+                                    Collections.singletonList("Landroid/content/Intent;"), "V");
 
                                 int cur = 0;
                                 // 1. move-object/from16 v0, intentReg
                                 mut.addInstruction(cur++, new BuilderInstruction22x(Opcode.MOVE_OBJECT_FROM16, 0, intentReg));
                                 // 2. if-eqz v0, :endLabel
                                 mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, endLabel));
-                                // 3. invoke-virtual {v0}, Intent->getAction()String
-                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getActionRef));
-                                // 4. move-result-object v1
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 1));
-                                // 5. if-eqz v1, :endLabel
-                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 1, endLabel));
-                                // 6. const-string v2, "com.google.android.c2dm.intent.RECEIVE"
-                                mut.addInstruction(cur++, new BuilderInstruction21c(Opcode.CONST_STRING, 2, c2dmStr));
-                                // 7. invoke-virtual {v2, v1}, String->equals(Object)Z
-                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, 2, 1, 0, 0, 0, equalsRef));
-                                // 8. move-result v1
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 1));
-                                // 9. if-eqz v1, :endLabel
-                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 1, endLabel));
-                                // 10. const/16 v1, 0x20 (FLAG_INCLUDE_STOPPED_PACKAGES)
-                                mut.addInstruction(cur++, new BuilderInstruction21s(Opcode.CONST_16, 1, 0x20));
-                                // 11. invoke-virtual {v0, v1}, Intent->addFlags(I)Intent
-                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, 0, 1, 0, 0, 0, addFlagsRef));
+                                // 3. invoke-static {v0}, FcmWakeFilter->applyFlags(Intent)V
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, applyFlagsRef));
 
                                 methods.add(new ImmutableMethod(
                                     m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
@@ -147,6 +171,12 @@ public class ServicesPatcher {
                         classesList.add(new ImmutableClassDef(
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                        // Inject FcmWakeFilter into the same DEX entry if found
+                        if (fcmFilterClassDef != null) {
+                            classesList.add(fcmFilterClassDef);
+                            System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside BroadcastController into " + entryName);
+                        }
                     } else {
                         classesList.add(cd);
                     }
@@ -178,7 +208,7 @@ public class ServicesPatcher {
             AlignedJarRepacker.repackJar(sourceJar, replacementDexMap, destJar);
 
             result.success = true;
-            result.details = "Vector 1 (C2DM Wake-on-Push Flag) successfully applied";
+            result.details = "Vector 1 (Dynamic FCM Wake Filter Hook) successfully applied";
             return result;
 
         } catch (Exception e) {

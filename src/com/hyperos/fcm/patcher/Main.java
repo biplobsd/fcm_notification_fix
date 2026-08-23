@@ -29,16 +29,18 @@ public class Main {
         String servicesPath = params.get("services");
         String miuiServicesPath = params.get("miui-services");
         String outDirPath = params.get("out-dir");
+        String patcherJarPath = params.get("patcher");
 
         if (servicesPath == null || miuiServicesPath == null || outDirPath == null) {
             System.err.println("Usage: dalvikvm -cp patcher.jar com.hyperos.fcm.patcher.Main " +
-                "--services <services.jar> --miui-services <miui-services.jar> --out-dir <staging_dir>");
+                "--services <services.jar> --miui-services <miui-services.jar> --out-dir <staging_dir> [--patcher <patcher.jar>]");
             System.exit(2);
         }
 
         File servicesSrc = new File(servicesPath);
         File miuiServicesSrc = new File(miuiServicesPath);
         File outDir = new File(outDirPath);
+        File patcherJar = patcherJarPath != null ? new File(patcherJarPath) : null;
 
         if (!servicesSrc.exists() || !servicesSrc.isFile()) {
             System.err.println("[!] ERROR: Source services.jar does not exist: " + servicesPath);
@@ -62,9 +64,9 @@ public class Main {
         System.out.println("[*] Target 2 (MIUI Framework): " + miuiServicesSrc.getAbsolutePath() + " (" + (miuiServicesSrc.length() / 1024 / 1024) + " MB)");
         System.out.println("-------------------------------------------------");
 
-        // 1. Execute Vector 1 Patch (services.jar)
+        // 1. Execute Vector 1 Patch (services.jar) with Dynamic FcmWakeFilter
         System.out.println("[*] Phase 1/2: Processing services.jar...");
-        ServicesPatcher.PatchResult v1Result = ServicesPatcher.patchServicesJar(servicesSrc, stagedServicesDest, outDir);
+        ServicesPatcher.PatchResult v1Result = ServicesPatcher.patchServicesJar(servicesSrc, stagedServicesDest, outDir, patcherJar);
 
         // 2. Execute Vectors 2, 3, 4 Patch (miui-services.jar)
         System.out.println("-------------------------------------------------");
@@ -75,7 +77,7 @@ public class Main {
         System.out.println("=================================================");
         System.out.println("      TRANSACTION VERIFICATION CHECKLIST         ");
         System.out.println("=================================================");
-        System.out.println("  [Vector 1] C2DM Wake-on-Push Flag (stopped=true):  " + (v1Result.success ? "PASS ✓" : "FAIL ✗"));
+        System.out.println("  [Vector 1] Dynamic FCM Wake Filter Hook:            " + (v1Result.success ? "PASS ✓" : "FAIL ✗"));
         System.out.println("  [Vector 2] DomesticPolicy Screen-OFF Thaw (Greeze): " + (miuiResult.v2_domestic_policy ? "PASS ✓" : "FAIL ✗"));
         System.out.println("  [Vector 3] GMS Quick-Freeze Deadlock Neutralizer:   " + (miuiResult.v3_gms_quickfreeze ? "PASS ✓" : "FAIL ✗"));
         System.out.println("  [Vector 4] AutoStart Modern Stub Bypass for C2DM:   " + (miuiResult.v4_autostart_stub ? "PASS ✓" : "FAIL ✗"));

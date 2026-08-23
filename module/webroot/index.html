@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>HyperOS FCM Controller</title>
+    <style>
+        :root {
+            --bg-base: #090d16;
+            --bg-card: rgba(17, 24, 39, 0.85);
+            --bg-card-hover: rgba(30, 41, 59, 0.95);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-active: rgba(99, 102, 241, 0.4);
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --text-muted: #64748b;
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.35);
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-cyan: #06b6d4;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-full: 9999px;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font);
+            line-height: 1.35;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: 10px 10px calc(72px + env(safe-area-inset-bottom, 16px)) 10px;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 15% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
+                radial-gradient(circle at 85% 100%, rgba(6, 182, 212, 0.1) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        .container {
+            max-width: 520px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 4px 0 10px 0;
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 60%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.3px;
+        }
+
+        .header p {
+            font-size: 0.74rem;
+            color: var(--text-sub);
+        }
+
+        /* Glass Cards */
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .card-title {
+            font-size: 0.88rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-main);
+        }
+
+        .card-title svg {
+            width: 15px;
+            height: 15px;
+            color: var(--primary);
+        }
+
+        /* 3-Way Mode Segmented Control */
+        .mode-segmented {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 3px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-color);
+            margin-bottom: 8px;
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-sub);
+            padding: 7px 3px;
+            font-size: 0.74rem;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-align: center;
+            user-select: none;
+        }
+
+        .mode-btn.active {
+            background: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 2px 8px var(--primary-glow);
+        }
+
+        .mode-btn.active.whitelist {
+            background: var(--accent-cyan);
+            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.35);
+        }
+
+        .mode-btn.active.blacklist {
+            background: var(--accent-rose);
+            box-shadow: 0 2px 8px rgba(244, 63, 94, 0.35);
+        }
+
+        .mode-desc {
+            font-size: 0.72rem;
+            color: var(--text-sub);
+            background: rgba(0, 0, 0, 0.2);
+            padding: 7px 10px;
+            border-radius: 6px;
+            border-left: 2.5px solid var(--primary);
+            line-height: 1.35;
+        }
+
+        /* Action Buttons */
+        .action-row {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 5px 10px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            border-radius: var(--radius-full);
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            transition: all 0.12s ease;
+            user-select: none;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-recommend {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.25) 100%);
+            border-color: rgba(245, 158, 11, 0.4);
+            color: #fde68a;
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15);
+        }
+
+        .btn-accent {
+            background: rgba(6, 182, 212, 0.15);
+            border-color: rgba(6, 182, 212, 0.3);
+            color: #a5f3fc;
+        }
+
+        /* Filter Tab Chips (All / Enabled / Disabled / Active / Stopped) */
+        .filter-tabs {
+            display: flex;
+            gap: 4px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 3px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-color);
+            margin-bottom: 8px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .filter-tabs::-webkit-scrollbar {
+            display: none;
+        }
+
+        .filter-tab {
+            flex: 1;
+            white-space: nowrap;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 5px 6px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            text-align: center;
+            user-select: none;
+        }
+
+        .filter-tab.active {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--text-main);
+        }
+
+        .filter-tab.active.enabled {
+            background: rgba(99, 102, 241, 0.25);
+            color: #c7d2fe;
+        }
+
+        .filter-tab.active.disabled {
+            background: rgba(244, 63, 94, 0.2);
+            color: #fca5a5;
+        }
+
+        .filter-tab.active.active-app {
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+        }
+
+        .filter-tab.active.stopped-app {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fde68a;
+        }
+
+        /* Search Bar */
+        .search-box {
+            position: relative;
+            margin-bottom: 8px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 7px 10px 7px 30px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-main);
+            font-size: 0.78rem;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        .search-box input:focus {
+            border-color: var(--primary);
+        }
+
+        .search-box svg {
+            position: absolute;
+            left: 9px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 13px;
+            height: 13px;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        /* App List */
+        .app-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            max-height: 58vh;
+            max-height: 58dvh;
+            overflow-y: auto;
+            padding-right: 2px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .app-list::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .app-list::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+        }
+
+        .app-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.025);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            transition: background 0.12s ease, border-color 0.12s ease;
+            user-select: none;
+            gap: 8px;
+        }
+
+        .app-item.selected {
+            border-color: rgba(99, 102, 241, 0.35);
+            background: rgba(99, 102, 241, 0.08);
+        }
+
+        .app-pkg-container {
+            min-width: 0;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            padding: 2px 0;
+        }
+
+        .app-pkg-container:active {
+            opacity: 0.7;
+        }
+
+        .app-pkg {
+            font-size: 0.75rem;
+            color: var(--text-main);
+            line-height: 1.3;
+            word-break: break-all;
+            font-family: var(--font-mono);
+            letter-spacing: -0.2px;
+        }
+
+        .app-pkg-prefix {
+            color: var(--text-muted);
+        }
+
+        .app-pkg-highlight {
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+
+        .copy-icon {
+            opacity: 0.35;
+            transition: opacity 0.15s ease;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .app-pkg-container:hover .copy-icon,
+        .app-pkg-container:active .copy-icon {
+            opacity: 1;
+            color: var(--accent-cyan);
+        }
+
+        .copy-icon svg {
+            width: 13px;
+            height: 13px;
+        }
+
+        .app-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .status-pill {
+            font-size: 0.58rem;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: var(--radius-full);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .status-stopped {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.25);
+        }
+
+        .status-running {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        /* Compact Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255, 255, 255, 0.12);
+            transition: .18s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .18s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary);
+        }
+
+        input:checked + .slider.cyan {
+            background-color: var(--accent-cyan);
+        }
+
+        input:checked + .slider.rose {
+            background-color: var(--accent-rose);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(16px);
+        }
+
+        /* Floating Save Bar */
+        .save-bar {
+            position: fixed;
+            bottom: max(10px, env(safe-area-inset-bottom, 10px));
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 20px);
+            max-width: 520px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            border-radius: var(--radius-full);
+            padding: 7px 12px 7px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            z-index: 100;
+        }
+
+        .save-btn {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: #ffffff;
+            border: none;
+            padding: 7px 16px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            border-radius: var(--radius-full);
+            cursor: pointer;
+            box-shadow: 0 2px 10px var(--primary-glow);
+            transition: all 0.12s ease;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .save-btn:active {
+            transform: scale(0.96);
+        }
+
+        /* Modal Overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 1000;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-box {
+            background: rgba(17, 24, 39, 0.96);
+            border: 1px solid var(--border-active);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .modal-title {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 2px 6px;
+        }
+
+        .modal-hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            line-height: 1.35;
+        }
+
+        .modal-textarea {
+            width: 100%;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-main);
+            font-family: monospace;
+            font-size: 0.76rem;
+            padding: 10px;
+            outline: none;
+            resize: none;
+            margin-bottom: 10px;
+            line-height: 1.45;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+
+        .modal-textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toast {
+            position: fixed;
+            top: max(12px, env(safe-area-inset-top, 12px));
+            left: 50%;
+            transform: translateX(-50%) translateY(-70px);
+            background: rgba(16, 185, 129, 0.95);
+            color: white;
+            padding: 6px 14px;
+            border-radius: var(--radius-full);
+            font-size: 0.76rem;
+            font-weight: 600;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+            transition: transform 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 2000;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+<div class="toast" id="toast">Saved Successfully ✓</div>
+
+<!-- Import / Export Modal -->
+<div class="modal-overlay" id="ioModal" onclick="closeModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div class="modal-title" id="modalTitle">Preset Import / Export</div>
+            <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <p class="modal-hint" id="modalHelp">
+            Tap inside to paste or type package names (separated by newlines or commas):
+        </p>
+        <textarea class="modal-textarea" id="modalTextarea" placeholder="com.whatsapp&#10;org.telegram.messenger&#10;com.bKash.customerapp" autofocus></textarea>
+        <div class="modal-actions">
+            <button class="btn" id="modalClearBtn" onclick="clearModalText()">Clear Box</button>
+            <button class="btn btn-preset" id="modalApplyBtn" onclick="applyImport()">Apply to List</button>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Header -->
+    <div class="header">
+        <h1>HyperOS FCM Controller</h1>
+        <p>Wake-on-Push Whitelist & Blacklist Manager</p>
+    </div>
+
+    <!-- Mode Selector Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+                Wake Mode
+            </div>
+            <span id="modeBadge" class="status-pill status-running">ALLOW ALL</span>
+        </div>
+
+        <div class="mode-segmented">
+            <button class="mode-btn active" id="btnModeAll" onclick="setMode('ALL')">Allow All</button>
+            <button class="mode-btn" id="btnModeWhitelist" onclick="setMode('WHITELIST')">Whitelist</button>
+            <button class="mode-btn" id="btnModeBlacklist" onclick="setMode('BLACKLIST')">Blacklist</button>
+        </div>
+
+        <div class="mode-desc" id="modeDescription">
+            <strong>Allow All</strong>: All apps receive C2DM wake flag (<code>0x20</code>). Every stopped app wakes on push.
+        </div>
+    </div>
+
+    <!-- App Filter Manager Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span id="listTitle">Package Filter List</span>
+            </div>
+            <span id="selectedCount" class="status-pill status-stopped">0 SELECTED</span>
+        </div>
+
+        <!-- Clean Essential Action Bar -->
+        <div class="action-row">
+            <button class="btn btn-recommend" onclick="selectRecommended()">⭐ Recommended</button>
+            <button class="btn btn-accent" onclick="openImportModal()">📥 Import</button>
+            <button class="btn btn-accent" onclick="exportToClipboard()">📋 Export</button>
+            <button class="btn" onclick="selectAll(true)">Select All</button>
+            <button class="btn" onclick="selectAll(false)">Clear</button>
+        </div>
+
+        <!-- View Filter Tabs: All / Enabled / Disabled / Active / Stopped -->
+        <div class="filter-tabs">
+            <button class="filter-tab active" id="tabFilterAll" onclick="setViewFilter('ALL')">All (<span id="countAll">0</span>)</button>
+            <button class="filter-tab" id="tabFilterEnabled" onclick="setViewFilter('ENABLED')">Enabled (<span id="countEnabled">0</span>)</button>
+            <button class="filter-tab" id="tabFilterDisabled" onclick="setViewFilter('DISABLED')">Disabled (<span id="countDisabled">0</span>)</button>
+            <button class="filter-tab" id="tabFilterActive" onclick="setViewFilter('ACTIVE')">Active (<span id="countActive">0</span>)</button>
+            <button class="filter-tab" id="tabFilterStopped" onclick="setViewFilter('STOPPED')">Stopped (<span id="countStopped">0</span>)</button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-box">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input type="text" id="searchInput" placeholder="Search package name..." oninput="filterApps()">
+        </div>
+
+        <!-- Dynamic App List -->
+        <div class="app-list" id="appList">
+            <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">Loading applications...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Floating Save Bar -->
+<div class="save-bar">
+    <div>
+        <div style="font-size: 0.78rem; font-weight: 600;" id="saveBarStatus">Changes Ready</div>
+        <div style="font-size: 0.65rem; color: var(--text-muted);">Syncs live without reboot</div>
+    </div>
+    <button class="save-btn" onclick="saveConfiguration()">Save Changes</button>
+</div>
+
+<script>
+    // Universal KernelSU / APatch / Magisk Execution Bridge
+    let cbCounter = 0;
+    function execCommand(cmd) {
+        return new Promise((resolve) => {
+            const ksuObj = (window.ksu || (typeof ksu !== 'undefined' ? ksu : null));
+            if (ksuObj && typeof ksuObj.exec === 'function') {
+                const cbName = 'fcm_cb_' + Date.now() + '_' + (cbCounter++);
+                window[cbName] = function(errno, stdout, stderr) {
+                    delete window[cbName];
+                    resolve({ 
+                        errno: errno ?? 0, 
+                        stdout: (stdout || '').trim(), 
+                        stderr: (stderr || '').trim(), 
+                        success: (errno === 0) 
+                    });
+                };
+                try {
+                    ksuObj.exec(cmd, '{}', cbName);
+                    return;
+                } catch (e) {
+                    delete window[cbName];
+                }
+            }
+
+            // HTTP Fallback
+            if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
+                fetch('/cgi-bin/exec?' + encodeURIComponent(cmd))
+                    .then(r => r.text())
+                    .then(txt => resolve({ errno: 0, stdout: txt.trim(), stderr: '', success: true }))
+                    .catch(err => resolve({ errno: -1, stdout: '', stderr: err.message, success: false }));
+                return;
+            }
+
+            resolve({ errno: -1, stdout: '', stderr: 'KernelSU bridge not available', success: false });
+        });
+    }
+
+    // Critical App Recommendation Engine
+    function isCriticalApp(pkg) {
+        const p = pkg.toLowerCase();
+
+        // 1. Banking / Finance / Crypto
+        if (p.includes('bank') || p.includes('bkash') || p.includes('astha') || p.includes('citytouch') ||
+            p.includes('binance') || p.includes('bitget') || p.includes('pyypl') || p.includes('wallet') ||
+            p.includes('pay') || p.includes('finance') || p.includes('money') || p.includes('crypto') ||
+            p.includes('revolut') || p.includes('wise') || p.includes('nagad') || p.includes('upay') ||
+            p.includes('chase') || p.includes('citi') || p.includes('bofa') || p.includes('skrill')) {
+            return true;
+        }
+
+        // 2. Messaging / Chat / Calling
+        if (p.includes('whatsapp') || p.includes('telegram') || p.includes('orca') || p.includes('messenger') ||
+            p.includes('tencent.mm') || p.includes('wechat') || p.includes('discord') || p.includes('slack') ||
+            p.includes('signal') || p.includes('viber') || p.includes('line') || p.includes('kakao') ||
+            p.includes('sip') || p.includes('softphone') || p.includes('chat') || p.includes('im') ||
+            p.includes('messaging')) {
+            return true;
+        }
+
+        // 3. Mail
+        if (p.includes('.gm') || p.includes('gmail') || p.includes('email') || p.includes('mail') ||
+            p.includes('outlook') || p.includes('proton') || p.includes('spark') || p.includes('zoho')) {
+            return true;
+        }
+
+        // 4. Authenticator / 2FA / Security
+        if (p.includes('authenticator') || p.includes('authy') || p.includes('password') || p.includes('bitwarden') ||
+            p.includes('1password') || p.includes('keepass') || p.includes('yubico')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    // Format package name for high readability
+    function renderFormattedPkg(pkg) {
+        const idx = pkg.lastIndexOf('.');
+        if (idx !== -1) {
+            const prefix = pkg.substring(0, idx + 1);
+            const name = pkg.substring(idx + 1);
+            return `<span class="app-pkg-prefix">${prefix}</span><span class="app-pkg-highlight">${name}</span>`;
+        }
+        return `<span class="app-pkg-highlight">${pkg}</span>`;
+    }
+
+    let currentMode = 'ALL';
+    let viewFilter = 'ALL'; // 'ALL' | 'ENABLED' | 'DISABLED' | 'ACTIVE' | 'STOPPED'
+    let installedApps = [];
+    let stoppedApps = new Set();
+    let selectedApps = new Set();
+
+    async function loadStatus() {
+        try {
+            const cmd = `
+if [ ! -f /data/system/fcm_wake.conf ]; then
+    echo "MODE=ALL" > /data/system/fcm_wake.conf
+    chmod 0644 /data/system/fcm_wake.conf
+    chown system:system /data/system/fcm_wake.conf 2>/dev/null
+    chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
+fi
+cat /data/system/fcm_wake.conf 2>/dev/null
+echo "---FCM_SEP---"
+pm list packages -3 2>/dev/null | sed 's/^package://'
+echo "---FCM_SEP---"
+dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); sub(/\\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}'
+`;
+            const res = await execCommand(cmd);
+            if (!res.success && !res.stdout) {
+                throw new Error(res.stderr || 'Command execution failed');
+            }
+
+            const parts = res.stdout.split('---FCM_SEP---');
+            const confText = (parts[0] || '').trim();
+            const installedText = (parts[1] || '').trim();
+            const stoppedText = (parts[2] || '').trim();
+
+            // Parse conf
+            currentMode = 'ALL';
+            selectedApps.clear();
+            const confLines = confText.split('\n');
+            for (const line of confLines) {
+                const l = line.trim();
+                if (!l || l.startsWith('#')) continue;
+                if (l.startsWith('MODE=')) {
+                    currentMode = l.substring(5).toUpperCase().trim();
+                } else {
+                    selectedApps.add(l);
+                }
+            }
+
+            // Parse installed apps
+            installedApps = installedText.split('\n').map(s => s.trim()).filter(Boolean).sort();
+
+            // Parse stopped apps
+            stoppedApps = new Set(stoppedText.split('\n').map(s => s.trim()).filter(Boolean));
+
+            updateModeUI();
+            renderAppList();
+        } catch (e) {
+            console.error('Failed to load status:', e);
+            document.getElementById('appList').innerHTML = 
+                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">Failed to initialize WebUI bridge.<br><small>${e.message}</small></div>`;
+        }
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        updateModeUI();
+    }
+
+    function setViewFilter(filter) {
+        viewFilter = filter;
+        document.querySelectorAll('.filter-tab').forEach(el => el.classList.remove('active', 'enabled', 'disabled', 'active-app', 'stopped-app'));
+        
+        const tabEl = document.getElementById(
+            filter === 'ALL' ? 'tabFilterAll' :
+            filter === 'ENABLED' ? 'tabFilterEnabled' :
+            filter === 'DISABLED' ? 'tabFilterDisabled' :
+            filter === 'ACTIVE' ? 'tabFilterActive' :
+            filter === 'STOPPED' ? 'tabFilterStopped' : 'tabFilterAll'
+        );
+        if (tabEl) {
+            tabEl.classList.add('active');
+            if (filter === 'ENABLED') tabEl.classList.add('enabled');
+            if (filter === 'DISABLED') tabEl.classList.add('disabled');
+            if (filter === 'ACTIVE') tabEl.classList.add('active-app');
+            if (filter === 'STOPPED') tabEl.classList.add('stopped-app');
+        }
+        renderAppList();
+    }
+
+    function updateModeUI() {
+        const btnAll = document.getElementById('btnModeAll');
+        const btnWhite = document.getElementById('btnModeWhitelist');
+        const btnBlack = document.getElementById('btnModeBlacklist');
+        const badge = document.getElementById('modeBadge');
+        const desc = document.getElementById('modeDescription');
+        const listTitle = document.getElementById('listTitle');
+
+        btnAll.className = 'mode-btn' + (currentMode === 'ALL' ? ' active' : '');
+        btnWhite.className = 'mode-btn' + (currentMode === 'WHITELIST' ? ' active whitelist' : '');
+        btnBlack.className = 'mode-btn' + (currentMode === 'BLACKLIST' ? ' active blacklist' : '');
+
+        if (currentMode === 'ALL') {
+            badge.textContent = 'ALLOW ALL';
+            badge.className = 'status-pill status-running';
+            badge.style.background = '';
+            badge.style.color = '';
+            desc.innerHTML = '<strong>Allow All</strong>: All apps receive C2DM wake flag (<code>0x20</code>). Every stopped app wakes on push.';
+            listTitle.textContent = 'Installed Apps';
+        } else if (currentMode === 'WHITELIST') {
+            badge.textContent = 'WHITELIST';
+            badge.className = 'status-pill';
+            badge.style.background = 'rgba(6, 182, 212, 0.2)';
+            badge.style.color = '#22d3ee';
+            desc.innerHTML = '<strong>Whitelist</strong>: ONLY checked apps will wake up on pushes. Unchecked apps (AliExpress, games) stay strictly stopped.';
+            listTitle.textContent = 'Allowed Packages';
+        } else if (currentMode === 'BLACKLIST') {
+            badge.textContent = 'BLACKLIST';
+            badge.className = 'status-pill';
+            badge.style.background = 'rgba(244, 63, 94, 0.2)';
+            badge.style.color = '#fb7185';
+            desc.innerHTML = '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking on pushes. All other apps wake up normally.';
+            listTitle.textContent = 'Blocked Packages';
+        }
+
+        updateCounts();
+    }
+
+    function updateCounts() {
+        const total = installedApps.length;
+        const enabled = selectedApps.size;
+        const disabled = Math.max(0, total - enabled);
+
+        let stoppedCount = 0;
+        let activeCount = 0;
+
+        installedApps.forEach(pkg => {
+            if (stoppedApps.has(pkg)) stoppedCount++;
+            else activeCount++;
+        });
+
+        document.getElementById('countAll').textContent = total;
+        document.getElementById('countEnabled').textContent = enabled;
+        document.getElementById('countDisabled').textContent = disabled;
+        document.getElementById('countActive').textContent = activeCount;
+        document.getElementById('countStopped').textContent = stoppedCount;
+        document.getElementById('selectedCount').textContent = `${enabled} SELECTED`;
+    }
+
+    function renderAppList() {
+        const listEl = document.getElementById('appList');
+        const search = document.getElementById('searchInput').value.toLowerCase().trim();
+
+        if (installedApps.length === 0) {
+            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">No third-party apps found.</div>`;
+            return;
+        }
+
+        let html = '';
+        let matchedCount = 0;
+
+        installedApps.forEach(pkg => {
+            const isChecked = selectedApps.has(pkg);
+            const isStopped = stoppedApps.has(pkg);
+
+            // View filter check
+            if (viewFilter === 'ENABLED' && !isChecked) return;
+            if (viewFilter === 'DISABLED' && isChecked) return;
+            if (viewFilter === 'ACTIVE' && isStopped) return;
+            if (viewFilter === 'STOPPED' && !isStopped) return;
+
+            // Search filter check
+            if (search && !pkg.toLowerCase().includes(search)) {
+                return;
+            }
+
+            matchedCount++;
+
+            html += `
+                <div class="app-item ${isChecked ? 'selected' : ''}">
+                    <div class="app-pkg-container" onclick="copyPkg(event, '${pkg}')" title="Tap to copy package name">
+                        <span class="app-pkg">${renderFormattedPkg(pkg)}</span>
+                        <span class="copy-icon">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="app-actions">
+                        <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}">${isStopped ? 'STOPPED' : 'ACTIVE'}</span>
+                        <label class="switch" onclick="event.stopPropagation()">
+                            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleApp('${pkg}', this.checked)">
+                            <span class="slider ${currentMode === 'BLACKLIST' ? 'rose' : (currentMode === 'WHITELIST' ? 'cyan' : '')}"></span>
+                        </label>
+                    </div>
+                </div>
+            `;
+        });
+
+        if (matchedCount === 0) {
+            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.75rem;">No apps matching current filter.</div>`;
+        } else {
+            listEl.innerHTML = html;
+        }
+
+        updateCounts();
+    }
+
+    function toggleApp(pkg, forceVal) {
+        if (typeof forceVal === 'boolean') {
+            if (forceVal) selectedApps.add(pkg);
+            else selectedApps.delete(pkg);
+        } else {
+            if (selectedApps.has(pkg)) selectedApps.delete(pkg);
+            else selectedApps.add(pkg);
+        }
+        renderAppList();
+    }
+
+    function copyPkg(event, pkg) {
+        if (event) event.stopPropagation();
+        copyText(pkg).then(() => {
+            showToast(`Copied ${pkg} 📋`);
+        }).catch(() => {
+            showToast(`Package: ${pkg}`);
+        });
+    }
+
+    function selectRecommended() {
+        let count = 0;
+        installedApps.forEach(pkg => {
+            if (isCriticalApp(pkg)) {
+                selectedApps.add(pkg);
+                count++;
+            }
+        });
+        renderAppList();
+        showToast(`Selected ${count} Recommended Apps (Bank, Chat, Mail, 2FA) ✓`);
+    }
+
+    function selectAll(val) {
+        if (val) {
+            installedApps.forEach(pkg => selectedApps.add(pkg));
+        } else {
+            selectedApps.clear();
+        }
+        renderAppList();
+    }
+
+    function filterApps() {
+        renderAppList();
+    }
+
+    /* === Import & Export Preset System === */
+    function openImportModal() {
+        const modal = document.getElementById('ioModal');
+        const textarea = document.getElementById('modalTextarea');
+        const title = document.getElementById('modalTitle');
+        const help = document.getElementById('modalHelp');
+        const applyBtn = document.getElementById('modalApplyBtn');
+
+        title.textContent = '📥 Import Package Preset';
+        help.textContent = 'Tap below, long-press to Paste, or type packages (separated by newlines or commas):';
+        textarea.value = '';
+        applyBtn.style.display = 'inline-flex';
+        modal.classList.add('show');
+        setTimeout(() => textarea.focus(), 100);
+    }
+
+    function exportToClipboard() {
+        const pkgList = Array.from(selectedApps).join('\n');
+        if (!pkgList) {
+            showToast('No packages selected to export');
+            return;
+        }
+
+        copyText(pkgList).then(() => {
+            showToast(`Copied ${selectedApps.size} packages to clipboard ✓`);
+        }).catch(() => {
+            const modal = document.getElementById('ioModal');
+            const textarea = document.getElementById('modalTextarea');
+            const title = document.getElementById('modalTitle');
+            const help = document.getElementById('modalHelp');
+            const applyBtn = document.getElementById('modalApplyBtn');
+
+            title.textContent = '📋 Exported Packages';
+            help.textContent = 'Copy the selected packages below:';
+            textarea.value = pkgList;
+            applyBtn.style.display = 'none';
+            modal.classList.add('show');
+            textarea.select();
+        });
+    }
+
+    function closeModal(e) {
+        if (!e || e.target.id === 'ioModal' || e.target.className === 'modal-close') {
+            document.getElementById('ioModal').classList.remove('show');
+        }
+    }
+
+    function clearModalText() {
+        document.getElementById('modalTextarea').value = '';
+        document.getElementById('modalTextarea').focus();
+    }
+
+    function applyImport() {
+        const rawText = document.getElementById('modalTextarea').value;
+        if (!rawText.trim()) {
+            showToast('No packages entered');
+            return;
+        }
+
+        const lines = rawText.split(/[\n,; ]+/).map(s => s.trim()).filter(Boolean);
+        let matchCount = 0;
+
+        lines.forEach(pkg => {
+            if (installedApps.includes(pkg)) {
+                selectedApps.add(pkg);
+                matchCount++;
+            }
+        });
+
+        renderAppList();
+        closeModal();
+        showToast(`Imported & selected ${matchCount} matching apps ✓`);
+    }
+
+    function copyText(str) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(str);
+        }
+        return new Promise((resolve, reject) => {
+            const el = document.createElement('textarea');
+            el.value = str;
+            el.style.position = 'fixed';
+            el.style.opacity = '0';
+            document.body.appendChild(el);
+            el.select();
+            try {
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                resolve();
+            } catch (err) {
+                document.body.removeChild(el);
+                reject(err);
+            }
+        });
+    }
+
+    async function saveConfiguration() {
+        try {
+            const pkgList = Array.from(selectedApps).join('\n');
+            const cmd = `
+cat <<'EOF' > /data/system/fcm_wake.conf
+# HyperOS FCM Dynamic Wake Filter Configuration
+# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
+MODE=${currentMode}
+${pkgList}
+EOF
+chmod 0644 /data/system/fcm_wake.conf
+chown system:system /data/system/fcm_wake.conf 2>/dev/null
+chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
+`;
+            const res = await execCommand(cmd);
+            if (res.success || res.errno === 0) {
+                showToast('Configuration Saved ✓');
+            } else {
+                alert('Error saving: ' + res.stderr);
+            }
+        } catch (e) {
+            alert('Failed to save: ' + e.message);
+        }
+    }
+
+    function showToast(msg) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    // Initialize
+    loadStatus();
+</script>
+
+</body>
+</html>

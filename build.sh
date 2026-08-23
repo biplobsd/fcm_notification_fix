@@ -87,13 +87,14 @@ cleanup() {
 trap cleanup EXIT
 
 # 3. Compile Java Patcher Sources
-echo "[1/4] Compiling Java bytecode patcher sources..."
-javac --release 17 -cp "$CP" "$DIR/src/com/hyperos/fcm/patcher/"*.java -d "$BUILD_TMP"
+echo "[1/4] Compiling Java bytecode patcher sources & FcmWakeFilter..."
+javac --release 17 -cp "$CP:$ANDROID_JAR" "$DIR/src/com/hyperos/fcm/patcher/"*.java "$DIR/src/com/android/server/am/"*.java -d "$BUILD_TMP"
 
 # 4. Dex with Android SDK d8
 echo "[2/4] Dexing patcher engine & libraries into patcher.jar (d8)..."
 "$D8_BIN" --min-api 26 --lib "$ANDROID_JAR" \
     "$BUILD_TMP"/com/hyperos/fcm/patcher/*.class \
+    "$BUILD_TMP"/com/android/server/am/*.class \
     "$DEXLIB2_JAR" \
     "$UTIL_JAR" \
     "$GUAVA_JAR" \
@@ -130,12 +131,6 @@ if command -v sha256sum >/dev/null 2>&1; then
     echo "  -> SHA256: $(cat "$FINAL_ZIP.sha256" | awk '{print $1}')"
 fi
 
-# 8. Copy to local Downloads for user convenience if exists
-DOWNLOADS_DIR="$HOME/Downloads"
-if [ -d "$DOWNLOADS_DIR" ]; then
-    cp -f "$FINAL_ZIP" "$DOWNLOADS_DIR/$ZIP_NAME"
-    echo "[4/4] Copied flashable zip to $DOWNLOADS_DIR/$ZIP_NAME"
-fi
 
 echo "================================================="
 echo " BUILD SUCCESSFUL!"

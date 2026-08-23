@@ -90,11 +90,12 @@ PATCHER_JAR="$MODPATH/tools/patcher.jar"
 [ ! -f "$PATCHER_JAR" ] && abort_install "Patcher engine not found at $PATCHER_JAR"
 
 export ANDROID_DATA="$STAGE_DIR"
-"$DALVIK_BIN" -Xmx512m \
+    "$DALVIK_BIN" -Xmx512m \
     -cp "$PATCHER_JAR" \
     com.hyperos.fcm.patcher.Main \
     --services "$SERVICES_STOCK" \
     --miui-services "$MIUI_SERVICES_STOCK" \
+    --patcher "$PATCHER_JAR" \
     --out-dir "$STAGE_DIR"
 
 PATCH_STATUS=$?
@@ -121,6 +122,19 @@ cp "$STAGE_DIR/services.jar" "$MODPATH/system/framework/services.jar"
 cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system_ext/framework/miui-services.jar"
 cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/system_ext/framework/miui-services.jar"
 
+# Initialize default FCM dynamic filter config if not existing
+CONF_FILE="/data/system/fcm_wake.conf"
+if [ ! -f "$CONF_FILE" ]; then
+    cat <<'EOF' > "$CONF_FILE"
+# HyperOS FCM Dynamic Wake Filter Configuration
+# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
+MODE=ALL
+EOF
+    chmod 0644 "$CONF_FILE"
+    chown system:system "$CONF_FILE" 2>/dev/null || true
+    chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
+fi
+
 # Remove tools directory to keep installed module lean (~30KB)
 rm -rf "$MODPATH/tools"
 
@@ -133,6 +147,11 @@ set_perm "$MODPATH/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:
 set_perm "$MODPATH/system/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:system_file:s0"
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
+
+if [ -d "$MODPATH/webroot" ]; then
+    set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
+    [ -f "$MODPATH/webroot/cgi-bin/exec" ] && set_perm "$MODPATH/webroot/cgi-bin/exec" 0 0 0755
+fi
 
 # Clean up staging directory
 cleanup

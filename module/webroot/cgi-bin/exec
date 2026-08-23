@@ -1,0 +1,140 @@
+#!/system/bin/sh
+# ==============================================================================
+# HyperOS FCM Whitelist & Wake Filter - KernelSU CGI Backend
+# ==============================================================================
+
+CONF_FILE="/data/system/fcm_wake.conf"
+
+echo "Content-Type: application/json"
+echo "Access-Control-Allow-Origin: *"
+echo "Access-Control-Allow-Methods: GET, POST, OPTIONS"
+echo "Access-Control-Allow-Headers: Content-Type"
+echo ""
+
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+    echo '{"status":"ok"}'
+    exit 0
+fi
+
+# Ensure config file exists with proper permissions
+if [ ! -f "$CONF_FILE" ]; then
+    cat <<'EOF' > "$CONF_FILE"
+# HyperOS FCM Dynamic Wake Filter Configuration
+# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
+MODE=ALL
+EOF
+    chmod 0644 "$CONF_FILE"
+    chown system:system "$CONF_FILE" 2>/dev/null || true
+    chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
+fi
+
+ACTION="$QUERY_STRING"
+if [ -z "$ACTION" ]; then
+    ACTION="status"
+fi
+
+case "$ACTION" in
+    status|get_status)
+        # Parse mode and packages from conf
+        MODE="ALL"
+        PACKAGES=""
+        if [ -f "$CONF_FILE" ]; then
+            MODE_LINE=$(grep "^MODE=" "$CONF_FILE" | head -n1 | cut -d= -f2 | tr -d '\r\n ')
+            [ -n "$MODE_LINE" ] && MODE="$MODE_LINE"
+            
+            # Read non-comment, non-empty, non-mode lines as JSON array
+            PACKAGES=$(grep -v "^#" "$CONF_FILE" | grep -v "^MODE=" | grep -v "^$" | tr -d '\r' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
+        fi
+        [ -z "$PACKAGES" ] && PACKAGES="[]"
+
+        # Prestart status
+        PRESTART=$(getprop persist.sys.miui.prestart)
+        [ -z "$PRESTART" ] && PRESTART="true"
+
+        # List user packages (third party)
+        USER_PKGS=$(pm list packages -3 2>/dev/null | sed 's/^package://' | sort | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
+        [ -z "$USER_PKGS" ] && USER_PKGS="[]"
+
+        # Get stopped packages list
+        STOPPED_PKGS=$(dumpsys package 2>/dev/null | awk '/Package \[/{sub(/.*Package \[/, ""); sub(/\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
+        [ -z "$STOPPED_PKGS" ] && STOPPED_PKGS="[]"
+
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"stopped":%s,"prestart":"%s"}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$STOPPED_PKGS" "$PRESTART"
+        ;;
+
+    save_config)
+        # Read POST body
+        read -r BODY
+        
+        # Extract mode
+        NEW_MODE=$(echo "$BODY" | grep -o '"mode":"[^"]*"' | cut -d: -f2 | tr -d '"')
+        [ -z "$NEW_MODE" ] && NEW_MODE="ALL"
+        
+        # Extract package list
+        PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -v "^$")
+
+        # Write to atomic temp file first
+        TMP_CONF="/data/system/fcm_wake.conf.tmp.$$"
+        {
+            echo "# HyperOS FCM Dynamic Wake Filter Configuration"
+            echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
+            echo "MODE=$NEW_MODE"
+            if [ -n "$PKGS" ]; then
+                echo "$PKGS"
+            fi
+        } > "$TMP_CONF"
+
+        chmod 0644 "$TMP_CONF"
+        chown system:system "$TMP_CONF" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
+
+        mv -f "$TMP_CONF" "$CONF_FILE"
+        chmod 0644 "$CONF_FILE"
+        chown system:system "$CONF_FILE" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
+
+        echo '{"status":"ok","message":"Configuration saved successfully"}'
+        ;;
+
+    set_prestart)
+        read -r BODY
+        VAL=$(echo "$BODY" | grep -o '"prestart":"[^"]*"' | cut -d: -f2 | tr -d '"')
+        [ -z "$VAL" ] && VAL="true"
+        setprop persist.sys.miui.prestart "$VAL"
+        printf '{"status":"ok","prestart":"%s"}\n' "$VAL"
+        ;;
+
+    test_push)
+        read -r BODY
+        TARGET_PKG=$(echo "$BODY" | grep -o '"package":"[^"]*"' | cut -d: -f2 | tr -d '"')
+        
+        if [ -z "$TARGET_PKG" ]; then
+            echo '{"status":"error","message":"Target package required"}'
+            exit 0
+        fi
+
+        T_START=$(date +%s%3N 2>/dev/null || date +%s)
+        OUTPUT=$(am broadcast -a com.google.android.c2dm.intent.RECEIVE -p "$TARGET_PKG" --include-stopped-packages 2>&1)
+        T_END=$(date +%s%3N 2>/dev/null || date +%s)
+        DIFF=$((T_END - T_START))
+        [ "$DIFF" -lt 0 ] && DIFF=0
+
+        # Check if process is running
+        IS_RUNNING=false
+        PID=$(pidof "$TARGET_PKG" 2>/dev/null)
+        [ -n "$PID" ] && IS_RUNNING=true
+
+        printf '{"status":"ok","package":"%s","latency_ms":%d,"running":%s,"output":"%s"}\n' \
+            "$TARGET_PKG" "$DIFF" "$IS_RUNNING" "$(echo "$OUTPUT" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        ;;
+
+    *)
+        # Support raw shell commands if passed via query string
+        if [ -n "$ACTION" ]; then
+            sh -c "$ACTION" 2>&1
+        else
+            echo '{"status":"error","message":"Unknown action"}'
+        fi
+        ;;
+esac

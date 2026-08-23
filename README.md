@@ -1,5 +1,9 @@
 # HyperOS FCM & GMS Push Notification Fix (On-Device Patcher)
 
+<p align="center">
+  <img src="banner.webp" alt="HyperOS FCM Surgical Fix Banner" width="100%">
+</p>
+
 [![Build & Release](https://github.com/biplobsd/fcm_notification_fix/actions/workflows/build-release.yml/badge.svg)](https://github.com/biplobsd/fcm_notification_fix/actions/workflows/build-release.yml)
 [![Platform](https://img.shields.io/badge/Platform-HyperOS%20%7C%20MIUI%20(CN)-orange.svg)](https://www.mi.com/hyperos)
 [![Android](https://img.shields.io/badge/Android-13%20%7C%2014%20%7C%2015%20%7C%2016%2B-green.svg)](https://developer.android.com)
@@ -7,18 +11,41 @@
 [![Overhead](https://img.shields.io/badge/Overhead-0%25%20CPU%20%7C%200%20Daemons-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A **zero-PC, dynamic on-device surgical bytecode patcher** for Xiaomi HyperOS and MIUI China ROMs that permanently resolves Google Play Services (GMS) and Firebase Cloud Messaging (FCM) push notification delays, missed messages, and app wake-up issues.
+A **zero-PC, dynamic on-device surgical bytecode patcher** and **KernelSU WebUI controller** for Xiaomi HyperOS and MIUI China ROMs that permanently resolves Google Play Services (GMS) and Firebase Cloud Messaging (FCM) push notification delays, missed messages, and app wake-up issues.
 
 ---
 
 ## ⚡ Key Highlights
 
 - 🚀 **Zero-PC On-Device Patching**: Patches your device's live `/system/framework/services.jar` and `/system_ext/framework/miui-services.jar` on the fly during module flashing using Dalvik/ART runtime.
+- 🎛️ **KernelSU / APatch / Magisk WebUI**: Full-featured, lightweight mobile WebUI to configure wake modes and filter apps in real-time.
 - 🎯 **100% ROM & Update Compatible**: Automatically adapts to any HyperOS/MIUI version or monthly OTA update without hardcoded binary replacements.
 - 🛡️ **Transactional All-or-Nothing Engine**: If any patch vector fails verification during installation, the installer aborts cleanly leaving the stock system 100% untouched.
 - 📐 **Guaranteed 4-Byte DEX Alignment**: Uses custom byte-level ZIP repacking to ensure all `.dex` entries satisfy ART `mmap()` 4-byte boundaries, eliminating bootloops and SIGBUS faults.
 - 🔋 **Zero Battery Drain & 0 Daemons**: Retains Xiaomi's kernel cgroup freezer (`greezer`) for inactive apps while allowing push thaws. Post-boot service scripts exit cleanly after configuration.
 - 🔔 **Out-of-the-Box Visibility**: Automates Lock Screen, Floating/Banner, Badge, Vibration, and Screen Wakeup settings for all installed apps.
+
+---
+
+## 📱 Interactive KernelSU WebUI Controller
+
+The module includes an ultra-fast, zero-overhead WebUI built right into the KernelSU / APatch module card.
+
+### WebUI Features
+- **Dynamic 3-Way Mode Controller** (Instantly applies without rebooting):
+  - **`Allow All`**: Injects `0x20` into all C2DM broadcasts. Every stopped app wakes on incoming push.
+  - **`Whitelist`**: Only user-selected apps receive wake flags (e.g. WhatsApp, Telegram, Banking). Inactive apps (games, shopping) stay strictly stopped.
+  - **`Blacklist`**: Block specified noisy apps from waking up while allowing all others.
+- **⭐ 1-Tap Recommended Preset**:
+  - Automatically identifies and checks all critical apps (**Banking, Financial Wallets, Real-time Chat/Messaging, Email, and 2FA Authenticators**) with a single tap.
+- **Live Android App State Tracking**:
+  - Real-time badges indicate whether each package is currently **`ACTIVE`** (running in RAM) or **`STOPPED`** (`stopped=true` in `dumpsys package`).
+- **5-Way Filter Tabs**:
+  - Filter view instantly by `All`, `Enabled`, `Disabled`, `Active`, or `Stopped` with real-time package counters.
+- **1-Tap Clipboard Copy**:
+  - Tap on any package name to instantly copy it to your clipboard (`📋`) for easy searching.
+- **Preset Import / Export**:
+  - Export your selected whitelist to clipboard or import package lists with support for newlines and commas.
 
 ---
 
@@ -43,7 +70,7 @@ This module applies 4 targeted Smali/DEX bytecode modifications directly into fr
 flowchart TD
     A[Incoming FCM Push Packet] --> B[Google Play Services GmsCore]
     B --> C[broadcastIntentLockedTraced]
-    C -->|Vector 1: Inject FLAG_INCLUDE_STOPPED_PACKAGES 0x20| D[Broadcast Queue]
+    C -->|Vector 1: FcmWakeFilter Inject FLAG_INCLUDE_STOPPED_PACKAGES 0x20| D[Broadcast Queue]
     D -->|Vector 4: checkApplicationAutoStart IS_INTERNATIONAL_BUILD=1| E{Screen State?}
     E -->|Screen ON| F[Immediate Delivery & Process Wakeup]
     E -->|Screen OFF| G[GreezeManagerService]
@@ -52,9 +79,9 @@ flowchart TD
     I[GMS Service Keepalive] -->|Vector 3: triggerGMSLimitAction = return-void| J[No Freezer Deadlocks]
 ```
 
-### 1. `services.jar` (`BroadcastController`)
+### 1. `services.jar` (`BroadcastController` + `FcmWakeFilter`)
 - **Target**: `Lcom/android/server/am/BroadcastController;->broadcastIntentLockedTraced`
-- **Fix**: Injects `Intent.FLAG_INCLUDE_STOPPED_PACKAGES` (`0x20`) into incoming `com.google.android.c2dm.intent.RECEIVE` broadcasts. Stopped apps are instantly spawned upon push arrival.
+- **Fix**: Injects custom `FcmWakeFilter.filterFlags()` to dynamically evaluate `/data/system/fcm_wake.conf` and append `0x20` (`FLAG_INCLUDE_STOPPED_PACKAGES`) per package rules.
 
 ### 2. `miui-services.jar` (`DomesticPolicyManager`)
 - **Target**: `Lcom/miui/server/greeze/DomesticPolicyManager;->isAllowBroadcast`
