@@ -115,8 +115,8 @@ Tested on **REDMI K80 (HyperOS 3.0 / Android 16 / SDK 36)**:
 ## 📦 Installation
 
 ### Requirements
-- Xiaomi / Redmi / POCO device running **HyperOS 1.0+** or **MIUI 14+**
-- **Android 13, 14, 15, or 16+** (SDK 33+)
+- Xiaomi / Redmi device running **HyperOS 3.0+**
+- **Android 16+**
 - Rooted with **KernelSU**, **APatch**, or **Magisk**
 
 ### Steps
