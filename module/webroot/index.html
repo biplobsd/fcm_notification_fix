@@ -610,6 +610,33 @@
         .toast.show {
             transform: translateX(-50%) translateY(0);
         }
+
+        /* Language switch */
+        .lang-switch {
+            position: absolute;
+            top: 0;
+            right: 0;
+            display: flex;
+            gap: 4px;
+        }
+
+        .lang-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-sub);
+            border-radius: var(--radius-full);
+            padding: 3px 10px;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+        }
+
+        .lang-btn.active {
+            border-color: var(--border-active);
+            background: var(--primary-glow);
+            color: var(--text-main);
+        }
     </style>
 </head>
 <body>
@@ -620,27 +647,30 @@
 <div class="modal-overlay" id="ioModal" onclick="closeModal(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
         <div class="modal-header">
-            <div class="modal-title" id="modalTitle">Preset Import / Export</div>
+            <div class="modal-title" id="modalTitle" data-i18n="modal.title.io">Preset Import / Export</div>
             <button class="modal-close" onclick="closeModal()">✕</button>
         </div>
         <p class="modal-hint" id="modalHelp">
-            Tap inside to paste or type package names (separated by newlines or commas):
+            <span data-i18n="modal.help.import">Tap inside to paste or type package names (separated by newlines or commas):</span>
         </p>
         <textarea class="modal-textarea" id="modalTextarea" placeholder="com.whatsapp&#10;org.telegram.messenger&#10;com.bKash.customerapp" autofocus></textarea>
         <div class="modal-actions">
-            <button class="btn" id="modalClearBtn" onclick="clearModalText()">Clear Box</button>
-            <button class="btn btn-preset" id="modalApplyBtn" onclick="applyImport()">Apply to List</button>
+            <button class="btn" id="modalClearBtn" onclick="clearModalText()" data-i18n="modal.clear">Clear Box</button>
+            <button class="btn btn-preset" id="modalApplyBtn" onclick="applyImport()" data-i18n="modal.apply">Apply to List</button>
         </div>
     </div>
 </div>
 
 <div class="container">
     <!-- Header -->
-    <div class="header">
+    <div class="header" style="position: relative;">
+        <div class="lang-switch">
+            <button class="lang-btn" id="langBtnEn" onclick="setLang('en')">EN</button>
+            <button class="lang-btn" id="langBtnRu" onclick="setLang('ru')">RU</button>
+        </div>
         <h1>HyperOS FCM Controller</h1>
-        <p>Wake-on-Push Whitelist & Blacklist Manager</p>
+        <p data-i18n="header.subtitle">Wake-on-Push Whitelist &amp; Blacklist Manager</p>
     </div>
-
     <!-- Mode Selector Card -->
     <div class="card">
         <div class="card-header">
@@ -648,15 +678,15 @@
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                 </svg>
-                Wake Mode
+                <span data-i18n="mode.title">Wake Mode</span>
             </div>
             <span id="modeBadge" class="status-pill status-running">ALLOW ALL</span>
         </div>
 
         <div class="mode-segmented">
-            <button class="mode-btn active" id="btnModeAll" onclick="setMode('ALL')">Allow All</button>
-            <button class="mode-btn" id="btnModeWhitelist" onclick="setMode('WHITELIST')">Whitelist</button>
-            <button class="mode-btn" id="btnModeBlacklist" onclick="setMode('BLACKLIST')">Blacklist</button>
+            <button class="mode-btn active" id="btnModeAll" onclick="setMode('ALL')" data-i18n="mode.all">Allow All</button>
+            <button class="mode-btn" id="btnModeWhitelist" onclick="setMode('WHITELIST')" data-i18n="mode.whitelist">Whitelist</button>
+            <button class="mode-btn" id="btnModeBlacklist" onclick="setMode('BLACKLIST')" data-i18n="mode.blacklist">Blacklist</button>
         </div>
 
         <div class="mode-desc" id="modeDescription">
@@ -678,20 +708,20 @@
 
         <!-- Clean Essential Action Bar -->
         <div class="action-row">
-            <button class="btn btn-recommend" onclick="selectRecommended()">⭐ Recommended</button>
-            <button class="btn btn-accent" onclick="openImportModal()">📥 Import</button>
-            <button class="btn btn-accent" onclick="exportToClipboard()">📋 Export</button>
-            <button class="btn" onclick="selectAll(true)">Select All</button>
-            <button class="btn" onclick="selectAll(false)">Clear</button>
+            <button class="btn btn-recommend" onclick="selectRecommended()" data-i18n="act.recommended">⭐ Recommended</button>
+            <button class="btn btn-accent" onclick="openImportModal()" data-i18n="act.import">📥 Import</button>
+            <button class="btn btn-accent" onclick="exportToClipboard()" data-i18n="act.export">📋 Export</button>
+            <button class="btn" onclick="selectAll(true)" data-i18n="act.selectAll">Select All</button>
+            <button class="btn" onclick="selectAll(false)" data-i18n="act.clear">Clear</button>
         </div>
 
         <!-- View Filter Tabs: All / Enabled / Disabled / Active / Stopped -->
         <div class="filter-tabs">
-            <button class="filter-tab active" id="tabFilterAll" onclick="setViewFilter('ALL')">All (<span id="countAll">0</span>)</button>
-            <button class="filter-tab" id="tabFilterEnabled" onclick="setViewFilter('ENABLED')">Enabled (<span id="countEnabled">0</span>)</button>
-            <button class="filter-tab" id="tabFilterDisabled" onclick="setViewFilter('DISABLED')">Disabled (<span id="countDisabled">0</span>)</button>
-            <button class="filter-tab" id="tabFilterActive" onclick="setViewFilter('ACTIVE')">Active (<span id="countActive">0</span>)</button>
-            <button class="filter-tab" id="tabFilterStopped" onclick="setViewFilter('STOPPED')">Stopped (<span id="countStopped">0</span>)</button>
+            <button class="filter-tab active" id="tabFilterAll" onclick="setViewFilter('ALL')"><span data-i18n="tab.all">All</span> (<span id="countAll">0</span>)</button>
+            <button class="filter-tab" id="tabFilterEnabled" onclick="setViewFilter('ENABLED')"><span data-i18n="tab.enabled">Enabled</span> (<span id="countEnabled">0</span>)</button>
+            <button class="filter-tab" id="tabFilterDisabled" onclick="setViewFilter('DISABLED')"><span data-i18n="tab.disabled">Disabled</span> (<span id="countDisabled">0</span>)</button>
+            <button class="filter-tab" id="tabFilterActive" onclick="setViewFilter('ACTIVE')"><span data-i18n="tab.active">Active</span> (<span id="countActive">0</span>)</button>
+            <button class="filter-tab" id="tabFilterStopped" onclick="setViewFilter('STOPPED')"><span data-i18n="tab.stopped">Stopped</span> (<span id="countStopped">0</span>)</button>
         </div>
 
         <!-- Search Bar -->
@@ -699,12 +729,12 @@
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" id="searchInput" placeholder="Search package name..." oninput="onSearchInput()">
+            <input type="text" id="searchInput" placeholder="Search package name..." data-i18n-ph="search.placeholder" oninput="onSearchInput()">
         </div>
 
         <!-- Dynamic App List -->
         <div class="app-list" id="appList" onscroll="handleListScroll()">
-            <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">Loading applications...</div>
+            <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;" data-i18n="list.loading">Loading applications...</div>
         </div>
     </div>
 </div>
@@ -712,13 +742,192 @@
 <!-- Floating Save Bar -->
 <div class="save-bar">
     <div>
-        <div style="font-size: 0.78rem; font-weight: 600;" id="saveBarStatus">Changes Ready</div>
-        <div style="font-size: 0.65rem; color: var(--text-muted);">Syncs live without reboot</div>
+        <div style="font-size: 0.78rem; font-weight: 600;" id="saveBarStatus" data-i18n="save.ready">Changes Ready</div>
+        <div style="font-size: 0.65rem; color: var(--text-muted);" data-i18n="save.hint">Syncs live without reboot</div>
     </div>
-    <button class="save-btn" onclick="saveConfiguration()">Save Changes</button>
+    <button class="save-btn" onclick="saveConfiguration()" data-i18n="save.button">Save Changes</button>
 </div>
 
 <script>
+    /* =========================================================================
+     * Localization (English / Russian)
+     * Strings are keyed; static markup is annotated with data-i18n,
+     * data-i18n-html (value contains markup) and data-i18n-ph (placeholder).
+     * ====================================================================== */
+    const I18N = {
+        en: {
+            'header.subtitle': 'Wake-on-Push Whitelist & Blacklist Manager',
+            'mode.title': 'Wake Mode',
+            'mode.all': 'Allow All',
+            'mode.whitelist': 'Whitelist',
+            'mode.blacklist': 'Blacklist',
+            'badge.all': 'ALLOW ALL',
+            'badge.whitelist': 'WHITELIST',
+            'badge.blacklist': 'BLACKLIST',
+            'mode.desc.all': '<strong>Allow All</strong>: All apps receive C2DM wake flag (<code>0x20</code>). Every stopped app wakes on push.',
+            'mode.desc.whitelist': '<strong>Whitelist</strong>: ONLY checked apps will wake up and thaw on pushes. Unchecked apps stay strictly stopped.',
+            'mode.desc.blacklist': '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking or thawing on pushes. All other apps wake up normally.',
+            'list.title.all': 'Installed Apps',
+            'list.title.whitelist': 'Allowed Packages',
+            'list.title.blacklist': 'Blocked Packages',
+
+            'act.recommended': '⭐ Recommended',
+            'act.import': '📥 Import',
+            'act.export': '📋 Export',
+            'act.selectAll': 'Select All',
+            'act.clear': 'Clear',
+
+            'tab.all': 'All',
+            'tab.enabled': 'Enabled',
+            'tab.disabled': 'Disabled',
+            'tab.active': 'Active',
+            'tab.stopped': 'Stopped',
+
+            'pill.selected': '{n} SELECTED',
+            'pill.active': 'ACTIVE',
+            'pill.stopped': 'STOPPED',
+
+            'search.placeholder': 'Search package name...',
+            'list.loading': 'Loading applications...',
+            'list.empty': 'No third-party apps found.',
+            'list.noMatch': 'No apps matching current filter.',
+            'list.more': 'Scroll for more ({a}/{b})...',
+            'bridge.fail': 'Failed to initialize WebUI bridge.',
+
+            'save.ready': 'Changes Ready',
+            'save.hint': 'Syncs live without reboot',
+            'save.button': 'Save Changes',
+
+            'modal.title.io': 'Preset Import / Export',
+            'modal.title.import': '📥 Import Package Preset',
+            'modal.title.export': '📋 Exported Packages',
+            'modal.help.import': 'Tap below, long-press to Paste, or type packages (separated by newlines or commas):',
+            'modal.help.export': 'Copy the selected packages below:',
+            'modal.clear': 'Clear Box',
+            'modal.apply': 'Apply to List',
+
+            'toast.copied': 'Copied {pkg} 📋',
+            'toast.pkg': 'Package: {pkg}',
+            'toast.recommended': 'Selected {n} recommended apps (bank, chat, mail, 2FA) ✓',
+            'toast.noExport': 'No packages selected to export',
+            'toast.exported': 'Copied {n} packages to clipboard ✓',
+            'toast.noInput': 'No packages entered',
+            'toast.imported': 'Imported & selected {n} matching apps ✓',
+            'toast.saved': 'Configuration Saved ✓',
+            'alert.saveError': 'Error saving: ',
+            'alert.saveFail': 'Failed to save: '
+        },
+        ru: {
+            'header.subtitle': 'Пробуждение по push: белый и чёрный списки',
+            'mode.title': 'Режим пробуждения',
+            'mode.all': 'Всем',
+            'mode.whitelist': 'Белый список',
+            'mode.blacklist': 'Чёрный список',
+            'badge.all': 'ВСЕ РАЗРЕШЕНЫ',
+            'badge.whitelist': 'БЕЛЫЙ СПИСОК',
+            'badge.blacklist': 'ЧЁРНЫЙ СПИСОК',
+            'mode.desc.all': '<strong>Всем</strong>: все приложения получают флаг пробуждения C2DM (<code>0x20</code>). Любое остановленное приложение просыпается от push.',
+            'mode.desc.whitelist': '<strong>Белый список</strong>: просыпаться и размораживаться будут ТОЛЬКО отмеченные приложения. Остальные остаются остановленными.',
+            'mode.desc.blacklist': '<strong>Чёрный список</strong>: отмеченным приложениям ЗАПРЕЩЕНО просыпаться от push. Все остальные работают как обычно.',
+            'list.title.all': 'Установленные приложения',
+            'list.title.whitelist': 'Разрешённые пакеты',
+            'list.title.blacklist': 'Заблокированные пакеты',
+
+            'act.recommended': '⭐ Рекомендуемые',
+            'act.import': '📥 Импорт',
+            'act.export': '📋 Экспорт',
+            'act.selectAll': 'Выбрать все',
+            'act.clear': 'Снять выбор',
+
+            'tab.all': 'Все',
+            'tab.enabled': 'Отмечены',
+            'tab.disabled': 'Не отмечены',
+            'tab.active': 'Активные',
+            'tab.stopped': 'Остановленные',
+
+            'pill.selected': 'ВЫБРАНО: {n}',
+            'pill.active': 'АКТИВНО',
+            'pill.stopped': 'ОСТАНОВЛЕНО',
+
+            'search.placeholder': 'Поиск по имени пакета...',
+            'list.loading': 'Загружаю приложения...',
+            'list.empty': 'Сторонних приложений не найдено.',
+            'list.noMatch': 'Нет приложений по текущему фильтру.',
+            'list.more': 'Прокрутите дальше ({a}/{b})...',
+            'bridge.fail': 'Не удалось инициализировать root-мост WebUI.',
+
+            'save.ready': 'Изменения готовы',
+            'save.hint': 'Применяется сразу, без перезагрузки',
+            'save.button': 'Сохранить',
+
+            'modal.title.io': 'Импорт / экспорт списка',
+            'modal.title.import': '📥 Импорт списка пакетов',
+            'modal.title.export': '📋 Экспорт пакетов',
+            'modal.help.import': 'Нажмите ниже и вставьте или введите пакеты (через строку или запятую):',
+            'modal.help.export': 'Скопируйте выбранные пакеты:',
+            'modal.clear': 'Очистить',
+            'modal.apply': 'Применить к списку',
+
+            'toast.copied': 'Скопировано: {pkg} 📋',
+            'toast.pkg': 'Пакет: {pkg}',
+            'toast.recommended': 'Выбрано рекомендованных: {n} (банки, мессенджеры, почта, 2FA) ✓',
+            'toast.noExport': 'Нет выбранных пакетов для экспорта',
+            'toast.exported': 'Скопировано в буфер пакетов: {n} ✓',
+            'toast.noInput': 'Пакеты не введены',
+            'toast.imported': 'Импортировано и выбрано совпадений: {n} ✓',
+            'toast.saved': 'Конфигурация сохранена ✓',
+            'alert.saveError': 'Ошибка сохранения: ',
+            'alert.saveFail': 'Не удалось сохранить: '
+        }
+    };
+
+    let LANG = 'en';
+
+    function t(key, vars) {
+        const table = I18N[LANG] || I18N.en;
+        let str = (key in table) ? table[key] : (I18N.en[key] || key);
+        if (vars) {
+            Object.keys(vars).forEach(k => {
+                str = str.split('{' + k + '}').join(vars[k]);
+            });
+        }
+        return str;
+    }
+
+    function detectLang() {
+        try {
+            const saved = localStorage.getItem('fcm_ui_lang');
+            if (saved === 'ru' || saved === 'en') return saved;
+        } catch (e) { /* storage may be unavailable */ }
+        const nav = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+        return nav.startsWith('ru') ? 'ru' : 'en';
+    }
+
+    function applyI18n() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            el.textContent = t(el.getAttribute('data-i18n'));
+        });
+        document.querySelectorAll('[data-i18n-html]').forEach(el => {
+            el.innerHTML = t(el.getAttribute('data-i18n-html'));
+        });
+        document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+            el.placeholder = t(el.getAttribute('data-i18n-ph'));
+        });
+        document.documentElement.lang = LANG;
+        const en = document.getElementById('langBtnEn');
+        const ru = document.getElementById('langBtnRu');
+        if (en) en.className = 'lang-btn' + (LANG === 'en' ? ' active' : '');
+        if (ru) ru.className = 'lang-btn' + (LANG === 'ru' ? ' active' : '');
+    }
+
+    function setLang(lang) {
+        LANG = (lang === 'ru') ? 'ru' : 'en';
+        try { localStorage.setItem('fcm_ui_lang', LANG); } catch (e) { /* ignore */ }
+        applyI18n();
+        updateModeUI();
+        if (installedApps.length) filterApps(); else loadStatus();
+    }
+
     // Universal KernelSU / APatch / Magisk Execution Bridge
     let cbCounter = 0;
     function execCommand(cmd) {
@@ -871,7 +1080,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         } catch (e) {
             console.error('Failed to load status:', e);
             document.getElementById('appList').innerHTML = 
-                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">Failed to initialize WebUI bridge.<br><small>${e.message}</small></div>`;
+                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">${t('bridge.fail')}<br><small>${e.message}</small></div>`;
         }
     }
 
@@ -894,7 +1103,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             const pkg = badge.getAttribute('data-badge-pkg');
             const isStopped = stoppedApps.has(pkg);
             badge.className = `status-pill ${isStopped ? 'status-stopped' : 'status-running'}`;
-            badge.textContent = isStopped ? 'STOPPED' : 'ACTIVE';
+            badge.textContent = isStopped ? t('pill.stopped') : t('pill.active');
         });
     }
 
@@ -941,26 +1150,26 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         btnBlack.className = 'mode-btn' + (currentMode === 'BLACKLIST' ? ' active blacklist' : '');
 
         if (currentMode === 'ALL') {
-            badge.textContent = 'ALLOW ALL';
+            badge.textContent = t('badge.all');
             badge.className = 'status-pill status-running';
             badge.style.background = '';
             badge.style.color = '';
-            desc.innerHTML = '<strong>Allow All</strong>: All apps receive C2DM wake flag (<code>0x20</code>). Every stopped app wakes on push.';
-            listTitle.textContent = 'Installed Apps';
+            desc.innerHTML = t('mode.desc.all');
+            listTitle.textContent = t('list.title.all');
         } else if (currentMode === 'WHITELIST') {
-            badge.textContent = 'WHITELIST';
+            badge.textContent = t('badge.whitelist');
             badge.className = 'status-pill';
             badge.style.background = 'rgba(6, 182, 212, 0.2)';
             badge.style.color = '#22d3ee';
-            desc.innerHTML = '<strong>Whitelist</strong>: ONLY checked apps will wake up and thaw on pushes. Unchecked apps stay strictly stopped.';
-            listTitle.textContent = 'Allowed Packages';
+            desc.innerHTML = t('mode.desc.whitelist');
+            listTitle.textContent = t('list.title.whitelist');
         } else if (currentMode === 'BLACKLIST') {
-            badge.textContent = 'BLACKLIST';
+            badge.textContent = t('badge.blacklist');
             badge.className = 'status-pill';
             badge.style.background = 'rgba(244, 63, 94, 0.2)';
             badge.style.color = '#fb7185';
-            desc.innerHTML = '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking or thawing on pushes. All other apps wake up normally.';
-            listTitle.textContent = 'Blocked Packages';
+            desc.innerHTML = t('mode.desc.blacklist');
+            listTitle.textContent = t('list.title.blacklist');
         }
 
         updateCounts();
@@ -984,7 +1193,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         document.getElementById('countDisabled').textContent = disabled;
         document.getElementById('countActive').textContent = activeCount;
         document.getElementById('countStopped').textContent = stoppedCount;
-        document.getElementById('selectedCount').textContent = `${enabled} SELECTED`;
+        document.getElementById('selectedCount').textContent = t('pill.selected', { n: enabled });
     }
 
     function onSearchInput() {
@@ -998,7 +1207,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
 
         if (installedApps.length === 0) {
-            document.getElementById('appList').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">No third-party apps found.</div>`;
+            document.getElementById('appList').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">${t('list.empty')}</div>`;
             return;
         }
 
@@ -1022,7 +1231,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         listEl.innerHTML = '';
 
         if (filteredApps.length === 0) {
-            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.75rem;">No apps matching current filter.</div>`;
+            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.75rem;">${t('list.noMatch')}</div>`;
             updateCounts();
             return;
         }
@@ -1044,7 +1253,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
                     </span>
                 </div>
                 <div class="app-actions">
-                    <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? 'STOPPED' : 'ACTIVE'}</span>
+                    <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? t('pill.stopped') : t('pill.active')}</span>
                     <label class="switch" onclick="event.stopPropagation()">
                         <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleApp('${pkg}', this.checked)">
                         <span class="slider ${sliderClass}"></span>
@@ -1090,7 +1299,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         sentinel.style.textAlign = 'center';
         sentinel.style.color = 'var(--text-muted)';
         sentinel.style.fontSize = '0.68rem';
-        sentinel.textContent = `Scroll for more (${renderedCount}/${filteredApps.length})...`;
+        sentinel.textContent = t('list.more', { a: renderedCount, b: filteredApps.length });
         listEl.appendChild(sentinel);
 
         if ('IntersectionObserver' in window) {
@@ -1155,9 +1364,9 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
     function copyPkg(event, pkg) {
         if (event) event.stopPropagation();
         copyText(pkg).then(() => {
-            showToast(`Copied ${pkg} 📋`);
+            showToast(t('toast.copied', { pkg }));
         }).catch(() => {
-            showToast(`Package: ${pkg}`);
+            showToast(t('toast.pkg', { pkg }));
         });
     }
 
@@ -1170,7 +1379,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             }
         });
         filterApps();
-        showToast(`Selected ${count} Recommended Apps (Bank, Chat, Mail, 2FA) ✓`);
+        showToast(t('toast.recommended', { n: count }));
     }
 
     function selectAll(val) {
@@ -1190,8 +1399,8 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         const help = document.getElementById('modalHelp');
         const applyBtn = document.getElementById('modalApplyBtn');
 
-        title.textContent = '📥 Import Package Preset';
-        help.textContent = 'Tap below, long-press to Paste, or type packages (separated by newlines or commas):';
+        title.textContent = t('modal.title.import');
+        help.textContent = t('modal.help.import');
         textarea.value = '';
         applyBtn.style.display = 'inline-flex';
         modal.classList.add('show');
@@ -1201,12 +1410,12 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
     function exportToClipboard() {
         const pkgList = Array.from(selectedApps).join('\n');
         if (!pkgList) {
-            showToast('No packages selected to export');
+            showToast(t('toast.noExport'));
             return;
         }
 
         copyText(pkgList).then(() => {
-            showToast(`Copied ${selectedApps.size} packages to clipboard ✓`);
+            showToast(t('toast.exported', { n: selectedApps.size }));
         }).catch(() => {
             const modal = document.getElementById('ioModal');
             const textarea = document.getElementById('modalTextarea');
@@ -1214,8 +1423,8 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             const help = document.getElementById('modalHelp');
             const applyBtn = document.getElementById('modalApplyBtn');
 
-            title.textContent = '📋 Exported Packages';
-            help.textContent = 'Copy the selected packages below:';
+            title.textContent = t('modal.title.export');
+            help.textContent = t('modal.help.export');
             textarea.value = pkgList;
             applyBtn.style.display = 'none';
             modal.classList.add('show');
@@ -1237,7 +1446,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
     function applyImport() {
         const rawText = document.getElementById('modalTextarea').value;
         if (!rawText.trim()) {
-            showToast('No packages entered');
+            showToast(t('toast.noInput'));
             return;
         }
 
@@ -1253,7 +1462,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
 
         filterApps();
         closeModal();
-        showToast(`Imported & selected ${matchCount} matching apps ✓`);
+        showToast(t('toast.imported', { n: matchCount }));
     }
 
     function copyText(str) {
@@ -1294,12 +1503,12 @@ chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
 `;
             const res = await execCommand(cmd);
             if (res.success || res.errno === 0) {
-                showToast('Configuration Saved ✓');
+                showToast(t('toast.saved'));
             } else {
-                alert('Error saving: ' + res.stderr);
+                alert(t('alert.saveError') + res.stderr);
             }
         } catch (e) {
-            alert('Failed to save: ' + e.message);
+            alert(t('alert.saveFail') + e.message);
         }
     }
 
@@ -1311,6 +1520,8 @@ chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
     }
 
     // Initialize
+    LANG = detectLang();
+    applyI18n();
     loadStatus();
 </script>
 
