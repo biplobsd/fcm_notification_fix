@@ -218,7 +218,19 @@ public class FcmWakeFilter {
         return sPackageFilterSet.contains(pkg) || sPackageFilterSet.contains(pkg.toLowerCase());
     }
 
-    private static synchronized void checkConfig() {
+    private static volatile long sLastCheckTimestamp = 0;
+    private static final long CONFIG_CHECK_INTERVAL_MS = 2000;
+
+    private static void checkConfig() {
+        long now = System.currentTimeMillis();
+        if (now - sLastCheckTimestamp < CONFIG_CHECK_INTERVAL_MS && sLastModified >= 0) {
+            return;
+        }
+        sLastCheckTimestamp = now;
+        syncConfigInternal();
+    }
+
+    private static synchronized void syncConfigInternal() {
         try {
             File confFile = new File(CONF_PATH);
             if (!confFile.exists()) {

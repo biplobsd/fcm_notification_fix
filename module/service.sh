@@ -114,8 +114,8 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 
 [ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
 
-# Run sync synchronously on boot completion
-sync_notification_channels
+# Run sync asynchronously on boot completion
+sync_notification_channels &
 
 
 

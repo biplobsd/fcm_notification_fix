@@ -1,14 +1,7 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
 
-# 1. Purge stale dalvik-cache artifacts ONCE on first boot after install/update
-if [ -f "$MODDIR/wipe_cache_once" ]; then
-    rm -rf /data/dalvik-cache/arm64/*services* 2>/dev/null
-    rm -rf /data/dalvik-cache/arm64/*miui-services* 2>/dev/null
-    rm -f "$MODDIR/wipe_cache_once"
-fi
-
-# 2. Strict Bootloop Guard & Global Root Bind Mounts
+# Strict Bootloop Guard & Global Root Bind Mounts
 # Only mount if patched JAR exists and is a valid, non-corrupt archive (> 1MB)
 # If files are missing or corrupt, skip mounting to safely fall back to 100% stock ROM.
 SERVICES_JAR="$MODDIR/system/framework/services.jar"

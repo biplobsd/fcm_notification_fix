@@ -240,11 +240,84 @@ EOF
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
+# 7.5 Pre-compile system_server AOT cache (dex2oat)
+DEX2OAT_BIN=""
+if [ -f "/apex/com.android.art/bin/dex2oat64" ]; then
+    DEX2OAT_BIN="/apex/com.android.art/bin/dex2oat64"
+elif [ -f "/system/bin/dex2oat64" ]; then
+    DEX2OAT_BIN="/system/bin/dex2oat64"
+elif [ -f "/apex/com.android.art/bin/dex2oat" ]; then
+    DEX2OAT_BIN="/apex/com.android.art/bin/dex2oat"
+elif [ -f "/system/bin/dex2oat" ]; then
+    DEX2OAT_BIN="/system/bin/dex2oat"
+fi
+
+if [ -n "$DEX2OAT_BIN" ]; then
+    ARCH=$(getprop ro.bionic.arch)
+    [ -z "$ARCH" ] && ARCH="arm64"
+
+    ui_print "- Pre-compiling system_server native AOT cache (dex2oat on $ARCH)..."
+    mkdir -p "/data/dalvik-cache/$ARCH"
+
+    SERVICES_OAT_NAME="$(echo "$SERVICES_STOCK" | sed 's|^/||; s|/|@|g')@classes.dex"
+    MIUI_OAT_NAME="$(echo "$MIUI_SERVICES_STOCK" | sed 's|^/||; s|/|@|g')@classes.dex"
+
+    # Dynamically resolve SYSTEMSERVERCLASSPATH from environment or live system_server process
+    SSCP="$SYSTEMSERVERCLASSPATH"
+    if [ -z "$SSCP" ]; then
+        SSPID=$(pidof system_server)
+        [ -n "$SSPID" ] && SSCP=$(cat /proc/$SSPID/environ 2>/dev/null | tr '\0' '\n' | grep '^SYSTEMSERVERCLASSPATH=' | cut -d= -f2-)
+        [ -z "$SSCP" ] && SSCP=$(cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep '^SYSTEMSERVERCLASSPATH=' | cut -d= -f2-)
+    fi
+
+    get_clc_for_jar() {
+        target="$1"
+        res=""
+        OLD_IFS="$IFS"
+        IFS=:
+        for j in $SSCP; do
+            if [ "$j" = "$target" ] || [ "$(basename "$j")" = "$(basename "$target")" ]; then
+                break
+            fi
+            if [ -n "$res" ]; then
+                res="$res:$j"
+            else
+                res="$j"
+            fi
+        done
+        IFS="$OLD_IFS"
+        echo "PCL[$res]"
+    }
+
+    SERVICES_CLC=$(get_clc_for_jar "$SERVICES_STOCK")
+    MIUI_CLC=$(get_clc_for_jar "$MIUI_SERVICES_STOCK")
+
+    "$DEX2OAT_BIN" \
+        --instruction-set="$ARCH" \
+        --dex-file="$STAGE_DIR/services.jar" \
+        --dex-location="$SERVICES_STOCK" \
+        --oat-file="/data/dalvik-cache/$ARCH/$SERVICES_OAT_NAME" \
+        --compiler-filter=speed \
+        --class-loader-context="$SERVICES_CLC" \
+        --generate-mini-debug-info >/dev/null 2>&1 || true
+
+    "$DEX2OAT_BIN" \
+        --instruction-set="$ARCH" \
+        --dex-file="$STAGE_DIR/miui-services.jar" \
+        --dex-location="$MIUI_SERVICES_STOCK" \
+        --oat-file="/data/dalvik-cache/$ARCH/$MIUI_OAT_NAME" \
+        --compiler-filter=speed \
+        --class-loader-context="$MIUI_CLC" \
+        --generate-mini-debug-info >/dev/null 2>&1 || true
+
+    chmod 0644 /data/dalvik-cache/"$ARCH"/*services* 2>/dev/null || true
+    chown root:root /data/dalvik-cache/"$ARCH"/*services* 2>/dev/null || true
+    chcon u:object_r:dalvikcache_data_file:s0 /data/dalvik-cache/"$ARCH"/*services* 2>/dev/null || true
+    ui_print "- [PASS] Native AOT speed compilation complete."
+fi
+
 # Remove tools directory to keep installed module lean (~30KB)
 rm -rf "$MODPATH/tools"
-
-# Signal post-fs-data to purge stale dalvik-cache once on first boot
-touch "$MODPATH/wipe_cache_once"
 
 # 8. Apply File Permissions and SELinux Attributes
 set_perm "$MODPATH/system/framework/services.jar" 0 0 0644 "u:object_r:system_file:s0"
