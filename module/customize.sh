@@ -240,8 +240,15 @@ EOF
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
-# Remove tools directory to keep installed module lean (~30KB)
-rm -rf "$MODPATH/tools"
+# Keep the patch engine inside the module: after an OTA the firmware guard in
+# post-fs-data.sh skips every mount, and repatch.sh needs the engine to rebuild
+# the jars against the new firmware without a re-flash.
+# (~1.3 MB; delete tools/ manually if you prefer the lean ~30 KB module.)
+
+# Record the firmware this patch was built against - the OTA guard compares it
+# with the running build on every boot.
+getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
+rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
 
 # Signal post-fs-data to purge stale dalvik-cache once on first boot
 touch "$MODPATH/wipe_cache_once"
@@ -252,6 +259,7 @@ set_perm "$MODPATH/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:
 set_perm "$MODPATH/system/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:system_file:s0"
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
+[ -f "$MODPATH/repatch.sh" ] && set_perm "$MODPATH/repatch.sh" 0 0 0755
 
 if [ -d "$MODPATH/webroot" ]; then
     set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
@@ -267,5 +275,7 @@ case "$STASH_STATUS" in
     created) ui_print "- Pristine stock jars stashed inside module for future upgrades (~$(du -k "$STOCK_DIR" 2>/dev/null | cut -f1 | tail -n1) KB)" ;;
 esac
 
+ui_print "- Firmware recorded: $(getprop ro.build.version.incremental)"
+ui_print "- After an OTA the module stays unmounted and re-patches itself on the next boot"
 ui_print "- [PASS] Atomic swap completed. Module ready!"
 ui_print "***********************************************"

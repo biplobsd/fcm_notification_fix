@@ -637,6 +637,36 @@
             background: var(--primary-glow);
             color: var(--text-main);
         }
+
+        /* ROM / patch state card */
+        .rom-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .rom-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 0.72rem;
+            color: var(--text-sub);
+        }
+
+        .rom-row code {
+            font-family: var(--font-mono);
+            font-size: 0.68rem;
+            color: var(--text-main);
+            text-align: right;
+            word-break: break-all;
+        }
+
+        .status-warn {
+            background: rgba(245, 158, 11, 0.18);
+            color: var(--accent-amber);
+        }
     </style>
 </head>
 <body>
@@ -671,6 +701,33 @@
         <h1>HyperOS FCM Controller</h1>
         <p data-i18n="header.subtitle">Wake-on-Push Whitelist &amp; Blacklist Manager</p>
     </div>
+
+    <!-- ROM / Patch State Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                </svg>
+                <span data-i18n="rom.title">Framework Patch</span>
+            </div>
+            <span id="romBadge" class="status-pill status-running" data-i18n="rom.state.checking">CHECKING</span>
+        </div>
+
+        <div class="rom-grid">
+            <div class="rom-row"><span data-i18n="rom.current">Current firmware</span><code id="romCurrent">&mdash;</code></div>
+            <div class="rom-row"><span data-i18n="rom.patched">Patched for</span><code id="romStored">&mdash;</code></div>
+            <div class="rom-row"><span data-i18n="rom.overlay">Framework overlay</span><code id="romMounted">&mdash;</code></div>
+        </div>
+
+        <div class="mode-desc" id="romHint" data-i18n-html="rom.hint.checking">Reading module state&hellip;</div>
+
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-accent" id="btnRepatch" onclick="runRepatch()" data-i18n="rom.repatch">Re-patch now</button>
+            <button class="btn" onclick="refreshRomStatus()" data-i18n="rom.refresh">Refresh</button>
+        </div>
+    </div>
+
     <!-- Mode Selector Card -->
     <div class="card">
         <div class="card-header">
@@ -757,6 +814,34 @@
     const I18N = {
         en: {
             'header.subtitle': 'Wake-on-Push Whitelist & Blacklist Manager',
+
+            'rom.title': 'Framework Patch',
+            'rom.current': 'Current firmware',
+            'rom.patched': 'Patched for',
+            'rom.overlay': 'Framework overlay',
+            'rom.mounted': 'mounted',
+            'rom.unmounted': 'not mounted',
+            'rom.state.checking': 'CHECKING',
+            'rom.state.ok': 'ACTIVE',
+            'rom.state.pending': 'ROM UPDATED',
+            'rom.state.running': 'RE-PATCHING',
+            'rom.state.failed': 'FAILED',
+            'rom.state.reboot': 'REBOOT NEEDED',
+            'rom.hint.checking': 'Reading module state&hellip;',
+            'rom.hint.ok': '<strong>Patch active</strong>: the patched framework matches the running firmware.',
+            'rom.hint.pending': '<strong>Firmware changed</strong>: the framework overlay stays unmounted and the device runs 100% stock. Re-patch to restore the push fixes.',
+            'rom.hint.running': '<strong>Re-patching</strong>: the engine is rebuilding the framework for the new firmware. This takes about a minute.',
+            'rom.hint.failed': '<strong>Re-patch failed</strong>: the device is running stock framework. Re-flash the module zip to recover.',
+            'rom.hint.reboot': '<strong>Re-patch done</strong>: reboot to mount the newly patched framework.',
+            'rom.hint.unavailable': 'Module state is unavailable (the WebUI root bridge did not answer).',
+            'rom.repatch': 'Re-patch now',
+            'rom.refresh': 'Refresh',
+            'rom.reboot': 'Reboot',
+            'rom.toast.started': 'Re-patch started, this takes about a minute…',
+            'rom.toast.ok': 'Framework re-patched — reboot to apply ✓',
+            'rom.toast.fail': 'Re-patch failed — check the module log',
+            'rom.toast.busy': 'A re-patch is already running',
+
             'mode.title': 'Wake Mode',
             'mode.all': 'Allow All',
             'mode.whitelist': 'Whitelist',
@@ -819,6 +904,34 @@
         },
         ru: {
             'header.subtitle': 'Пробуждение по push: белый и чёрный списки',
+
+            'rom.title': 'Патч фреймворка',
+            'rom.current': 'Текущая прошивка',
+            'rom.patched': 'Патч собран под',
+            'rom.overlay': 'Подмена фреймворка',
+            'rom.mounted': 'активна',
+            'rom.unmounted': 'отключена',
+            'rom.state.checking': 'ПРОВЕРКА',
+            'rom.state.ok': 'АКТИВЕН',
+            'rom.state.pending': 'ПРОШИВКА ОБНОВЛЕНА',
+            'rom.state.running': 'ПЕРЕПАТЧИВАЮ',
+            'rom.state.failed': 'ОШИБКА',
+            'rom.state.reboot': 'НУЖНА ПЕРЕЗАГРУЗКА',
+            'rom.hint.checking': 'Читаю состояние модуля&hellip;',
+            'rom.hint.ok': '<strong>Патч активен</strong>: пропатченный фреймворк соответствует текущей прошивке.',
+            'rom.hint.pending': '<strong>Прошивка изменилась</strong>: подмена фреймворка отключена, аппарат работает на чистом стоке. Перепатчите, чтобы вернуть исправления push.',
+            'rom.hint.running': '<strong>Идёт перепатч</strong>: движок пересобирает фреймворк под новую прошивку. Это занимает около минуты.',
+            'rom.hint.failed': '<strong>Перепатч не удался</strong>: аппарат работает на стоковом фреймворке. Переустановите zip модуля.',
+            'rom.hint.reboot': '<strong>Перепатч готов</strong>: перезагрузитесь, чтобы подключить новый фреймворк.',
+            'rom.hint.unavailable': 'Состояние модуля недоступно (root-мост WebUI не ответил).',
+            'rom.repatch': 'Перепатчить сейчас',
+            'rom.refresh': 'Обновить',
+            'rom.reboot': 'Перезагрузить',
+            'rom.toast.started': 'Перепатч запущен, это около минуты…',
+            'rom.toast.ok': 'Фреймворк перепатчен — перезагрузитесь ✓',
+            'rom.toast.fail': 'Перепатч не удался — смотрите лог модуля',
+            'rom.toast.busy': 'Перепатч уже выполняется',
+
             'mode.title': 'Режим пробуждения',
             'mode.all': 'Всем',
             'mode.whitelist': 'Белый список',
@@ -926,6 +1039,83 @@
         applyI18n();
         updateModeUI();
         if (installedApps.length) filterApps(); else loadStatus();
+        renderRomStatus();
+    }
+
+    /* =========================================================================
+     * Framework patch state (OTA guard)
+     * ====================================================================== */
+    const MODDIR = '/data/adb/modules/fcm_notification_fix';
+    let romState = null;
+
+    async function refreshRomStatus() {
+        const res = await execCommand(`sh ${MODDIR}/repatch.sh status 2>/dev/null`);
+        const kv = {};
+        (res.stdout || '').split('\n').forEach(line => {
+            const i = line.indexOf('=');
+            if (i > 0) kv[line.substring(0, i).trim()] = line.substring(i + 1).trim();
+        });
+        romState = kv.state ? kv : null;
+        renderRomStatus();
+    }
+
+    function renderRomStatus() {
+        const badge = document.getElementById('romBadge');
+        const hint = document.getElementById('romHint');
+        const btn = document.getElementById('btnRepatch');
+        if (!badge || !hint || !btn) return;
+
+        if (!romState) {
+            badge.textContent = t('rom.state.checking');
+            badge.className = 'status-pill status-stopped';
+            hint.innerHTML = t('rom.hint.unavailable');
+            btn.style.display = 'none';
+            return;
+        }
+
+        document.getElementById('romCurrent').textContent = romState.current || '—';
+        document.getElementById('romStored').textContent = romState.stored || '—';
+        document.getElementById('romMounted').textContent =
+            romState.mounted === 'yes' ? t('rom.mounted') : t('rom.unmounted');
+
+        const state = romState.state;
+        badge.textContent = t('rom.state.' + state);
+        badge.className = 'status-pill ' + (
+            state === 'ok' ? 'status-running' :
+            state === 'failed' ? 'status-stopped' : 'status-warn'
+        );
+        hint.innerHTML = t('rom.hint.' + state) + (
+            state === 'failed' && romState.last ? '<br><code>' + romState.last + '</code>' : ''
+        );
+
+        if (state === 'reboot') {
+            btn.style.display = '';
+            btn.textContent = t('rom.reboot');
+            btn.onclick = () => execCommand('svc power reboot || reboot');
+        } else {
+            btn.textContent = t('rom.repatch');
+            btn.onclick = runRepatch;
+            btn.style.display = (state === 'pending' || state === 'failed') ? '' : 'none';
+        }
+    }
+
+    async function runRepatch() {
+        const btn = document.getElementById('btnRepatch');
+        btn.disabled = true;
+        showToast(t('rom.toast.started'));
+        if (romState) { romState.state = 'running'; renderRomStatus(); }
+
+        const res = await execCommand(`sh ${MODDIR}/repatch.sh run 2>&1`);
+        const out = res.stdout || '';
+        if (out.indexOf('RESULT=OK') !== -1) {
+            showToast(t('rom.toast.ok'));
+        } else if (out.indexOf('RESULT=BUSY') !== -1) {
+            showToast(t('rom.toast.busy'));
+        } else {
+            showToast(t('rom.toast.fail'));
+        }
+        btn.disabled = false;
+        refreshRomStatus();
     }
 
     // Universal KernelSU / APatch / Magisk Execution Bridge
@@ -1523,6 +1713,7 @@ chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
     LANG = detectLang();
     applyI18n();
     loadStatus();
+    refreshRomStatus();
 </script>
 
 </body>
