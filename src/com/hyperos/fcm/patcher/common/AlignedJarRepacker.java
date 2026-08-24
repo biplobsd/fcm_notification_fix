@@ -1,4 +1,4 @@
-package com.hyperos.fcm.patcher;
+package com.hyperos.fcm.patcher.common;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;

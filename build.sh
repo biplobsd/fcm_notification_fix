@@ -86,15 +86,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 3. Compile Java Patcher Sources
+# 3. Compile Java Patcher Sources Recursively
 echo "[1/4] Compiling Java bytecode patcher sources & FcmWakeFilter..."
-javac --release 17 -cp "$CP:$ANDROID_JAR" "$DIR/src/com/hyperos/fcm/patcher/"*.java "$DIR/src/com/android/server/am/"*.java -d "$BUILD_TMP"
+find "$DIR/src" -name "*.java" > "$BUILD_TMP/sources.txt"
+javac --release 17 -cp "$CP:$ANDROID_JAR" @"$BUILD_TMP/sources.txt" -d "$BUILD_TMP"
 
 # 4. Dex with Android SDK d8
 echo "[2/4] Dexing patcher engine & libraries into patcher.jar (d8)..."
+find "$BUILD_TMP" -name "*.class" > "$BUILD_TMP/classes.txt"
 "$D8_BIN" --min-api 26 --lib "$ANDROID_JAR" \
-    "$BUILD_TMP"/com/hyperos/fcm/patcher/*.class \
-    "$BUILD_TMP"/com/android/server/am/*.class \
+    $(cat "$BUILD_TMP/classes.txt") \
     "$DEXLIB2_JAR" \
     "$UTIL_JAR" \
     "$GUAVA_JAR" \
@@ -111,11 +112,10 @@ chmod +x "$DIR/module/service.sh" 2>/dev/null || true
 # 6. Package Flashable Module ZIP into out/
 OUT_DIR="$DIR/out"
 MODULE_VER=$(grep "^version=" "$DIR/module/module.prop" | cut -d= -f2 | tr -d '\r')
-[ -z "$MODULE_VER" ] && MODULE_VER="v1.0"
+[ -z "$MODULE_VER" ] && MODULE_VER="v1.2"
 ZIP_NAME="HyperOS_FCM_OnTheFly_Fix-${MODULE_VER}.zip"
 FINAL_ZIP="$OUT_DIR/$ZIP_NAME"
 rm -f "$FINAL_ZIP"
-
 
 echo "[3/4] Packaging flashable KernelSU/Magisk module zip into out/$ZIP_NAME..."
 cd "$DIR/module"
@@ -131,9 +131,8 @@ if command -v sha256sum >/dev/null 2>&1; then
     echo "  -> SHA256: $(cat "$FINAL_ZIP.sha256" | awk '{print $1}')"
 fi
 
-
 echo "================================================="
 echo " BUILD SUCCESSFUL!"
 echo " Flashable Zip: $FINAL_ZIP ($ZIP_SIZE)"
-echo " Flash on device via KernelSU Manager or APatch / Magisk."
+echo " Flash on device via KernelSU Manager, APatch, or Magisk."
 echo "================================================="

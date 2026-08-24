@@ -27,9 +27,57 @@ public class FcmWakeFilter {
     public static final int MODE_WHITELIST = 1;
     public static final int MODE_BLACKLIST = 2;
 
-    private static long sLastModified = -1;
-    private static int sCurrentMode = MODE_ALL;
+    private static final String GMS_PKG = "com.google.android.gms";
+    private static final ThreadLocal<String> sPendingCallee = new ThreadLocal<String>();
+
+    private static volatile long sLastModified = -1;
+    private static volatile int sCurrentMode = MODE_ALL;
     private static final Set<String> sPackageFilterSet = new HashSet<String>();
+
+    /**
+     * Hooked at the head of GreezeManagerService.isRestrictBackgroundAction(...) on MIUI 14.
+     * Records the target callee process name in a thread-local for subsequent isNeedAllowRequest check.
+     */
+    public static void noteGreezeCallee(String calleeName) {
+        sPendingCallee.set(calleeName);
+    }
+
+    /**
+     * Hooked at the head of GreezeManagerService.isNeedAllowRequest(...) on MIUI 14.
+     * Returns:
+     *   1  -> Allow thaw (stock logic then invokes thawUid)
+     *   0  -> Deny thaw (remains frozen)
+     *  -1  -> Not an FCM wake attempt from GMS, fall through to stock policy
+     */
+    public static int checkGreezeAllowRequest(String callerPkgName) {
+        String callee = sPendingCallee.get();
+        sPendingCallee.remove();
+
+        if (!GMS_PKG.equals(callerPkgName)) {
+            return -1;
+        }
+        checkConfig();
+        if (sCurrentMode == MODE_ALL) {
+            return 1;
+        }
+        if (callee == null || callee.isEmpty()) {
+            return sCurrentMode == MODE_BLACKLIST ? 1 : 0;
+        }
+        boolean inSet = isPackageInFilterSet(basePackage(callee));
+        if (sCurrentMode == MODE_WHITELIST) {
+            return inSet ? 1 : 0;
+        }
+        return inSet ? 0 : 1; // MODE_BLACKLIST
+    }
+
+    /**
+     * Extracts base package name from a potential process name (e.g. "com.foo.bar:remote" -> "com.foo.bar").
+     */
+    public static String basePackage(String processName) {
+        if (processName == null) return null;
+        int i = processName.indexOf(':');
+        return i > 0 ? processName.substring(0, i) : processName;
+    }
 
     /**
      * Called from BroadcastController.broadcastIntentLockedTraced(...)
@@ -99,7 +147,7 @@ public class FcmWakeFilter {
             return 1; // Allow all C2DM thaws
         }
 
-        String targetPkg = calleePkgName;
+        String targetPkg = basePackage(calleePkgName);
         if (targetPkg != null) {
             targetPkg = targetPkg.trim();
         }

@@ -1,4 +1,4 @@
-package com.hyperos.fcm.patcher;
+package com.hyperos.fcm.patcher.hyperos.os3.android16.cn;
 
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
@@ -19,26 +19,18 @@ import com.android.tools.smali.dexlib2.immutable.instruction.*;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
 import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import com.android.tools.smali.dexlib2.DexFileFactory;
+import com.hyperos.fcm.patcher.common.AlignedJarRepacker;
+import com.hyperos.fcm.patcher.common.DexUtils;
+import com.hyperos.fcm.patcher.common.PatchResult;
 
 import java.io.File;
 import java.util.*;
 
-public class MiuiServicesPatcher {
-
-    public static class PatchResult {
-        public boolean v2_domestic_policy = false;
-        public boolean v3_gms_quickfreeze = false;
-        public boolean v4_autostart_stub = false;
-        public String details = "";
-
-        public boolean isAllSuccess() {
-            return v2_domestic_policy && v3_gms_quickfreeze && v4_autostart_stub;
-        }
-    }
-
-    public static PatchResult patchMiuiServicesJar(File sourceJar, File destJar, File workDir) {
-        return patchMiuiServicesJar(sourceJar, destJar, workDir, null);
-    }
+/**
+ * Dedicated miui-services.jar Patcher for Xiaomi HyperOS 3.0 (Android 16 / SDK 36) China.
+ * Preserves the exact, verified DomesticPolicy, GMS QuickFreeze, and ModernStub bytecode modifications.
+ */
+public class Hyperos3A16CnMiuiServicesPatcher {
 
     public static PatchResult patchMiuiServicesJar(File sourceJar, File destJar, File workDir, File patcherJar) {
         PatchResult result = new PatchResult();
@@ -48,9 +40,9 @@ public class MiuiServicesPatcher {
                 DexFileFactory.loadDexContainer(sourceJar, Opcodes.getDefault());
 
             List<String> entryNames = container.getDexEntryNames();
-            System.out.println("[miui-services.jar] Scanning Multi-DEX container (" + entryNames.size() + " DEX entries)...");
+            System.out.println("[HyperOS 3.0 / A16 CN miui-services.jar] Scanning Multi-DEX container (" + entryNames.size() + " DEX entries)...");
 
-            ClassDef fcmFilterClassDef = ServicesPatcher.findClassInJarOrClasspath(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
+            ClassDef fcmFilterClassDef = DexUtils.findClassInJarOrClasspath(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
             if (fcmFilterClassDef != null) {
                 System.out.println("  -> [FOUND] Located FcmWakeFilter ClassDef for miui-services.jar injection");
             }
@@ -114,7 +106,8 @@ public class MiuiServicesPatcher {
                                 methods.add(new ImmutableMethod(
                                     m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
                                     m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), newImpl));
-                                result.v2_domestic_policy = true;
+                                result.v2_screenoff_thaw = true;
+                                result.v2_note = "DomesticPolicyManager.isAllowBroadcast";
                                 dexModified = true;
                             } else {
                                 methods.add(m);
@@ -144,6 +137,7 @@ public class MiuiServicesPatcher {
                                     m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
                                     m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), newImpl));
                                 result.v3_gms_quickfreeze = true;
+                                result.v3_note = "GreezeManagerService.triggerGMSLimitAction -> return-void";
                                 dexModified = true;
                             } else if (m.getName().equals("isAllowBroadcast") && m.getImplementation() != null) {
                                 int paramCount = 0;
@@ -217,10 +211,11 @@ public class MiuiServicesPatcher {
                                 if (replaceIdx != -1) {
                                     mut.replaceInstruction(replaceIdx, new BuilderInstruction11n(Opcode.CONST_4, targetReg, 1));
                                     System.out.println("    -> Replaced Build.IS_INTERNATIONAL_BUILD with const/4 v" + targetReg + ", 1 at index " + replaceIdx);
-                                    result.v4_autostart_stub = true;
+                                    result.v4_autostart_bypass = true;
+                                    result.v4_note = "BroadcastQueueModernStubImpl.checkApplicationAutoStart (IS_INTERNATIONAL_BUILD -> const/4 1)";
                                     dexModified = true;
                                 } else {
-                                    result.v4_autostart_stub = true;
+                                    System.err.println("    -> [WARNING] Build.IS_INTERNATIONAL_BUILD instruction not found in BroadcastQueueModernStubImpl#checkApplicationAutoStart");
                                 }
 
                                 methods.add(new ImmutableMethod(
@@ -246,7 +241,7 @@ public class MiuiServicesPatcher {
                         @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
                     };
 
-                    File tempDex = new File(workDir, "patched_miui_" + entryName);
+                    File tempDex = new File(workDir, "patched_hyperos3_a16_cn_miui_" + entryName);
                     DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
                     byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
                     tempDex.delete();
@@ -256,28 +251,31 @@ public class MiuiServicesPatcher {
                 }
             }
 
-            if (!result.v2_domestic_policy) {
+            if (!result.v2_screenoff_thaw) {
                 result.details += "[FAIL] Vector 2: DomesticPolicyManager.isAllowBroadcast() not found. ";
             }
             if (!result.v3_gms_quickfreeze) {
                 result.details += "[FAIL] Vector 3: GreezeManagerService.triggerGMSLimitAction() not found. ";
             }
-            if (!result.v4_autostart_stub) {
+            if (!result.v4_autostart_bypass) {
                 result.details += "[FAIL] Vector 4: BroadcastQueueModernStubImpl.checkApplicationAutoStart() not found. ";
             }
 
-            if (!result.isAllSuccess()) {
+            if (!result.isAllMiuiServicesSuccess()) {
+                result.success = false;
                 return result;
             }
 
-            System.out.println("[miui-services.jar] Repacking with 4-byte DEX alignment...");
+            System.out.println("[HyperOS 3.0 / A16 CN miui-services.jar] Repacking with 4-byte DEX alignment...");
             AlignedJarRepacker.repackJar(sourceJar, replacementDexMap, destJar);
 
-            result.details = "Vectors 2, 3, 4 successfully applied to miui-services.jar";
+            result.success = true;
+            result.details = "Vectors 2, 3, 4 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
             return result;
 
         } catch (Exception e) {
-            result.details = "Exception during miui-services.jar patching: " + e.getMessage();
+            result.success = false;
+            result.details = "Exception during HyperOS 3.0 A16 CN miui-services.jar patching: " + e.getMessage();
             e.printStackTrace();
             return result;
         }
