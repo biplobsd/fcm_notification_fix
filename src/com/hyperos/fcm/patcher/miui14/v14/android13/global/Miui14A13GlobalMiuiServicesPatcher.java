@@ -148,7 +148,8 @@ public class Miui14A13GlobalMiuiServicesPatcher {
                                     new com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction10x(Opcode.RETURN_VOID)
                                 );
                                 com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation newImpl =
-                                    new com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation(1, insns, null, null);
+                                    new com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation(
+                                        com.hyperos.fcm.patcher.common.DexUtils.paramRegCount(m), insns, null, null);
                                 methods.add(new ImmutableMethod(
                                     m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
                                     m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), newImpl));
