@@ -1,0 +1,60 @@
+name: Test FCM Bytecode Patcher
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  test-matrix:
+    name: Verify Multi-ROM Patcher Matrix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Build Tools
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Cache Test Dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: patcher-deps-${{ hashFiles('build.sh') }}
+
+      - name: Cache Test ROM Fixtures
+        id: cache-fixtures
+        uses: actions/cache@v4
+        with:
+          path: tests/fixtures
+          key: rom-fixtures-${{ hashFiles('tests/rom_matrix.json') }}
+
+      - name: Fetch Test Fixtures (if cache missed)
+        if: steps.cache-fixtures.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tests/fixtures
+          chmod +x tests/fetch_fixtures.sh 2>/dev/null || true
+          [ -f "tests/fetch_fixtures.sh" ] && ./tests/fetch_fixtures.sh || true
+
+      - name: Run Multi-ROM Integration Test Suite
+        run: |
+          chmod +x tests/run_ci_tests.sh
+          ./tests/run_ci_tests.sh

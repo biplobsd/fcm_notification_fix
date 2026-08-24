@@ -2,3 +2,4 @@ out/
 .deps/
 module/tools/patcher.jar
 *.log
+tests/fixtures/

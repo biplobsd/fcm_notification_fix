@@ -43,8 +43,11 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Grant Execute Permission for build.sh
-        run: chmod +x build.sh
+      - name: Grant Execute Permission for Scripts
+        run: chmod +x build.sh tests/*.sh 2>/dev/null || true
+
+      - name: Run Multi-ROM Integration Test Suite
+        run: ./tests/run_ci_tests.sh
 
       - name: Build Flashable KernelSU / Magisk Module Zip
         run: ./build.sh

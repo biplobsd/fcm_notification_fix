@@ -53,16 +53,16 @@ GUAVA_JAR=$(find "$ANDROID_SDK/cmdline-tools" -name "guava-*.jar" -type f 2>/dev
 if [ -z "$DEXLIB2_JAR" ]; then
     DEXLIB2_JAR="$DEPS_DIR/smali-dexlib2-$DEXLIB2_VER.jar"
     if [ ! -f "$DEXLIB2_JAR" ]; then
-        echo "[*] Downloading smali-dexlib2-$DEXLIB2_VER.jar from Maven Central..."
-        curl -sSL "https://repo1.maven.org/maven2/com/android/tools/smali/smali-dexlib2/$DEXLIB2_VER/smali-dexlib2-$DEXLIB2_VER.jar" -o "$DEXLIB2_JAR"
+        echo "[*] Downloading smali-dexlib2-$DEXLIB2_VER.jar from Google Maven..."
+        curl -sSL "https://dl.google.com/dl/android/maven2/com/android/tools/smali/smali-dexlib2/$DEXLIB2_VER/smali-dexlib2-$DEXLIB2_VER.jar" -o "$DEXLIB2_JAR"
     fi
 fi
 
 if [ -z "$UTIL_JAR" ]; then
     UTIL_JAR="$DEPS_DIR/smali-util-$DEXLIB2_VER.jar"
     if [ ! -f "$UTIL_JAR" ]; then
-        echo "[*] Downloading smali-util-$DEXLIB2_VER.jar from Maven Central..."
-        curl -sSL "https://repo1.maven.org/maven2/com/android/tools/smali/smali-util/$DEXLIB2_VER/smali-util-$DEXLIB2_VER.jar" -o "$UTIL_JAR"
+        echo "[*] Downloading smali-util-$DEXLIB2_VER.jar from Google Maven..."
+        curl -sSL "https://dl.google.com/dl/android/maven2/com/android/tools/smali/smali-util/$DEXLIB2_VER/smali-util-$DEXLIB2_VER.jar" -o "$UTIL_JAR"
     fi
 fi
 
