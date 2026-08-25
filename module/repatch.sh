@@ -66,11 +66,7 @@ clear_stale_running() {
 
 # Where the patched miui-services.jar has to land for this ROM layout.
 miui_dests() {
-    if [ "$MIUI_LIVE" = "/system/framework/miui-services.jar" ]; then
-        echo "$MODDIR/system/framework/miui-services.jar"
-    else
-        echo "$MODDIR/system_ext/framework/miui-services.jar $MODDIR/system/system_ext/framework/miui-services.jar"
-    fi
+    module_dest_paths "$MODDIR" "$MIUI_LIVE"
 }
 
 cmd_status() {
@@ -220,8 +216,16 @@ cmd_run() {
         echo "$CUR" > "$MODDIR/stock/fingerprint"
     fi
 
+    # Pre-compile system_server AOT cache (dex2oat)
+    if compile_aot_cache "$STAGE_DIR/services.jar" "$SERVICES_LIVE" "$STAGE_DIR/miui-services.jar" "$MIUI_LIVE"; then
+        log "native AOT speed compilation complete"
+        rm -f "$MODDIR/wipe_cache_once"
+    else
+        # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot
+        touch "$MODDIR/wipe_cache_once"
+    fi
+
     echo "$CUR" > "$MODDIR/rom.fingerprint"
-    touch "$MODDIR/wipe_cache_once"
     rm -f "$FLAG_PENDING" "$FLAG_RUNNING"
     touch "$FLAG_REBOOT"
     rm -rf "$STAGE_DIR"
