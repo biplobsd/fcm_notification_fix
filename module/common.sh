@@ -193,3 +193,37 @@ compile_aot_cache() {
     return 1
 }
 
+# Executes the patcher engine using dalvikvm or app_process fallback with safe CLASSPATH.
+# Usage: execute_patcher_engine <patcher_jar> <stage_dir> [patcher_args...]
+execute_patcher_engine() {
+    _patcher_jar="$1"
+    _stage_dir="$2"
+    shift 2
+
+    [ -f "$_patcher_jar" ] || return 1
+    export ANDROID_DATA="$_stage_dir"
+
+    # 1. Prefer dalvikvm
+    if [ -x "/apex/com.android.art/bin/dalvikvm" ]; then
+        /apex/com.android.art/bin/dalvikvm -Xmx512m -cp "$_patcher_jar" com.hyperos.fcm.patcher.Main "$@"
+        return $?
+    elif [ -x "/system/bin/dalvikvm" ]; then
+        /system/bin/dalvikvm -Xmx512m -cp "$_patcher_jar" com.hyperos.fcm.patcher.Main "$@"
+        return $?
+    fi
+
+    # 2. Fallback to app_process with guaranteed CLASSPATH export
+    # Note: app_process MUST have CLASSPATH exported in environment to prevent ClassNotFoundException -> SIGABRT
+    export CLASSPATH="$_patcher_jar"
+    if [ -x "/system/bin/app_process64" ]; then
+        /system/bin/app_process64 /system/bin com.hyperos.fcm.patcher.Main "$@"
+        return $?
+    elif [ -x "/system/bin/app_process" ]; then
+        /system/bin/app_process /system/bin com.hyperos.fcm.patcher.Main "$@"
+        return $?
+    fi
+
+    echo "ERROR: Neither dalvikvm nor app_process runtime found." >&2
+    return 1
+}
+

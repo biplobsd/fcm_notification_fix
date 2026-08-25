@@ -132,18 +132,6 @@ cmd_run() {
         return 1
     fi
 
-    DALVIK_BIN=""
-    if [ -f "/apex/com.android.art/bin/dalvikvm" ]; then
-        DALVIK_BIN="/apex/com.android.art/bin/dalvikvm"
-    elif [ -f "/system/bin/dalvikvm" ]; then
-        DALVIK_BIN="/system/bin/dalvikvm"
-    else
-        log "re-patch aborted: dalvikvm runtime not found"
-        touch "$FLAG_FAILED"
-        echo "RESULT=FAIL"
-        return 1
-    fi
-
     # The OTA may have moved the device onto a profile this module cannot patch
     # (new Android level, region switch). Resolve it exactly like customize.sh.
     detect_rom_profile
@@ -168,13 +156,10 @@ cmd_run() {
     rm -f "$FLAG_FAILED"
     STAGE_DIR="/data/local/tmp/fcm_repatch_$$"
     mkdir -p "$STAGE_DIR"
-    export ANDROID_DATA="$STAGE_DIR"
 
     log "re-patching for firmware $CUR (was $(stored_fp)) - profile $ROM_OS/$ROM_REGION, SDK $ROM_SDK"
 
-    "$DALVIK_BIN" -Xmx512m \
-        -cp "$PATCHER_JAR" \
-        com.hyperos.fcm.patcher.Main \
+    execute_patcher_engine "$PATCHER_JAR" "$STAGE_DIR" \
         --services "$SERVICES_LIVE" \
         --miui-services "$MIUI_LIVE" \
         --patcher "$PATCHER_JAR" \

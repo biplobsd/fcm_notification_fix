@@ -124,6 +124,10 @@ echo "  -> Compiled module/tools/patcher.jar ($PATCHER_SIZE)"
 chmod +x "$DIR/module/customize.sh" 2>/dev/null || true
 chmod +x "$DIR/module/post-fs-data.sh" 2>/dev/null || true
 chmod +x "$DIR/module/service.sh" 2>/dev/null || true
+chmod +x "$DIR/module/common.sh" 2>/dev/null || true
+chmod +x "$DIR/module/repatch.sh" 2>/dev/null || true
+chmod +x "$DIR/module/tools/patcher" 2>/dev/null || true
+chmod +x "$DIR/module/webroot/cgi-bin/exec" 2>/dev/null || true
 
 # 6. Package Flashable Module ZIP into out/
 OUT_DIR="$DIR/out"

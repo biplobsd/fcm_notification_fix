@@ -1,0 +1,41 @@
+#!/system/bin/sh
+# ==============================================================================
+# HyperOS FCM Bytecode Patcher CLI Wrapper
+# Automatically selects ART runtime (dalvikvm or app_process) with safe classpath.
+# ==============================================================================
+DIR=$(dirname "$0")
+case "$DIR" in
+    /*) ;;
+    *) DIR="$PWD/$DIR" ;;
+esac
+JAR="$DIR/patcher.jar"
+if [ ! -f "$JAR" ]; then
+    if [ -f "$DIR/tools/patcher.jar" ]; then
+        JAR="$DIR/tools/patcher.jar"
+    else
+        echo "[!] ERROR: patcher.jar not found (looked in $DIR and $DIR/tools)" >&2
+        exit 2
+    fi
+fi
+
+: "${ANDROID_DATA:=/data/local/tmp}"
+export ANDROID_DATA
+
+# 1. Prefer dalvikvm
+if [ -x /apex/com.android.art/bin/dalvikvm ]; then
+    exec /apex/com.android.art/bin/dalvikvm -Xmx512m -cp "$JAR" com.hyperos.fcm.patcher.Main "$@"
+elif [ -x /system/bin/dalvikvm ]; then
+    exec /system/bin/dalvikvm -Xmx512m -cp "$JAR" com.hyperos.fcm.patcher.Main "$@"
+fi
+
+# 2. Fallback to app_process with guaranteed CLASSPATH export
+# Note: app_process MUST have CLASSPATH exported in environment to prevent ClassNotFoundException -> SIGABRT
+export CLASSPATH="$JAR"
+if [ -x /system/bin/app_process64 ]; then
+    exec /system/bin/app_process64 /system/bin com.hyperos.fcm.patcher.Main "$@"
+elif [ -x /system/bin/app_process ]; then
+    exec /system/bin/app_process /system/bin com.hyperos.fcm.patcher.Main "$@"
+else
+    echo "[!] ERROR: Neither dalvikvm nor app_process runtime found on this system." >&2
+    exit 1
+fi

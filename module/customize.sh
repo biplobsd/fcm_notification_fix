@@ -79,17 +79,7 @@ if ! PROFILE_REASON="$(rom_profile_supported)"; then
     abort_install "$PROFILE_REASON"
 fi
 
-# 3. Locate Dalvik / ART Runtime
-DALVIK_BIN=""
-if [ -f "/apex/com.android.art/bin/dalvikvm" ]; then
-    DALVIK_BIN="/apex/com.android.art/bin/dalvikvm"
-elif [ -f "/system/bin/dalvikvm" ]; then
-    DALVIK_BIN="/system/bin/dalvikvm"
-else
-    abort_install "dalvikvm runtime not found on this device."
-fi
-
-# 4. Check source framework files from live ROM
+# 3. Framework Source Files Verification
 SERVICES_STOCK="/system/framework/services.jar"
 MIUI_SERVICES_STOCK="$(live_miui_services)"
 
@@ -102,7 +92,7 @@ ui_print "- Found stock services.jar ($(ls -lh "$SERVICES_STOCK" | awk '{print $
 ui_print "- Found stock miui-services.jar ($(ls -lh "$MIUI_SERVICES_STOCK" | awk '{print $5}'))"
 
 # ==========================================
-# 4.5 Stock Jar Stash — upgrade support.
+# 4. Stock Jar Stash — upgrade support.
 # First install stashes pristine jars inside the module so future updates can
 # re-patch from true stock while the old overlay is still mounted. The stash
 # is carried across updates via the modules -> modules_update window.
@@ -183,10 +173,7 @@ ui_print ""
 PATCHER_JAR="$MODPATH/tools/patcher.jar"
 [ ! -f "$PATCHER_JAR" ] && abort_install "Patcher engine not found at $PATCHER_JAR"
 
-export ANDROID_DATA="$STAGE_DIR"
-"$DALVIK_BIN" -Xmx512m \
-    -cp "$PATCHER_JAR" \
-    com.hyperos.fcm.patcher.Main \
+execute_patcher_engine "$PATCHER_JAR" "$STAGE_DIR" \
     --services "$SERVICES_READ" \
     --miui-services "$MIUI_READ" \
     --patcher "$PATCHER_JAR" \
@@ -262,6 +249,11 @@ set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 [ -f "$MODPATH/repatch.sh" ] && set_perm "$MODPATH/repatch.sh" 0 0 0755
 [ -f "$MODPATH/common.sh" ] && set_perm "$MODPATH/common.sh" 0 0 0755
+[ -f "$MODPATH/tools/patcher" ] && set_perm "$MODPATH/tools/patcher" 0 0 0755
+if [ -f "$MODPATH/tools/patcher" ]; then
+    ln -sf "tools/patcher" "$MODPATH/patcher" 2>/dev/null || cp -f "$MODPATH/tools/patcher" "$MODPATH/patcher"
+    set_perm "$MODPATH/patcher" 0 0 0755
+fi
 
 if [ -d "$MODPATH/webroot" ]; then
     set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
