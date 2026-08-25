@@ -3,3 +3,4 @@ out/
 module/tools/patcher.jar
 *.log
 tests/fixtures/
+__pycache__/
