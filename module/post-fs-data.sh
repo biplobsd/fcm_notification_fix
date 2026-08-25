@@ -3,8 +3,8 @@ MODDIR=${0%/*}
 
 # 1. Purge stale dalvik-cache artifacts ONCE on first boot after install/update
 if [ -f "$MODDIR/wipe_cache_once" ]; then
-    rm -rf /data/dalvik-cache/arm64/*services* 2>/dev/null
-    rm -rf /data/dalvik-cache/arm64/*miui-services* 2>/dev/null
+    rm -rf /data/dalvik-cache/*/*services* 2>/dev/null
+    rm -rf /data/dalvik-cache/*/*miui-services* 2>/dev/null
     rm -f "$MODDIR/wipe_cache_once"
 fi
 
@@ -57,8 +57,9 @@ mount_if_valid() {
 
 mount_if_valid "$MODDIR/system/framework/services.jar" /system/framework/services.jar
 
-# HyperOS keeps miui-services.jar in /system_ext, older MIUI builds in /system;
-# mount whichever copies this install produced, each to the path it came from.
-mount_if_valid "$MODDIR/system_ext/framework/miui-services.jar" /system_ext/framework/miui-services.jar
-mount_if_valid "$MODDIR/system/system_ext/framework/miui-services.jar" /system/system_ext/framework/miui-services.jar
-mount_if_valid "$MODDIR/system/framework/miui-services.jar" /system/framework/miui-services.jar
+# Dynamically discover whichever copies of miui-services.jar were staged into this
+# module and mount each directly to its corresponding live system destination.
+for _src in $(find "$MODDIR" -path "*/framework/miui-services.jar" -type f 2>/dev/null); do
+    _dst="${_src#$MODDIR}"
+    mount_if_valid "$_src" "$_dst"
+done

@@ -60,70 +60,8 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                 for (ClassDef cd : dexFile.getClasses()) {
                     String type = cd.getType();
 
-                    // Vector 2: DomesticPolicyManager.isAllowBroadcast() -> dynamic FcmWakeFilter Screen-OFF filter
-                    if (type.equals("Lcom/miui/server/greeze/DomesticPolicyManager;")) {
-                        System.out.println("  -> Located DomesticPolicyManager in " + entryName);
-                        List<Method> methods = new ArrayList<>();
-                        for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("isAllowBroadcast")) {
-                                int paramCount = 0;
-                                for (CharSequence pt : m.getParameterTypes()) {
-                                    paramCount++;
-                                }
-                                System.out.println("    -> Rewriting isAllowBroadcast()Z to invoke FcmWakeFilter.isAllowBroadcast (" + paramCount + " params)");
-
-                                List<com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction> insns;
-                                if (paramCount >= 2) {
-                                    ImmutableMethodReference isAllowBroadcastRef = new ImmutableMethodReference(
-                                        "Lcom/android/server/am/FcmWakeFilter;", "isAllowBroadcast",
-                                        Arrays.asList("Landroid/content/Intent;", "Ljava/lang/String;"), "Z");
-                                    insns = Arrays.asList(
-                                        new ImmutableInstruction35c(Opcode.INVOKE_STATIC, 2, 0, 1, 0, 0, 0, isAllowBroadcastRef),
-                                        new ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
-                                        new ImmutableInstruction11x(Opcode.RETURN, 0)
-                                    );
-                                } else if (paramCount == 1) {
-                                    ImmutableMethodReference isAllowBroadcastRef = new ImmutableMethodReference(
-                                        "Lcom/android/server/am/FcmWakeFilter;", "isAllowBroadcast",
-                                        Collections.singletonList("Landroid/content/Intent;"), "Z");
-                                    insns = Arrays.asList(
-                                        new ImmutableInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, isAllowBroadcastRef),
-                                        new ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
-                                        new ImmutableInstruction11x(Opcode.RETURN, 0)
-                                    );
-                                } else {
-                                    ImmutableMethodReference isAllowBroadcastRef = new ImmutableMethodReference(
-                                        "Lcom/android/server/am/FcmWakeFilter;", "isAllowBroadcast",
-                                        Collections.emptyList(), "Z");
-                                    insns = Arrays.asList(
-                                        new ImmutableInstruction35c(Opcode.INVOKE_STATIC, 0, 0, 0, 0, 0, 0, isAllowBroadcastRef),
-                                        new ImmutableInstruction11x(Opcode.MOVE_RESULT, 0),
-                                        new ImmutableInstruction11x(Opcode.RETURN, 0)
-                                    );
-                                }
-
-                                ImmutableMethodImplementation newImpl = new ImmutableMethodImplementation(Math.max(2, paramCount + 1), insns, null, null);
-                                methods.add(new ImmutableMethod(
-                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
-                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), newImpl));
-                                result.v2_screenoff_thaw = true;
-                                result.v2_note = "DomesticPolicyManager.isAllowBroadcast";
-                                dexModified = true;
-                            } else {
-                                methods.add(m);
-                            }
-                        }
-                        classesList.add(new ImmutableClassDef(
-                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
-                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
-
-                        if (fcmFilterClassDef != null) {
-                            classesList.add(fcmFilterClassDef);
-                            System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside DomesticPolicyManager into " + entryName);
-                        }
-
-                    // Vector 3: GreezeManagerService.triggerGMSLimitAction() -> return-void + isAllowBroadcast hook
-                    } else if (type.equals("Lcom/miui/server/greeze/GreezeManagerService;")) {
+                    // Vector 2 & 3: GreezeManagerService (Vector 2: Screen-OFF C2DM Thaw, Vector 3: GMS Quick-Freeze Neutralizer)
+                    if (type.equals("Lcom/miui/server/greeze/GreezeManagerService;")) {
                         System.out.println("  -> Located GreezeManagerService in " + entryName);
                         List<Method> methods = new ArrayList<>();
                         for (Method m : cd.getMethods()) {
@@ -175,6 +113,8 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                                     methods.add(new ImmutableMethod(
                                         m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
                                         m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                                    result.v2_screenoff_thaw = true;
+                                    result.v2_note = "GreezeManagerService.isAllowBroadcast (Screen-OFF C2DM Thaw)";
                                     dexModified = true;
                                     System.out.println("    -> [PASS] Dynamic Screen-OFF Greezer check injected into GreezeManagerService.isAllowBroadcast");
                                 } else {
@@ -187,6 +127,11 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                         classesList.add(new ImmutableClassDef(
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                        if (fcmFilterClassDef != null) {
+                            classesList.add(fcmFilterClassDef);
+                            System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside GreezeManagerService into " + entryName);
+                        }
 
                     // Vector 4: BroadcastQueueModernStubImpl.checkApplicationAutoStart -> IS_INTERNATIONAL_BUILD = 1
                     } else if (type.equals("Lcom/android/server/am/BroadcastQueueModernStubImpl;")) {
@@ -260,7 +205,7 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             }
 
             if (!result.v2_screenoff_thaw) {
-                result.details += "[FAIL] Vector 2: DomesticPolicyManager.isAllowBroadcast() not found. ";
+                result.details += "[FAIL] Vector 2: GreezeManagerService.isAllowBroadcast() not found. ";
             }
             if (!result.v3_gms_quickfreeze) {
                 result.details += "[FAIL] Vector 3: GreezeManagerService.triggerGMSLimitAction() not found. ";

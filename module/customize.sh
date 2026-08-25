@@ -42,17 +42,23 @@ fi
 # 2. Check Device Manufacturer & ROM (Xiaomi / Redmi / POCO / HyperOS)
 MANUFACTURER=$(getprop ro.product.manufacturer | tr '[:upper:]' '[:lower:]')
 BRAND=$(getprop ro.product.brand | tr '[:upper:]' '[:lower:]')
+SYS_MANUFACTURER=$(getprop ro.product.system.manufacturer | tr '[:upper:]' '[:lower:]')
+VND_MANUFACTURER=$(getprop ro.product.vendor.manufacturer | tr '[:upper:]' '[:lower:]')
+ODM_MANUFACTURER=$(getprop ro.product.odm.manufacturer | tr '[:upper:]' '[:lower:]')
 MIUI_VER=$(getprop ro.miui.ui.version.name)
+HYPEROS_VER=$(getprop ro.mi.os.version.name)
+HYPEROS_CODE=$(getprop ro.mi.os.version.code)
 INCREMENTAL=$(getprop ro.build.version.incremental)
 
 IS_XIAOMI=false
-case "$MANUFACTURER" in
-    *xiaomi*|*redmi*|*poco*|*blackshark*) IS_XIAOMI=true ;;
-esac
-case "$BRAND" in
-    *xiaomi*|*redmi*|*poco*|*blackshark*) IS_XIAOMI=true ;;
-esac
-[ -n "$MIUI_VER" ] && IS_XIAOMI=true
+for _m in "$MANUFACTURER" "$BRAND" "$SYS_MANUFACTURER" "$VND_MANUFACTURER" "$ODM_MANUFACTURER"; do
+    case "$_m" in
+        *xiaomi*|*redmi*|*poco*|*blackshark*) IS_XIAOMI=true ;;
+    esac
+done
+if [ -n "$MIUI_VER" ] || [ -n "$HYPEROS_VER" ] || [ -n "$HYPEROS_CODE" ]; then
+    IS_XIAOMI=true
+fi
 
 if [ "$IS_XIAOMI" != "true" ]; then
     ui_print ""
@@ -85,16 +91,10 @@ fi
 
 # 4. Check source framework files from live ROM
 SERVICES_STOCK="/system/framework/services.jar"
-MIUI_SERVICES_STOCK="/system_ext/framework/miui-services.jar"
+MIUI_SERVICES_STOCK="$(live_miui_services)"
 
 [ ! -f "$SERVICES_STOCK" ] && abort_install "Missing stock $SERVICES_STOCK"
-if [ ! -f "$MIUI_SERVICES_STOCK" ]; then
-    if [ -f "/system/framework/miui-services.jar" ]; then
-        MIUI_SERVICES_STOCK="/system/framework/miui-services.jar"
-    else
-        abort_install "Missing stock miui-services.jar (Ensure you are on HyperOS)"
-    fi
-fi
+[ -z "$MIUI_SERVICES_STOCK" ] && abort_install "Missing stock miui-services.jar (Ensure you are on HyperOS/MIUI)"
 
 ui_print "- Device: $(getprop ro.product.model) ($(getprop ro.product.manufacturer))"
 ui_print "- OS Target: $OS_TYPE ($REGION_TYPE, $INCREMENTAL, Android $(getprop ro.build.version.release) / SDK $API_LEVEL)"
@@ -211,19 +211,14 @@ ui_print "- [PASS] All patch checkpoints verified successfully!"
 ui_print "- Performing atomic swap into module filesystem..."
 
 # 7. Atomic Swap into Module Overlay Structure
-# The patched miui-services.jar has to land where this ROM actually reads it:
-# HyperOS serves it from /system_ext, older MIUI builds from /system/framework.
 mkdir -p "$MODPATH/system/framework"
 cp "$STAGE_DIR/services.jar" "$MODPATH/system/framework/services.jar"
 
-if [ "$MIUI_SERVICES_STOCK" = "/system/framework/miui-services.jar" ]; then
-    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/framework/miui-services.jar"
-else
-    mkdir -p "$MODPATH/system_ext/framework"
-    mkdir -p "$MODPATH/system/system_ext/framework"
-    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system_ext/framework/miui-services.jar"
-    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/system_ext/framework/miui-services.jar"
-fi
+# Stage miui-services.jar dynamically into all derived module overlay paths
+for dest in $(module_dest_paths "$MODPATH" "$MIUI_SERVICES_STOCK"); do
+    mkdir -p "${dest%/*}"
+    cp "$STAGE_DIR/miui-services.jar" "$dest"
+done
 
 # Initialize default FCM dynamic filter config if not existing
 CONF_FILE="/data/system/fcm_wake.conf"
@@ -238,6 +233,16 @@ EOF
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
+# 7.5 Pre-compile system_server AOT cache (dex2oat)
+ui_print "- Pre-compiling system_server native AOT cache (dex2oat)..."
+if compile_aot_cache "$STAGE_DIR/services.jar" "$SERVICES_STOCK" "$STAGE_DIR/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
+    ui_print "- [PASS] Native AOT speed compilation complete."
+    rm -f "$MODPATH/wipe_cache_once"
+else
+    # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot
+    touch "$MODPATH/wipe_cache_once"
+fi
+
 # Keep the patch engine inside the module: after an OTA the firmware guard in
 # post-fs-data.sh skips every mount, and repatch.sh needs the engine to rebuild
 # the jars against the new firmware without a re-flash.
@@ -249,14 +254,8 @@ getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
 rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
 rm -f "$MODPATH/skip_mount"
 
-# Signal post-fs-data to purge stale dalvik-cache once on first boot
-touch "$MODPATH/wipe_cache_once"
-
 # 8. Apply File Permissions and SELinux Attributes
-for jar in "$MODPATH/system/framework/services.jar" \
-           "$MODPATH/system/framework/miui-services.jar" \
-           "$MODPATH/system_ext/framework/miui-services.jar" \
-           "$MODPATH/system/system_ext/framework/miui-services.jar"; do
+for jar in "$MODPATH/system/framework/services.jar" $(module_dest_paths "$MODPATH" "$MIUI_SERVICES_STOCK"); do
     [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
 done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755

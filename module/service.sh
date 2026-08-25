@@ -38,21 +38,31 @@ settings put secure lock_screen_show_only_unseen_notifications 0 2>/dev/null
 # ==============================================================================
 # Dynamically resolve Google Play Services UID
 GMS_UID=$(pm list packages -U com.google.android.gms 2>/dev/null | grep -o 'uid:[0-9]*' | cut -d: -f2 | head -n1)
-[ -z "$GMS_UID" ] && GMS_UID=10133
 
-cmd greezer thuid "$GMS_UID" 86400000 2>/dev/null
-cmd greezer unmonitor "$GMS_UID" 2>/dev/null
-cmd deviceidle whitelist +com.google.android.gms 2>/dev/null
-cmd deviceidle sys-whitelist +com.google.android.gms 2>/dev/null
-cmd appops set com.google.android.gms RUN_IN_BACKGROUND allow 2>/dev/null
-cmd appops set com.google.android.gms RUN_ANY_IN_BACKGROUND allow 2>/dev/null
-cmd appops set com.google.android.gms 10008 allow 2>/dev/null
-cmd appops set com.google.android.gms WAKE_LOCK allow 2>/dev/null
+if [ -n "$GMS_UID" ]; then
+  cmd greezer thuid "$GMS_UID" 86400000 2>/dev/null
+  cmd greezer unmonitor "$GMS_UID" 2>/dev/null
+  cmd deviceidle whitelist +com.google.android.gms 2>/dev/null
+  cmd deviceidle sys-whitelist +com.google.android.gms 2>/dev/null
+  cmd appops set com.google.android.gms RUN_IN_BACKGROUND allow 2>/dev/null
+  cmd appops set com.google.android.gms RUN_ANY_IN_BACKGROUND allow 2>/dev/null
+  cmd appops set com.google.android.gms 10008 allow 2>/dev/null
+  cmd appops set com.google.android.gms WAKE_LOCK allow 2>/dev/null
 
-# Unfreeze GMS cgroup freezer node
-for fz in "/sys/fs/cgroup/apps/uid_${GMS_UID}/cgroup.freeze" "/sys/fs/cgroup/apps/uid_${GMS_UID}"/*/cgroup.freeze; do
-  [ -f "$fz" ] && echo 0 > "$fz" 2>/dev/null
-done
+  # Unfreeze GMS cgroup freezer nodes across cgroup v1 and v2 hierarchies
+  for fz in "/sys/fs/cgroup/apps/uid_${GMS_UID}/cgroup.freeze" \
+            "/sys/fs/cgroup/uid_${GMS_UID}/cgroup.freeze" \
+            "/sys/fs/cgroup/apps/uid_${GMS_UID}"/*/cgroup.freeze \
+            "/sys/fs/cgroup/uid_${GMS_UID}"/*/cgroup.freeze \
+            "/dev/freezer/apps/uid_${GMS_UID}/freezer.state"; do
+    if [ -f "$fz" ]; then
+      case "$fz" in
+        *freezer.state) echo "THAWED" > "$fz" 2>/dev/null ;;
+        *)              echo 0 > "$fz" 2>/dev/null ;;
+      esac
+    fi
+  done
+fi
 
 # ==============================================================================
 # 3. Auto-Grant Lockscreen Visibility to New App Notification Channels
@@ -125,8 +135,8 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 
 [ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
 
-# Run sync synchronously on boot completion
-sync_notification_channels
+# Run sync asynchronously on boot completion
+sync_notification_channels &
 
 
 

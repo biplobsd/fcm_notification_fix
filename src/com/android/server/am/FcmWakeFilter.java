@@ -2,9 +2,11 @@ package com.android.server.am;
 
 import android.content.ComponentName;
 import android.content.Intent;
+import android.os.SystemClock;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -32,7 +34,9 @@ public class FcmWakeFilter {
 
     private static volatile long sLastModified = -1;
     private static volatile int sCurrentMode = MODE_ALL;
-    private static final Set<String> sPackageFilterSet = new HashSet<String>();
+    private static volatile Set<String> sPackageFilterSet = Collections.emptySet();
+    private static volatile long sLastCheckTimestamp = 0;
+    private static final long CONFIG_CHECK_INTERVAL_MS = 5000;
 
     /**
      * Hooked at the head of GreezeManagerService.isRestrictBackgroundAction(...) on MIUI 14.
@@ -213,18 +217,28 @@ public class FcmWakeFilter {
         return targetPkg;
     }
 
-    public static synchronized boolean isPackageInFilterSet(String pkg) {
+    public static boolean isPackageInFilterSet(String pkg) {
         if (pkg == null) return false;
-        return sPackageFilterSet.contains(pkg) || sPackageFilterSet.contains(pkg.toLowerCase());
+        Set<String> set = sPackageFilterSet;
+        return set.contains(pkg) || set.contains(pkg.toLowerCase());
     }
 
-    private static synchronized void checkConfig() {
+    private static void checkConfig() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - sLastCheckTimestamp < CONFIG_CHECK_INTERVAL_MS && sLastModified >= 0) {
+            return;
+        }
+        sLastCheckTimestamp = now;
+        syncConfigInternal();
+    }
+
+    private static synchronized void syncConfigInternal() {
         try {
             File confFile = new File(CONF_PATH);
             if (!confFile.exists()) {
                 if (sLastModified != 0) {
                     sCurrentMode = MODE_ALL;
-                    sPackageFilterSet.clear();
+                    sPackageFilterSet = Collections.emptySet();
                     sLastModified = 0;
                 }
                 return;
@@ -267,8 +281,7 @@ public class FcmWakeFilter {
                 }
             }
 
-            sPackageFilterSet.clear();
-            sPackageFilterSet.addAll(newFilterSet);
+            sPackageFilterSet = Collections.unmodifiableSet(newFilterSet);
             sCurrentMode = mode;
             sLastModified = modified;
         } catch (Throwable t) {
