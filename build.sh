@@ -53,16 +53,16 @@ GUAVA_JAR=$(find "$ANDROID_SDK/cmdline-tools" -name "guava-*.jar" -type f 2>/dev
 if [ -z "$DEXLIB2_JAR" ]; then
     DEXLIB2_JAR="$DEPS_DIR/smali-dexlib2-$DEXLIB2_VER.jar"
     if [ ! -f "$DEXLIB2_JAR" ]; then
-        echo "[*] Downloading smali-dexlib2-$DEXLIB2_VER.jar from Maven Central..."
-        curl -sSL "https://repo1.maven.org/maven2/com/android/tools/smali/smali-dexlib2/$DEXLIB2_VER/smali-dexlib2-$DEXLIB2_VER.jar" -o "$DEXLIB2_JAR"
+        echo "[*] Downloading smali-dexlib2-$DEXLIB2_VER.jar from Google Maven..."
+        curl -sSL "https://dl.google.com/dl/android/maven2/com/android/tools/smali/smali-dexlib2/$DEXLIB2_VER/smali-dexlib2-$DEXLIB2_VER.jar" -o "$DEXLIB2_JAR"
     fi
 fi
 
 if [ -z "$UTIL_JAR" ]; then
     UTIL_JAR="$DEPS_DIR/smali-util-$DEXLIB2_VER.jar"
     if [ ! -f "$UTIL_JAR" ]; then
-        echo "[*] Downloading smali-util-$DEXLIB2_VER.jar from Maven Central..."
-        curl -sSL "https://repo1.maven.org/maven2/com/android/tools/smali/smali-util/$DEXLIB2_VER/smali-util-$DEXLIB2_VER.jar" -o "$UTIL_JAR"
+        echo "[*] Downloading smali-util-$DEXLIB2_VER.jar from Google Maven..."
+        curl -sSL "https://dl.google.com/dl/android/maven2/com/android/tools/smali/smali-util/$DEXLIB2_VER/smali-util-$DEXLIB2_VER.jar" -o "$UTIL_JAR"
     fi
 fi
 
@@ -89,7 +89,23 @@ trap cleanup EXIT
 # 3. Compile Java Patcher Sources Recursively
 echo "[1/4] Compiling Java bytecode patcher sources & FcmWakeFilter..."
 find "$DIR/src" -name "*.java" > "$BUILD_TMP/sources.txt"
-javac --release 17 -cp "$CP:$ANDROID_JAR" @"$BUILD_TMP/sources.txt" -d "$BUILD_TMP"
+JAVAC_FLAGS=()
+if javac --help 2>&1 | grep -q -- "--release"; then
+    if javac --release 8 -version &>/dev/null; then
+        JAVAC_FLAGS=("--release" "8" "-Xlint:-options")
+    elif javac --release 11 -version &>/dev/null; then
+        JAVAC_FLAGS=("--release" "11")
+    elif javac --release 17 -version &>/dev/null; then
+        JAVAC_FLAGS=("--release" "17")
+    fi
+fi
+if [ ${#JAVAC_FLAGS[@]} -eq 0 ]; then
+    if javac -source 8 -target 8 -version &>/dev/null; then
+        JAVAC_FLAGS=("-source" "8" "-target" "8" "-Xlint:-options")
+    fi
+fi
+
+javac "${JAVAC_FLAGS[@]}" -cp "$CP:$ANDROID_JAR" @"$BUILD_TMP/sources.txt" -d "$BUILD_TMP"
 
 # 4. Dex with Android SDK d8
 echo "[2/4] Dexing patcher engine & libraries into patcher.jar (d8)..."

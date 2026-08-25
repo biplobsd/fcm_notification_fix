@@ -1,0 +1,77 @@
+name: Test User Framework Jars
+
+on:
+  workflow_dispatch:
+    inputs:
+      services_url:
+        description: 'Direct download URL for user services.jar'
+        required: true
+      miui_services_url:
+        description: 'Direct download URL for user miui-services.jar'
+        required: true
+      sdk_version:
+        description: 'Android SDK level (e.g. 33 for A13, 34 for A14, 35 for A15, 36 for A16)'
+        required: false
+        default: '36'
+      os_type:
+        description: 'OS Type (hyperos or miui14)'
+        required: false
+        default: 'hyperos'
+      region:
+        description: 'Region (cn or global)'
+        required: false
+        default: 'cn'
+
+jobs:
+  test-user:
+    name: Test User-Provided JARs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Build Tools
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Download User Jars
+        run: |
+          mkdir -p /tmp/user_test_fixture
+          echo "[*] Downloading user services.jar..."
+          curl -sSL "${{ github.event.inputs.services_url }}" -o /tmp/user_test_fixture/services.jar
+          echo "[*] Downloading user miui-services.jar..."
+          curl -sSL "${{ github.event.inputs.miui_services_url }}" -o /tmp/user_test_fixture/miui-services.jar
+          ls -lh /tmp/user_test_fixture/
+
+      - name: Build Patcher Engine
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Execute Test on User JARs
+        run: |
+          mkdir -p tests/fixtures/user_submitted
+          cp /tmp/user_test_fixture/services.jar tests/fixtures/user_submitted/services.jar
+          cp /tmp/user_test_fixture/miui-services.jar tests/fixtures/user_submitted/miui-services.jar
+          cat <<EOF > tests/fixtures/user_submitted/version.json
+          {
+            "codename": "user_submitted",
+            "device": "User Device",
+            "version": "user-test",
+            "sdk": ${{ github.event.inputs.sdk_version }},
+            "os": "${{ github.event.inputs.os_type }}",
+            "region": "${{ github.event.inputs.region }}"
+          }
+          EOF
+          chmod +x tests/run_ci_tests.sh
+          ./tests/run_ci_tests.sh

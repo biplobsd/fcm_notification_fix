@@ -1,0 +1,123 @@
+name: Test FCM Bytecode Patcher
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  generate-matrix:
+    name: Load ROM Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Parse ROM Matrix
+        id: set-matrix
+        run: |
+          MATRIX_JSON=$(python3 -c "import json; m = json.load(open('tests/rom_matrix.json')); print(json.dumps(m.get('archetypes', [])))")
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
+  fetch-fixtures:
+    name: "Fetch Fixture: ${{ matrix.device }} (${{ matrix.codename }})"
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache Binary Tools
+        uses: actions/cache@v4
+        with:
+          path: .deps/bin
+          key: patcher-tools-${{ runner.os }}-${{ hashFiles('tests/fetch_rom_jars.py') }}
+
+      - name: Cache Single ROM Fixture
+        id: cache-fixture
+        uses: actions/cache@v4
+        with:
+          path: tests/fixtures/${{ matrix.codename }}
+          key: rom-fixture-${{ matrix.codename }}-${{ matrix.version }}
+
+      - name: Fetch ROM Fixture
+        if: steps.cache-fixture.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tests/fixtures
+          python3 tests/fetch_rom_jars.py --fetch ${{ matrix.codename }}
+
+      - name: Upload Fixture Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-fixture-${{ matrix.codename }}
+          path: tests/fixtures
+          retention-days: 90
+
+  test-matrix:
+    name: Verify Multi-ROM Patcher Matrix
+    needs: [generate-matrix, fetch-fixtures]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Build Tools
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Restore Test Dependencies Cache
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: patcher-deps-${{ hashFiles('build.sh') }}
+
+      - name: Download Merged ROM Fixture Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rom-fixture-*
+          merge-multiple: true
+          path: tests/fixtures
+
+      - name: Save Combined ROM Fixtures Cache (Pre-Test)
+        uses: actions/cache/save@v4
+        with:
+          path: tests/fixtures
+          key: rom-fixtures-${{ hashFiles('tests/rom_matrix.json') }}
+
+      - name: Run Multi-ROM Integration Test Suite
+        run: |
+          chmod +x tests/run_ci_tests.sh
+          ./tests/run_ci_tests.sh
+
+
+

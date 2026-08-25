@@ -1,0 +1,40 @@
+name: Bug Report / Incompatible ROM
+description: Report an issue where the patcher failed on your HyperOS or MIUI ROM
+title: "[ROM Issue]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Diagnostic Log Collector
+        To help us test and fix your ROM automatically, run the following command in Termux (with root) or via `adb shell`:
+        ```bash
+        su -c "getprop ro.build.version.incremental; getprop ro.product.model; getprop ro.build.version.sdk"
+        ```
+  - type: input
+    id: device_model
+    attributes:
+      label: Device Model & HyperOS Version
+      placeholder: "e.g. Redmi K80, HyperOS 3.0.307.0.WOKCNXM.C09 (Android 16)"
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: ROM Region
+      placeholder: "e.g. China (CN), Global (MI), EEA (EU), India (IN)"
+    validations:
+      required: true
+  - type: textarea
+    id: patcher_log
+    attributes:
+      label: Magisk / KernelSU / APatch Flash Log
+      placeholder: "Paste the full output from your root manager during module flash..."
+    validations:
+      required: true
+  - type: input
+    id: jar_dump_url
+    attributes:
+      label: Framework Dump Download URL (Optional)
+      description: "If possible, upload /system/framework/services.jar and /system_ext/framework/miui-services.jar to Google Drive/Dropbox/Catbox and paste the link here for 1-click CI testing."
+      placeholder: "https://..."

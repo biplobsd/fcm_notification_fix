@@ -65,12 +65,20 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                         System.out.println("  -> Located GreezeManagerService in " + entryName);
                         List<Method> methods = new ArrayList<>();
                         for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("triggerGMSLimitAction") && m.getReturnType().equals("V") && m.getParameterTypes().isEmpty()) {
-                                System.out.println("    -> Rewriting triggerGMSLimitAction()V to return-void (GMS unfreeze)");
+                            if (m.getName().equals("triggerGMSLimitAction") && m.getReturnType().equals("V")) {
+                                // The signature is not stable across HyperOS 3 CN builds:
+                                //   OS2.x / early OS3 : triggerGMSLimitAction()V
+                                //   OS3.0.307.0 (MIX Fold 4, 24072PX77C) : triggerGMSLimitAction(Z)V
+                                // Match on name + void return only, and size the stub frame from the
+                                // real signature (registers_size must be >= ins_size, or ART rejects it).
+                                int stubRegs = DexUtils.paramRegCount(m);
+                                System.out.println("    -> Rewriting triggerGMSLimitAction("
+                                    + String.join("", m.getParameterTypes()) + ")V to return-void (GMS unfreeze, "
+                                    + stubRegs + " regs)");
                                 List<com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction> insns = Collections.singletonList(
                                     new ImmutableInstruction10x(Opcode.RETURN_VOID)
                                 );
-                                ImmutableMethodImplementation newImpl = new ImmutableMethodImplementation(1, insns, null, null);
+                                ImmutableMethodImplementation newImpl = new ImmutableMethodImplementation(stubRegs, insns, null, null);
                                 methods.add(new ImmutableMethod(
                                     m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
                                     m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), newImpl));

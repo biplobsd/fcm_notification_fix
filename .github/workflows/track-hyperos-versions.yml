@@ -1,0 +1,54 @@
+name: Track & Auto-Update HyperOS Versions
+
+on:
+  schedule:
+    # Runs weekly on Sunday at 00:00 UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  track-and-update:
+    name: Check Latest Xiaomi HyperOS OTA Releases
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check Live Releases & Update rom_matrix.json
+        run: |
+          python3 tests/fetch_rom_jars.py --update-matrix
+
+      - name: Check for Matrix Changes
+        id: git_check
+        run: |
+          if git status --porcelain tests/rom_matrix.json | grep -q "tests/rom_matrix.json"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "[*] Changes detected in tests/rom_matrix.json"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "[*] No new firmware versions detected (matrix is up to date)."
+          fi
+
+      - name: Create Pull Request for New HyperOS Versions
+        if: steps.git_check.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(matrix): auto-update HyperOS tracked firmware versions"
+          title: "🤖 Auto-Update HyperOS Target Matrix"
+          body: |
+            ### 📲 Automated Xiaomi HyperOS Version Tracker
+            New Xiaomi HyperOS / MIUI OTA firmware updates have been detected by the weekly tracking workflow.
+            `tests/rom_matrix.json` has been updated with the latest live versions.
+          branch: "auto-update-hyperos-matrix"
+          delete-branch: true

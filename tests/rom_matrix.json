@@ -1,0 +1,29 @@
+{
+  "archetypes": [
+    {
+      "codename": "zorn",
+      "device": "Redmi K80",
+      "version": "OS3.0.307.0.WOKCNXM.C09",
+      "sdk": 36,
+      "region": "cn",
+      "track_latest": true
+    },
+    {
+      "codename": "goku",
+      "device": "Xiaomi MIX Fold 4",
+      "version": "OS3.0.307.0.WNVCNXM",
+      "sdk": 36,
+      "region": "cn",
+      "track_latest": true
+    },
+    {
+      "codename": "selene",
+      "device": "Redmi 10",
+      "version": "V14.0.7.0.TKUMIXM",
+      "sdk": 33,
+      "region": "global",
+      "os": "miui14",
+      "track_latest": true
+    }
+  ]
+}
