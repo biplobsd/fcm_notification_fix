@@ -2,6 +2,7 @@ package com.android.server.am;
 
 import android.content.ComponentName;
 import android.content.Intent;
+import android.os.SystemClock;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -223,7 +224,7 @@ public class FcmWakeFilter {
     }
 
     private static void checkConfig() {
-        long now = System.currentTimeMillis();
+        long now = SystemClock.elapsedRealtime();
         if (now - sLastCheckTimestamp < CONFIG_CHECK_INTERVAL_MS && sLastModified >= 0) {
             return;
         }

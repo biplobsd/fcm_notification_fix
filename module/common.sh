@@ -159,6 +159,7 @@ compile_aot_cache() {
     _services_clc="$(_get_clc "$_target_services")"
     _miui_clc="$(_get_clc "$_target_miui")"
 
+    _services_status=0
     "$_dex2oat" \
         --instruction-set="$_arch" \
         --dex-file="$_staged_services" \
@@ -166,8 +167,9 @@ compile_aot_cache() {
         --oat-file="/data/dalvik-cache/$_arch/$_services_oat" \
         --compiler-filter=speed \
         --class-loader-context="$_services_clc" \
-        --generate-mini-debug-info >/dev/null 2>&1 || true
+        --generate-mini-debug-info >/dev/null 2>&1 || _services_status=$?
 
+    _miui_status=0
     "$_dex2oat" \
         --instruction-set="$_arch" \
         --dex-file="$_staged_miui" \
@@ -175,7 +177,11 @@ compile_aot_cache() {
         --oat-file="/data/dalvik-cache/$_arch/$_miui_oat" \
         --compiler-filter=speed \
         --class-loader-context="$_miui_clc" \
-        --generate-mini-debug-info >/dev/null 2>&1 || true
+        --generate-mini-debug-info >/dev/null 2>&1 || _miui_status=$?
+
+    if [ "$_services_status" -ne 0 ] || [ "$_miui_status" -ne 0 ]; then
+        return 1
+    fi
 
     if [ -f "/data/dalvik-cache/$_arch/$_services_oat" ] && [ -f "/data/dalvik-cache/$_arch/$_miui_oat" ]; then
         chmod 0644 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
