@@ -61,20 +61,16 @@ if [ "$IS_XIAOMI" != "true" ]; then
     abort_install "Non-Xiaomi device detected ($MANUFACTURER)."
 fi
 
-# Detect OS & Region Profile
-OS_TYPE="hyperos"
-[ "$API_LEVEL" -eq 33 ] && OS_TYPE="miui14"
-
-REGION_TYPE="global"
-case "$INCREMENTAL" in
-    *CNXM*|*cnxm*) REGION_TYPE="cn" ;;
-esac
-REGION_PROP=$(getprop ro.miui.region | tr '[:upper:]' '[:lower:]')
-[ "$REGION_PROP" = "cn" ] && REGION_TYPE="cn"
+# Detect OS & Region Profile. The detection lives in common.sh so that the
+# post-OTA re-patch resolves exactly the same patcher strategy as this install.
+. "$MODPATH/common.sh"
+detect_rom_profile
+OS_TYPE="$ROM_OS"
+REGION_TYPE="$ROM_REGION"
 
 # Guard against unsupported profiles
-if [ "$OS_TYPE" = "hyperos" ] && [ "$REGION_TYPE" = "global" ]; then
-    abort_install "HyperOS Global patcher is not available (only HyperOS China is currently supported)."
+if ! PROFILE_REASON="$(rom_profile_supported)"; then
+    abort_install "$PROFILE_REASON"
 fi
 
 # 3. Locate Dalvik / ART Runtime
@@ -116,11 +112,7 @@ OLD_MOD_DIR="/data/adb/modules/$MODULE_ID"
 STOCK_DIR="$MODPATH/stock"
 STASH_STATUS="none"   # none | kept | created | carried | skipped
 
-is_stock_jar() {
-    # FcmWakeFilter exists only in this module's patched output; framework dex
-    # entries are ZIP-stored uncompressed, so the class name is greppable.
-    [ "$(grep -ac FcmWakeFilter "$1" 2>/dev/null)" = "0" ]
-}
+# is_stock_jar() comes from common.sh (shared with repatch.sh)
 
 # Carry an existing stash forward so it survives the modules_update swap
 if [ -f "$OLD_MOD_DIR/stock/services.jar" ] && [ -f "$OLD_MOD_DIR/stock/miui-services.jar" ]; then
@@ -219,13 +211,19 @@ ui_print "- [PASS] All patch checkpoints verified successfully!"
 ui_print "- Performing atomic swap into module filesystem..."
 
 # 7. Atomic Swap into Module Overlay Structure
+# The patched miui-services.jar has to land where this ROM actually reads it:
+# HyperOS serves it from /system_ext, older MIUI builds from /system/framework.
 mkdir -p "$MODPATH/system/framework"
-mkdir -p "$MODPATH/system_ext/framework"
-mkdir -p "$MODPATH/system/system_ext/framework"
-
 cp "$STAGE_DIR/services.jar" "$MODPATH/system/framework/services.jar"
-cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system_ext/framework/miui-services.jar"
-cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/system_ext/framework/miui-services.jar"
+
+if [ "$MIUI_SERVICES_STOCK" = "/system/framework/miui-services.jar" ]; then
+    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/framework/miui-services.jar"
+else
+    mkdir -p "$MODPATH/system_ext/framework"
+    mkdir -p "$MODPATH/system/system_ext/framework"
+    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system_ext/framework/miui-services.jar"
+    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/system_ext/framework/miui-services.jar"
+fi
 
 # Initialize default FCM dynamic filter config if not existing
 CONF_FILE="/data/system/fcm_wake.conf"
@@ -249,17 +247,22 @@ fi
 # with the running build on every boot.
 getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
 rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
+rm -f "$MODPATH/skip_mount"
 
 # Signal post-fs-data to purge stale dalvik-cache once on first boot
 touch "$MODPATH/wipe_cache_once"
 
 # 8. Apply File Permissions and SELinux Attributes
-set_perm "$MODPATH/system/framework/services.jar" 0 0 0644 "u:object_r:system_file:s0"
-set_perm "$MODPATH/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:system_file:s0"
-set_perm "$MODPATH/system/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:system_file:s0"
+for jar in "$MODPATH/system/framework/services.jar" \
+           "$MODPATH/system/framework/miui-services.jar" \
+           "$MODPATH/system_ext/framework/miui-services.jar" \
+           "$MODPATH/system/system_ext/framework/miui-services.jar"; do
+    [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
+done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 [ -f "$MODPATH/repatch.sh" ] && set_perm "$MODPATH/repatch.sh" 0 0 0755
+[ -f "$MODPATH/common.sh" ] && set_perm "$MODPATH/common.sh" 0 0 0755
 
 if [ -d "$MODPATH/webroot" ]; then
     set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
