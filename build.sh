@@ -89,7 +89,23 @@ trap cleanup EXIT
 # 3. Compile Java Patcher Sources Recursively
 echo "[1/4] Compiling Java bytecode patcher sources & FcmWakeFilter..."
 find "$DIR/src" -name "*.java" > "$BUILD_TMP/sources.txt"
-javac --release 17 -cp "$CP:$ANDROID_JAR" @"$BUILD_TMP/sources.txt" -d "$BUILD_TMP"
+JAVAC_FLAGS=()
+if javac --help 2>&1 | grep -q -- "--release"; then
+    if javac --release 8 -version &>/dev/null; then
+        JAVAC_FLAGS=("--release" "8" "-Xlint:-options")
+    elif javac --release 11 -version &>/dev/null; then
+        JAVAC_FLAGS=("--release" "11")
+    elif javac --release 17 -version &>/dev/null; then
+        JAVAC_FLAGS=("--release" "17")
+    fi
+fi
+if [ ${#JAVAC_FLAGS[@]} -eq 0 ]; then
+    if javac -source 8 -target 8 -version &>/dev/null; then
+        JAVAC_FLAGS=("-source" "8" "-target" "8" "-Xlint:-options")
+    fi
+fi
+
+javac "${JAVAC_FLAGS[@]}" -cp "$CP:$ANDROID_JAR" @"$BUILD_TMP/sources.txt" -d "$BUILD_TMP"
 
 # 4. Dex with Android SDK d8
 echo "[2/4] Dexing patcher engine & libraries into patcher.jar (d8)..."

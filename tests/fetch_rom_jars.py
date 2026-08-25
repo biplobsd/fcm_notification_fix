@@ -26,6 +26,8 @@ TRACKER_YAML_URL = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui
 
 PAYLOAD_DUMPER_URL = "https://github.com/ssut/payload-dumper-go/releases/download/2.0.2/payload-dumper-go_2.0.2_linux_amd64.tar.gz"
 SEVEN_ZIP_URL = "https://github.com/ip7z/7zip/releases/download/24.09/7z2409-linux-x64.tar.xz"
+EROFS_TOOLS_URL_X86 = "https://github.com/sekaiacg/erofs-tools/releases/download/v1.8.10-251217/erofs-utils-v1.8.10-gee46dd74-251217-Linux_x86_64.zip"
+EROFS_TOOLS_URL_AARCH64 = "https://github.com/sekaiacg/erofs-tools/releases/download/v1.8.10-251217/erofs-utils-v1.8.10-gee46dd74-251217-Linux_aarch64.zip"
 
 MIRROR_HOSTS = [
     "cdnorg.d.miui.com",
@@ -33,7 +35,7 @@ MIRROR_HOSTS = [
     "bigota.d.miui.com",
 ]
 
-JAR_PARTITIONS = ["system", "mi_ext", "system_ext", "product"]
+JAR_PARTITIONS = ["system", "system_ext", "mi_ext"]
 USER_AGENT = "Mozilla/5.0"
 HTTP_TIMEOUT = 8
 
@@ -122,13 +124,35 @@ def ensure_tools():
             except Exception as e:
                 print(f"[!] Failed to auto-download 7zz: {e}")
 
-    if not shutil.which("fsck.erofs"):
-        print("[*] fsck.erofs not found; attempting best-effort install of erofs-utils...")
-        if _best_effort_install("erofs-utils") and shutil.which("fsck.erofs"):
-            print("[✓] Installed erofs-utils (EROFS partition extraction).")
-        else:
-            print("[!] fsck.erofs unavailable - EROFS partitions (HyperOS 3) cannot be extracted.")
-            print("    Install manually: sudo apt-get install erofs-utils  |  sudo pacman -S erofs-utils")
+    erofs_bin = shutil.which("extract.erofs") or shutil.which("fsck.erofs")
+    if not erofs_bin:
+        extract_dest = os.path.join(DEPS_BIN_DIR, "extract.erofs")
+        fsck_dest = os.path.join(DEPS_BIN_DIR, "fsck.erofs")
+        if not (os.path.isfile(extract_dest) or os.path.isfile(fsck_dest)):
+            print("[*] Downloading erofs-tools (EROFS partition extractor)...")
+            import platform
+            machine = platform.machine().lower()
+            erofs_url = EROFS_TOOLS_URL_AARCH64 if ("aarch64" in machine or "arm64" in machine) else EROFS_TOOLS_URL_X86
+            zip_path = os.path.join(PROJECT_DIR, ".deps", "erofs-tools.zip")
+            try:
+                req = urllib.request.Request(erofs_url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=20) as resp, open(zip_path, "wb") as f:
+                    f.write(resp.read())
+                import zipfile
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for name in zf.namelist():
+                        target = os.path.join(DEPS_BIN_DIR, os.path.basename(name))
+                        with open(target, "wb") as out_f:
+                            out_f.write(zf.read(name))
+                        os.chmod(target, 0o755)
+                print("[✓] Installed erofs-tools to .deps/bin/")
+            except Exception as e:
+                print(f"[!] Failed to auto-download erofs-tools: {e}")
+                if _best_effort_install("erofs-utils") and (shutil.which("fsck.erofs") or shutil.which("extract.erofs")):
+                    print("[✓] Installed erofs-utils (EROFS partition extraction).")
+                else:
+                    print("[!] erofs tools unavailable - EROFS partitions (HyperOS 3) cannot be extracted.")
+                    print("    Install manually: sudo apt-get install erofs-utils  |  sudo pacman -S erofs-utils")
 
 def list_tracked_roms(matrix):
     print("========================================================================================================")
@@ -837,16 +861,37 @@ def _extract_with_7zz(img_path, out_dir):
     res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return res.returncode in (0, 1) or (os.path.exists(out_dir) and bool(os.listdir(out_dir)))
 
-def _extract_with_fsck_erofs(img_path, out_dir):
-    fsck = shutil.which("fsck.erofs")
-    if not fsck:
-        return False
+def _extract_with_erofs(img_path, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    cmd = [fsck, f"--extract={out_dir}", "--no-sbcrc", img_path]
-    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return res.returncode == 0 or (os.path.exists(out_dir) and bool(os.listdir(out_dir)))
+    extract_bin = shutil.which("extract.erofs") or os.path.join(DEPS_BIN_DIR, "extract.erofs")
+    fsck_bin = shutil.which("fsck.erofs") or os.path.join(DEPS_BIN_DIR, "fsck.erofs")
 
-def extract_jars_from_partition_images(images_dir, target_dir):
+    if extract_bin and os.path.isfile(extract_bin):
+        # Use targeted fast extraction with extract.erofs
+        subpaths = ["/framework", "/system/framework", "/system_ext/framework", "/mi_ext/framework", "/product/framework", "/odm/framework"]
+        extracted_any = False
+        for sp in subpaths:
+            cmd = [extract_bin, "-i", img_path, "-X", sp, "-o", out_dir, "-s", "-f"]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode == 0 and os.path.exists(out_dir) and bool(os.listdir(out_dir)):
+                extracted_any = True
+        if extracted_any:
+            return True
+
+        # Fallback to full extraction with extract.erofs
+        cmd = [extract_bin, "-i", img_path, "-x", "-o", out_dir, "-s", "-f"]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0 and os.path.exists(out_dir) and bool(os.listdir(out_dir)):
+            return True
+
+    if fsck_bin and os.path.isfile(fsck_bin):
+        cmd = [fsck_bin, f"--extract={out_dir}", "--no-sbcrc", "--overwrite", "--no-preserve", "--no-xattrs", img_path]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return res.returncode == 0 or (os.path.exists(out_dir) and bool(os.listdir(out_dir)))
+
+    return False
+
+def extract_jars_from_partition_images(images_dir, target_dir, keep_temp=False):
 
     found_services = False
     found_miui = False
@@ -856,9 +901,21 @@ def extract_jars_from_partition_images(images_dir, target_dir):
 
     img_files = []
     for root, _, files in os.walk(images_dir):
-        for img in sorted(files):
+        for img in files:
             if img.endswith(".img"):
                 img_files.append(os.path.join(root, img))
+
+    # Prioritize system_ext, system, mi_ext before huge product/odm partitions
+    def _img_priority(p):
+        name = os.path.basename(p).lower()
+        if "system_ext" in name:
+            return 0
+        if "system." in name or "system_" in name:
+            return 1
+        if "mi_ext" in name:
+            return 2
+        return 10
+    img_files.sort(key=_img_priority)
 
     for img_path in img_files:
         if found_services and found_miui:
@@ -868,13 +925,13 @@ def extract_jars_from_partition_images(images_dir, target_dir):
         shutil.rmtree(tmp_extract, ignore_errors=True)
 
         if _is_erofs(img_path):
-            print(f"  -> {img_name}: EROFS filesystem detected, extracting with fsck.erofs...")
-            ok = _extract_with_fsck_erofs(img_path, tmp_extract)
+            print(f"  -> {img_name}: EROFS filesystem detected, extracting with erofs-tools...")
+            ok = _extract_with_erofs(img_path, tmp_extract)
         else:
             print(f"  -> {img_name}: ext4 detected, extracting with 7zz...")
             ok = _extract_with_7zz(img_path, tmp_extract)
-            if not ok and shutil.which("fsck.erofs"):
-                ok = _extract_with_fsck_erofs(img_path, tmp_extract)
+            if not ok and (shutil.which("extract.erofs") or shutil.which("fsck.erofs")):
+                ok = _extract_with_erofs(img_path, tmp_extract)
 
         if not os.path.exists(tmp_extract) or not os.listdir(tmp_extract):
             continue
@@ -892,7 +949,8 @@ def extract_jars_from_partition_images(images_dir, target_dir):
                     print(f"  -> Extracted miui-services.jar ({os.path.getsize(src)//1024} KB) from {img_name}")
             if found_services and found_miui:
                 break
-        shutil.rmtree(tmp_extract, ignore_errors=True)
+        if not keep_temp:
+            shutil.rmtree(tmp_extract, ignore_errors=True)
 
     return found_services and found_miui
 
@@ -927,7 +985,7 @@ def _read_payload_expected_hash(zip_reader, work_dir):
             pass
     return None
 
-def stream_and_extract_remote_ota(ota_url, target_dir, preferred_mirror=None, workers=None):
+def stream_and_extract_remote_ota(ota_url, target_dir, preferred_mirror=None, workers=None, keep_payload=False):
 
     ensure_tools()
     os.makedirs(target_dir, exist_ok=True)
@@ -972,70 +1030,90 @@ def stream_and_extract_remote_ota(ota_url, target_dir, preferred_mirror=None, wo
               f"{payload_entry['comp_size']/2**30:.2f} GB).")
         os.makedirs(WORK_DIR, exist_ok=True)
 
-        needed = payload_entry["comp_size"] * 2 + 2**30
-        if not check_disk_space(WORK_DIR, needed):
-            return False
+        final_payload = os.path.join(WORK_DIR, "payload.bin")
+        dump_dir = os.path.join(WORK_DIR, "dumped")
 
-        expected_hash = _read_payload_expected_hash(zip_reader, WORK_DIR)
-
-        for attempt in (1, 2):
-            payload_path = os.path.join(WORK_DIR, "payload.bin.part")
-            ok = zip_reader.download_file_range("payload.bin", payload_path, workers=workers)
-            if ok and expected_hash:
-                h = hashlib.sha256()
-                with open(payload_path, "rb") as pf:
-                    for block in iter(lambda: pf.read(8 * 1024 * 1024), b""):
-                        h.update(block)
-                actual = base64.b64encode(h.digest()).decode()
-                if actual != expected_hash:
-                    if attempt < 2:
-                        print(f"[!] payload.bin SHA256 mismatch (attempt {attempt}) - retrying.")
-                    else:
-                        print("[!] payload.bin SHA256 mismatch - aborting.")
-                    for p in (payload_path, payload_path + ".progress"):
-                        if os.path.exists(p):
-                            try:
-                                os.remove(p)
-                            except OSError:
-                                pass
-                    continue
-                print("[✓] payload.bin SHA256 verified.")
-            if not ok:
-                print("[!] payload.bin download failed.")
-                return False
-            final_payload = os.path.join(WORK_DIR, "payload.bin")
-            os.replace(payload_path, final_payload)
-            break
+        if os.path.isfile(final_payload) and os.path.getsize(final_payload) == payload_entry["comp_size"]:
+            print(f"[*] Reusing existing payload.bin ({os.path.getsize(final_payload)//1048576} MB) from {final_payload}")
         else:
-            return False
+            needed = payload_entry["comp_size"] * 2 + 2**30
+            if not check_disk_space(WORK_DIR, needed):
+                return False
+
+            expected_hash = _read_payload_expected_hash(zip_reader, WORK_DIR)
+
+            for attempt in (1, 2):
+                payload_path = os.path.join(WORK_DIR, "payload.bin.part")
+                ok = zip_reader.download_file_range("payload.bin", payload_path, workers=workers)
+                if ok and expected_hash:
+                    h = hashlib.sha256()
+                    with open(payload_path, "rb") as pf:
+                        for block in iter(lambda: pf.read(8 * 1024 * 1024), b""):
+                            h.update(block)
+                    actual = base64.b64encode(h.digest()).decode()
+                    if actual != expected_hash:
+                        if attempt < 2:
+                            print(f"[!] payload.bin SHA256 mismatch (attempt {attempt}) - retrying.")
+                        else:
+                            print("[!] payload.bin SHA256 mismatch - aborting.")
+                        for p in (payload_path, payload_path + ".progress"):
+                            if os.path.exists(p):
+                                try:
+                                    os.remove(p)
+                                except OSError:
+                                    pass
+                        continue
+                    print("[✓] payload.bin SHA256 verified.")
+                if not ok:
+                    print("[!] payload.bin download failed.")
+                    return False
+                os.replace(payload_path, final_payload)
+                break
+            else:
+                return False
 
         payload_dumper = shutil.which("payload-dumper-go") or os.path.join(DEPS_BIN_DIR, "payload-dumper-go")
         if not os.path.isfile(payload_dumper):
             print("[!] payload-dumper-go unavailable; cannot dump partitions.")
             return False
 
-        print("[*] Dumping framework-bearing partitions from payload.bin...")
-        dump_dir = os.path.join(WORK_DIR, "dumped")
+        workers_count = str(min(os.cpu_count() or 4, 16))
+        print(f"[*] Dumping framework-bearing partitions from payload.bin ({','.join(JAR_PARTITIONS)})...")
         shutil.rmtree(dump_dir, ignore_errors=True)
         os.makedirs(dump_dir, exist_ok=True)
-        cmd = [payload_dumper, "-c", "8", "-p", ",".join(JAR_PARTITIONS),
+        cmd = [payload_dumper, "-c", workers_count, "-no-verify", "-p", ",".join(JAR_PARTITIONS),
                "-o", dump_dir, final_payload]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-
-        try:
-            os.remove(final_payload)
-        except OSError:
-            pass
 
         if res.returncode != 0:
             print("[!] payload-dumper-go failed:")
             print("\n".join(res.stdout.splitlines()[-15:]))
-            shutil.rmtree(dump_dir, ignore_errors=True)
+            if not keep_payload:
+                shutil.rmtree(dump_dir, ignore_errors=True)
             return False
 
         print("[*] Extracting services.jar and miui-services.jar from partition images...")
-        success = extract_jars_from_partition_images(dump_dir, target_dir)
-        shutil.rmtree(dump_dir, ignore_errors=True)
+        success = extract_jars_from_partition_images(dump_dir, target_dir, keep_temp=keep_payload)
+
+        if not success:
+            fallback_partitions = ["product", "odm"]
+            print("[*] Primary partitions did not yield both JARs. Dumping secondary partitions (product, odm)...")
+            cmd_fb = [payload_dumper, "-c", workers_count, "-no-verify", "-p", ",".join(fallback_partitions),
+                      "-o", dump_dir, final_payload]
+            res_fb = subprocess.run(cmd_fb, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if res_fb.returncode == 0:
+                success = extract_jars_from_partition_images(dump_dir, target_dir, keep_temp=keep_payload)
+
+        if not keep_payload:
+            shutil.rmtree(dump_dir, ignore_errors=True)
+            try:
+                os.remove(final_payload)
+            except OSError:
+                pass
+        else:
+            print(f"[*] Preserving dumped partitions: {dump_dir}")
+            print(f"[*] Preserving payload file: {final_payload}")
+
         if success:
             print(f"[✓] Successfully extracted framework JARs -> {target_dir}")
             return True
@@ -1043,7 +1121,7 @@ def stream_and_extract_remote_ota(ota_url, target_dir, preferred_mirror=None, wo
     print("[!] No usable extraction path found for this OTA.")
     return False
 
-def fetch_rom_jars(target_identifier, matrix, preferred_mirror=None, workers=None):
+def fetch_rom_jars(target_identifier, matrix, preferred_mirror=None, workers=None, keep_payload=False):
     target_arch = None
     for a in get_archetypes(matrix):
         if a.get("codename") == target_identifier or a.get("version") == target_identifier:
@@ -1085,22 +1163,23 @@ def fetch_rom_jars(target_identifier, matrix, preferred_mirror=None, workers=Non
         else:
             fallback_matches.append(link)
 
-    candidates = exact_matches + fallback_matches
-    if not candidates:
+    target_link = None
+    if exact_matches:
+        target_link = exact_matches[0]
+    elif fallback_matches:
+        print("[!] Note: no version-exact OTA found; using latest stable release instead.")
+        target_link = fallback_matches[0]
+
+    if not target_link:
         print(f"[!] No Recovery OTA found on tracker for codename '{target_arch.get('codename')}'.")
         return False
-    if not exact_matches:
-        print("[!] Note: no version-exact OTA found; using latest stable release instead.")
 
-    for idx, link in enumerate(candidates, 1):
-        print(f"\n=== Candidate {idx}/{len(candidates)} ===")
-        if stream_and_extract_remote_ota(link, target_dir, preferred_mirror=preferred_mirror, workers=workers):
-            write_version_metadata(target_arch, target_dir)
-            return True
+    print(f"\n[*] Streaming target Recovery OTA...")
+    if stream_and_extract_remote_ota(target_link, target_dir, preferred_mirror=preferred_mirror, workers=workers, keep_payload=keep_payload):
+        write_version_metadata(target_arch, target_dir)
+        return True
 
-    print(f"\n[!] Unable to automatically stream jars for {target_arch.get('codename')}.")
-    print(f"    Missing framework jars in {target_dir}/")
-    print(f"    (Note: Missing fixtures will be synthesized on the fly during test execution).")
+    print(f"\n[!] Unable to stream jars for {target_arch.get('codename')}. Stopping.")
     return False
 
 def run_tests_for_fixture():
@@ -1120,6 +1199,7 @@ def main():
     parser.add_argument("--mirror", type=str, help="Force mirror (e.g. 'aliyun', 'cdnorg', 'bn', 'bigota', or full hostname)")
     parser.add_argument("-w", "--workers", type=int, default=None, help="Number of parallel range download workers (default: 24)")
     parser.add_argument("--test-mirrors", nargs="?", const="default", help="Benchmark and speed-test all known Xiaomi mirror servers")
+    parser.add_argument("--keep-payload", "--keep-temp", dest="keep_payload", action="store_true", default=bool(os.environ.get("FCM_KEEP_PAYLOAD")), help="Do not delete downloaded payload.bin or dumped partition images (for debugging/testing extraction)")
     parser.add_argument("--test", action="store_true", help="Run integration tests after fetching")
 
     args = parser.parse_args()
@@ -1139,7 +1219,7 @@ def main():
         cname = args.codename or "custom_device"
         ver = args.version or "custom_version"
         target_dir = os.path.join(FIXTURES_DIR, cname, ver)
-        stream_and_extract_remote_ota(args.url, target_dir, preferred_mirror=args.mirror, workers=args.workers)
+        stream_and_extract_remote_ota(args.url, target_dir, preferred_mirror=args.mirror, workers=args.workers, keep_payload=args.keep_payload)
         if args.test:
             run_tests_for_fixture()
         return
@@ -1159,14 +1239,15 @@ def main():
                 results[a.get("codename")] = fetch_rom_jars(
                     a.get("codename"), matrix,
                     preferred_mirror=args.mirror,
-                    workers=args.workers
+                    workers=args.workers,
+                    keep_payload=args.keep_payload
                 )
             failed = [k for k, v in results.items() if not v]
             if failed:
                 print(f"\n[!] Failed fixtures: {', '.join(failed)}")
                 sys.exit(1)
         else:
-            if not fetch_rom_jars(args.fetch, matrix, preferred_mirror=args.mirror, workers=args.workers):
+            if not fetch_rom_jars(args.fetch, matrix, preferred_mirror=args.mirror, workers=args.workers, keep_payload=args.keep_payload):
                 sys.exit(1)
 
         if args.test:
