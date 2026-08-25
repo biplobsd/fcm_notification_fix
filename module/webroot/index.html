@@ -620,21 +620,29 @@
             gap: 4px;
         }
 
-        .lang-btn {
+        .lang-select {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             color: var(--text-sub);
             border-radius: var(--radius-full);
-            padding: 3px 10px;
-            font-size: 0.62rem;
-            font-weight: 700;
-            letter-spacing: 0.04em;
+            padding: 4px 10px;
+            font-size: 0.66rem;
+            font-weight: 600;
+            font-family: var(--font);
             cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            text-align: center;
         }
 
-        .lang-btn.active {
+        .lang-select:focus {
+            outline: none;
             border-color: var(--border-active);
-            background: var(--primary-glow);
+            color: var(--text-main);
+        }
+
+        .lang-select option {
+            background: var(--bg-base);
             color: var(--text-main);
         }
 
@@ -655,7 +663,13 @@
             color: var(--text-sub);
         }
 
+        .rom-row > span {
+            flex: 0 0 auto;
+        }
+
         .rom-row code {
+            flex: 1 1 auto;
+            min-width: 0;
             font-family: var(--font-mono);
             font-size: 0.68rem;
             color: var(--text-main);
@@ -695,8 +709,9 @@
     <!-- Header -->
     <div class="header" style="position: relative;">
         <div class="lang-switch">
-            <button class="lang-btn" id="langBtnEn" onclick="setLang('en')">EN</button>
-            <button class="lang-btn" id="langBtnRu" onclick="setLang('ru')">RU</button>
+            <select class="lang-select" id="langSelect" aria-label="Language" onchange="setLang(this.value)">
+                <option value="en">English</option>
+            </select>
         </div>
         <h1>HyperOS FCM Controller</h1>
         <p data-i18n="header.subtitle">Wake-on-Push Whitelist &amp; Blacklist Manager</p>
@@ -717,7 +732,7 @@
         <div class="rom-grid">
             <div class="rom-row"><span data-i18n="rom.current">Current firmware</span><code id="romCurrent">&mdash;</code></div>
             <div class="rom-row"><span data-i18n="rom.patched">Patched for</span><code id="romStored">&mdash;</code></div>
-            <div class="rom-row"><span data-i18n="rom.overlay">Framework overlay</span><code id="romMounted">&mdash;</code></div>
+            <div class="rom-row"><span data-i18n="rom.live">Live framework</span><code id="romLive">&mdash;</code></div>
         </div>
 
         <div class="mode-desc" id="romHint" data-i18n-html="rom.hint.checking">Reading module state&hellip;</div>
@@ -807,198 +822,59 @@
 
 <script>
     /* =========================================================================
-     * Localization (English / Russian)
-     * Strings are keyed; static markup is annotated with data-i18n,
-     * data-i18n-html (value contains markup) and data-i18n-ph (placeholder).
+     * Localization
+     * Strings live in webroot/lang/<code>.json and lang/index.json lists what
+     * ships, so adding a language is one file plus one line - no edit to this
+     * page. The markup itself carries English, so the UI stays readable even
+     * when the dictionaries cannot be fetched at all.
      * ====================================================================== */
-    const I18N = {
-        en: {
-            'header.subtitle': 'Wake-on-Push Whitelist & Blacklist Manager',
+    const LANG_KEY = 'fcm_ui_lang';
+    const DEFAULT_LANG = 'en';
+    let LANG = DEFAULT_LANG;
+    let LANGS = [{ code: 'en', name: 'English' }];
+    const DICT = {};
 
-            'rom.title': 'Framework Patch',
-            'rom.current': 'Current firmware',
-            'rom.patched': 'Patched for',
-            'rom.overlay': 'Framework overlay',
-            'rom.mounted': 'mounted',
-            'rom.unmounted': 'not mounted',
-            'rom.state.checking': 'CHECKING',
-            'rom.state.ok': 'ACTIVE',
-            'rom.state.pending': 'ROM UPDATED',
-            'rom.state.running': 'RE-PATCHING',
-            'rom.state.failed': 'FAILED',
-            'rom.state.reboot': 'REBOOT NEEDED',
-            'rom.hint.checking': 'Reading module state&hellip;',
-            'rom.hint.ok': '<strong>Patch active</strong>: the patched framework matches the running firmware.',
-            'rom.hint.pending': '<strong>Firmware changed</strong>: the framework overlay stays unmounted and the device runs 100% stock. Re-patch to restore the push fixes.',
-            'rom.hint.running': '<strong>Re-patching</strong>: the engine is rebuilding the framework for the new firmware. This takes about a minute.',
-            'rom.hint.failed': '<strong>Re-patch failed</strong>: the device is running stock framework. Re-flash the module zip to recover.',
-            'rom.hint.reboot': '<strong>Re-patch done</strong>: reboot to mount the newly patched framework.',
-            'rom.hint.unavailable': 'Module state is unavailable (the WebUI root bridge did not answer).',
-            'rom.repatch': 'Re-patch now',
-            'rom.refresh': 'Refresh',
-            'rom.reboot': 'Reboot',
-            'rom.toast.started': 'Re-patch started, this takes about a minute…',
-            'rom.toast.ok': 'Framework re-patched — reboot to apply ✓',
-            'rom.toast.fail': 'Re-patch failed — check the module log',
-            'rom.toast.busy': 'A re-patch is already running',
+    function store(key, value) {
+        try { localStorage.setItem(key, value); } catch (e) { /* storage may be unavailable */ }
+    }
 
-            'mode.title': 'Wake Mode',
-            'mode.all': 'Allow All',
-            'mode.whitelist': 'Whitelist',
-            'mode.blacklist': 'Blacklist',
-            'badge.all': 'ALLOW ALL',
-            'badge.whitelist': 'WHITELIST',
-            'badge.blacklist': 'BLACKLIST',
-            'mode.desc.all': '<strong>Allow All</strong>: All apps receive C2DM wake flag (<code>0x20</code>). Every stopped app wakes on push.',
-            'mode.desc.whitelist': '<strong>Whitelist</strong>: ONLY checked apps will wake up and thaw on pushes. Unchecked apps stay strictly stopped.',
-            'mode.desc.blacklist': '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking or thawing on pushes. All other apps wake up normally.',
-            'list.title.all': 'Installed Apps',
-            'list.title.whitelist': 'Allowed Packages',
-            'list.title.blacklist': 'Blocked Packages',
+    function restore(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
 
-            'act.recommended': '⭐ Recommended',
-            'act.import': '📥 Import',
-            'act.export': '📋 Export',
-            'act.selectAll': 'Select All',
-            'act.clear': 'Clear',
+    async function loadJson(path) {
+        const res = await fetch(path, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(path + ': HTTP ' + res.status);
+        return res.json();
+    }
 
-            'tab.all': 'All',
-            'tab.enabled': 'Enabled',
-            'tab.disabled': 'Disabled',
-            'tab.active': 'Active',
-            'tab.stopped': 'Stopped',
-
-            'pill.selected': '{n} SELECTED',
-            'pill.active': 'ACTIVE',
-            'pill.stopped': 'STOPPED',
-
-            'search.placeholder': 'Search package name...',
-            'list.loading': 'Loading applications...',
-            'list.empty': 'No third-party apps found.',
-            'list.noMatch': 'No apps matching current filter.',
-            'list.more': 'Scroll for more ({a}/{b})...',
-            'bridge.fail': 'Failed to initialize WebUI bridge.',
-
-            'save.ready': 'Changes Ready',
-            'save.hint': 'Syncs live without reboot',
-            'save.button': 'Save Changes',
-
-            'modal.title.io': 'Preset Import / Export',
-            'modal.title.import': '📥 Import Package Preset',
-            'modal.title.export': '📋 Exported Packages',
-            'modal.help.import': 'Tap below, long-press to Paste, or type packages (separated by newlines or commas):',
-            'modal.help.export': 'Copy the selected packages below:',
-            'modal.clear': 'Clear Box',
-            'modal.apply': 'Apply to List',
-
-            'toast.copied': 'Copied {pkg} 📋',
-            'toast.pkg': 'Package: {pkg}',
-            'toast.recommended': 'Selected {n} recommended apps (bank, chat, mail, 2FA) ✓',
-            'toast.noExport': 'No packages selected to export',
-            'toast.exported': 'Copied {n} packages to clipboard ✓',
-            'toast.noInput': 'No packages entered',
-            'toast.imported': 'Imported & selected {n} matching apps ✓',
-            'toast.saved': 'Configuration Saved ✓',
-            'alert.saveError': 'Error saving: ',
-            'alert.saveFail': 'Failed to save: '
-        },
-        ru: {
-            'header.subtitle': 'Пробуждение по push: белый и чёрный списки',
-
-            'rom.title': 'Патч фреймворка',
-            'rom.current': 'Текущая прошивка',
-            'rom.patched': 'Патч собран под',
-            'rom.overlay': 'Подмена фреймворка',
-            'rom.mounted': 'активна',
-            'rom.unmounted': 'отключена',
-            'rom.state.checking': 'ПРОВЕРКА',
-            'rom.state.ok': 'АКТИВЕН',
-            'rom.state.pending': 'ПРОШИВКА ОБНОВЛЕНА',
-            'rom.state.running': 'ПЕРЕПАТЧИВАЮ',
-            'rom.state.failed': 'ОШИБКА',
-            'rom.state.reboot': 'НУЖНА ПЕРЕЗАГРУЗКА',
-            'rom.hint.checking': 'Читаю состояние модуля&hellip;',
-            'rom.hint.ok': '<strong>Патч активен</strong>: пропатченный фреймворк соответствует текущей прошивке.',
-            'rom.hint.pending': '<strong>Прошивка изменилась</strong>: подмена фреймворка отключена, аппарат работает на чистом стоке. Перепатчите, чтобы вернуть исправления push.',
-            'rom.hint.running': '<strong>Идёт перепатч</strong>: движок пересобирает фреймворк под новую прошивку. Это занимает около минуты.',
-            'rom.hint.failed': '<strong>Перепатч не удался</strong>: аппарат работает на стоковом фреймворке. Переустановите zip модуля.',
-            'rom.hint.reboot': '<strong>Перепатч готов</strong>: перезагрузитесь, чтобы подключить новый фреймворк.',
-            'rom.hint.unavailable': 'Состояние модуля недоступно (root-мост WebUI не ответил).',
-            'rom.repatch': 'Перепатчить сейчас',
-            'rom.refresh': 'Обновить',
-            'rom.reboot': 'Перезагрузить',
-            'rom.toast.started': 'Перепатч запущен, это около минуты…',
-            'rom.toast.ok': 'Фреймворк перепатчен — перезагрузитесь ✓',
-            'rom.toast.fail': 'Перепатч не удался — смотрите лог модуля',
-            'rom.toast.busy': 'Перепатч уже выполняется',
-
-            'mode.title': 'Режим пробуждения',
-            'mode.all': 'Всем',
-            'mode.whitelist': 'Белый список',
-            'mode.blacklist': 'Чёрный список',
-            'badge.all': 'ВСЕ РАЗРЕШЕНЫ',
-            'badge.whitelist': 'БЕЛЫЙ СПИСОК',
-            'badge.blacklist': 'ЧЁРНЫЙ СПИСОК',
-            'mode.desc.all': '<strong>Всем</strong>: все приложения получают флаг пробуждения C2DM (<code>0x20</code>). Любое остановленное приложение просыпается от push.',
-            'mode.desc.whitelist': '<strong>Белый список</strong>: просыпаться и размораживаться будут ТОЛЬКО отмеченные приложения. Остальные остаются остановленными.',
-            'mode.desc.blacklist': '<strong>Чёрный список</strong>: отмеченным приложениям ЗАПРЕЩЕНО просыпаться от push. Все остальные работают как обычно.',
-            'list.title.all': 'Установленные приложения',
-            'list.title.whitelist': 'Разрешённые пакеты',
-            'list.title.blacklist': 'Заблокированные пакеты',
-
-            'act.recommended': '⭐ Рекомендуемые',
-            'act.import': '📥 Импорт',
-            'act.export': '📋 Экспорт',
-            'act.selectAll': 'Выбрать все',
-            'act.clear': 'Снять выбор',
-
-            'tab.all': 'Все',
-            'tab.enabled': 'Отмечены',
-            'tab.disabled': 'Не отмечены',
-            'tab.active': 'Активные',
-            'tab.stopped': 'Остановленные',
-
-            'pill.selected': 'ВЫБРАНО: {n}',
-            'pill.active': 'АКТИВНО',
-            'pill.stopped': 'ОСТАНОВЛЕНО',
-
-            'search.placeholder': 'Поиск по имени пакета...',
-            'list.loading': 'Загружаю приложения...',
-            'list.empty': 'Сторонних приложений не найдено.',
-            'list.noMatch': 'Нет приложений по текущему фильтру.',
-            'list.more': 'Прокрутите дальше ({a}/{b})...',
-            'bridge.fail': 'Не удалось инициализировать root-мост WebUI.',
-
-            'save.ready': 'Изменения готовы',
-            'save.hint': 'Применяется сразу, без перезагрузки',
-            'save.button': 'Сохранить',
-
-            'modal.title.io': 'Импорт / экспорт списка',
-            'modal.title.import': '📥 Импорт списка пакетов',
-            'modal.title.export': '📋 Экспорт пакетов',
-            'modal.help.import': 'Нажмите ниже и вставьте или введите пакеты (через строку или запятую):',
-            'modal.help.export': 'Скопируйте выбранные пакеты:',
-            'modal.clear': 'Очистить',
-            'modal.apply': 'Применить к списку',
-
-            'toast.copied': 'Скопировано: {pkg} 📋',
-            'toast.pkg': 'Пакет: {pkg}',
-            'toast.recommended': 'Выбрано рекомендованных: {n} (банки, мессенджеры, почта, 2FA) ✓',
-            'toast.noExport': 'Нет выбранных пакетов для экспорта',
-            'toast.exported': 'Скопировано в буфер пакетов: {n} ✓',
-            'toast.noInput': 'Пакеты не введены',
-            'toast.imported': 'Импортировано и выбрано совпадений: {n} ✓',
-            'toast.saved': 'Конфигурация сохранена ✓',
-            'alert.saveError': 'Ошибка сохранения: ',
-            'alert.saveFail': 'Не удалось сохранить: '
+    // Dictionaries are cached, so a later fetch failure (or a WebView that
+    // blocks the request) keeps the last known translation instead of falling
+    // back to raw keys.
+    async function loadDict(code) {
+        if (DICT[code]) return DICT[code];
+        try {
+            const data = await loadJson('lang/' + code + '.json');
+            DICT[code] = data;
+            store('fcm_lang_' + code, JSON.stringify(data));
+            return data;
+        } catch (e) {
+            const cached = restore('fcm_lang_' + code);
+            if (cached) {
+                try {
+                    DICT[code] = JSON.parse(cached);
+                    return DICT[code];
+                } catch (e2) { /* corrupt cache, ignore */ }
+            }
+            console.warn('i18n: cannot load ' + code, e);
+            return null;
         }
-    };
-
-    let LANG = 'en';
+    }
 
     function t(key, vars) {
-        const table = I18N[LANG] || I18N.en;
-        let str = (key in table) ? table[key] : (I18N.en[key] || key);
+        const table = DICT[LANG] || {};
+        const base = DICT[DEFAULT_LANG] || {};
+        let str = (key in table) ? table[key] : ((key in base) ? base[key] : key);
         if (vars) {
             Object.keys(vars).forEach(k => {
                 str = str.split('{' + k + '}').join(vars[k]);
@@ -1008,12 +884,20 @@
     }
 
     function detectLang() {
-        try {
-            const saved = localStorage.getItem('fcm_ui_lang');
-            if (saved === 'ru' || saved === 'en') return saved;
-        } catch (e) { /* storage may be unavailable */ }
+        const saved = restore(LANG_KEY);
+        if (saved && LANGS.some(l => l.code === saved)) return saved;
         const nav = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
-        return nav.startsWith('ru') ? 'ru' : 'en';
+        const exact = LANGS.find(l => nav === l.code.toLowerCase());
+        const base = LANGS.find(l => nav.split('-')[0] === l.code.toLowerCase());
+        return (exact || base || { code: DEFAULT_LANG }).code;
+    }
+
+    function renderLangOptions() {
+        const sel = document.getElementById('langSelect');
+        if (!sel) return;
+        sel.innerHTML = LANGS.map(l =>
+            '<option value="' + l.code + '">' + l.name + '</option>').join('');
+        sel.value = LANG;
     }
 
     function applyI18n() {
@@ -1027,19 +911,32 @@
             el.placeholder = t(el.getAttribute('data-i18n-ph'));
         });
         document.documentElement.lang = LANG;
-        const en = document.getElementById('langBtnEn');
-        const ru = document.getElementById('langBtnRu');
-        if (en) en.className = 'lang-btn' + (LANG === 'en' ? ' active' : '');
-        if (ru) ru.className = 'lang-btn' + (LANG === 'ru' ? ' active' : '');
+        const sel = document.getElementById('langSelect');
+        if (sel) sel.value = LANG;
     }
 
-    function setLang(lang) {
-        LANG = (lang === 'ru') ? 'ru' : 'en';
-        try { localStorage.setItem('fcm_ui_lang', LANG); } catch (e) { /* ignore */ }
+    async function setLang(code) {
+        LANG = code;
+        store(LANG_KEY, code);
+        await loadDict(code);
         applyI18n();
         updateModeUI();
         if (installedApps.length) filterApps(); else loadStatus();
         renderRomStatus();
+    }
+
+    async function initI18n() {
+        try {
+            const list = await loadJson('lang/index.json');
+            if (Array.isArray(list) && list.length) LANGS = list;
+        } catch (e) {
+            console.warn('i18n: language index unavailable', e);
+        }
+        LANG = detectLang();
+        renderLangOptions();
+        await loadDict(DEFAULT_LANG);
+        if (LANG !== DEFAULT_LANG) await loadDict(LANG);
+        applyI18n();
     }
 
     /* =========================================================================
@@ -1075,8 +972,8 @@
 
         document.getElementById('romCurrent').textContent = romState.current || '—';
         document.getElementById('romStored').textContent = romState.stored || '—';
-        document.getElementById('romMounted').textContent =
-            romState.mounted === 'yes' ? t('rom.mounted') : t('rom.unmounted');
+        document.getElementById('romLive').textContent =
+            romState.active === 'yes' ? t('rom.live.patched') : t('rom.live.stock');
 
         const state = romState.state;
         badge.textContent = t('rom.state.' + state);
@@ -1709,11 +1606,12 @@ chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
         setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
-    // Initialize
-    LANG = detectLang();
-    applyI18n();
-    loadStatus();
-    refreshRomStatus();
+    // Initialize: dictionaries first, so nothing renders in raw keys
+    initI18n().finally(() => {
+        updateModeUI();
+        loadStatus();
+        refreshRomStatus();
+    });
 </script>
 
 </body>
