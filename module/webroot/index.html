@@ -610,6 +610,77 @@
         .toast.show {
             transform: translateX(-50%) translateY(0);
         }
+
+        /* Language switch */
+        .lang-switch {
+            position: absolute;
+            top: 0;
+            right: 0;
+            display: flex;
+            gap: 4px;
+        }
+
+        .lang-select {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-sub);
+            border-radius: var(--radius-full);
+            padding: 4px 10px;
+            font-size: 0.66rem;
+            font-weight: 600;
+            font-family: var(--font);
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            text-align: center;
+        }
+
+        .lang-select:focus {
+            outline: none;
+            border-color: var(--border-active);
+            color: var(--text-main);
+        }
+
+        .lang-select option {
+            background: var(--bg-base);
+            color: var(--text-main);
+        }
+
+        /* ROM / patch state card */
+        .rom-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .rom-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 0.72rem;
+            color: var(--text-sub);
+        }
+
+        .rom-row > span {
+            flex: 0 0 auto;
+        }
+
+        .rom-row code {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-family: var(--font-mono);
+            font-size: 0.68rem;
+            color: var(--text-main);
+            text-align: right;
+            word-break: break-all;
+        }
+
+        .status-warn {
+            background: rgba(245, 158, 11, 0.18);
+            color: var(--accent-amber);
+        }
     </style>
 </head>
 <body>
@@ -620,25 +691,56 @@
 <div class="modal-overlay" id="ioModal" onclick="closeModal(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
         <div class="modal-header">
-            <div class="modal-title" id="modalTitle">Preset Import / Export</div>
+            <div class="modal-title" id="modalTitle" data-i18n="modal.title.io">Preset Import / Export</div>
             <button class="modal-close" onclick="closeModal()">✕</button>
         </div>
         <p class="modal-hint" id="modalHelp">
-            Tap inside to paste or type package names (separated by newlines or commas):
+            <span data-i18n="modal.help.import">Tap inside to paste or type package names (separated by newlines or commas):</span>
         </p>
         <textarea class="modal-textarea" id="modalTextarea" placeholder="com.whatsapp&#10;org.telegram.messenger&#10;com.bKash.customerapp" autofocus></textarea>
         <div class="modal-actions">
-            <button class="btn" id="modalClearBtn" onclick="clearModalText()">Clear Box</button>
-            <button class="btn btn-preset" id="modalApplyBtn" onclick="applyImport()">Apply to List</button>
+            <button class="btn" id="modalClearBtn" onclick="clearModalText()" data-i18n="modal.clear">Clear Box</button>
+            <button class="btn btn-preset" id="modalApplyBtn" onclick="applyImport()" data-i18n="modal.apply">Apply to List</button>
         </div>
     </div>
 </div>
 
 <div class="container">
     <!-- Header -->
-    <div class="header">
+    <div class="header" style="position: relative;">
+        <div class="lang-switch">
+            <select class="lang-select" id="langSelect" aria-label="Language" onchange="setLang(this.value)">
+                <option value="en">English</option>
+            </select>
+        </div>
         <h1>HyperOS FCM Controller</h1>
-        <p>Wake-on-Push Whitelist & Blacklist Manager</p>
+        <p data-i18n="header.subtitle">Wake-on-Push Whitelist &amp; Blacklist Manager</p>
+    </div>
+
+    <!-- ROM / Patch State Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                </svg>
+                <span data-i18n="rom.title">Framework Patch</span>
+            </div>
+            <span id="romBadge" class="status-pill status-running" data-i18n="rom.state.checking">CHECKING</span>
+        </div>
+
+        <div class="rom-grid">
+            <div class="rom-row"><span data-i18n="rom.current">Current firmware</span><code id="romCurrent">&mdash;</code></div>
+            <div class="rom-row"><span data-i18n="rom.patched">Patched for</span><code id="romStored">&mdash;</code></div>
+            <div class="rom-row"><span data-i18n="rom.live">Live framework</span><code id="romLive">&mdash;</code></div>
+        </div>
+
+        <div class="mode-desc" id="romHint" data-i18n-html="rom.hint.checking">Reading module state&hellip;</div>
+
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-accent" id="btnRepatch" onclick="runRepatch()" data-i18n="rom.repatch">Re-patch now</button>
+            <button class="btn" onclick="refreshRomStatus()" data-i18n="rom.refresh">Refresh</button>
+        </div>
     </div>
 
     <!-- Mode Selector Card -->
@@ -648,15 +750,15 @@
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                 </svg>
-                Wake Mode
+                <span data-i18n="mode.title">Wake Mode</span>
             </div>
             <span id="modeBadge" class="status-pill status-running">ALLOW ALL</span>
         </div>
 
         <div class="mode-segmented">
-            <button class="mode-btn active" id="btnModeAll" onclick="setMode('ALL')">Allow All</button>
-            <button class="mode-btn" id="btnModeWhitelist" onclick="setMode('WHITELIST')">Whitelist</button>
-            <button class="mode-btn" id="btnModeBlacklist" onclick="setMode('BLACKLIST')">Blacklist</button>
+            <button class="mode-btn active" id="btnModeAll" onclick="setMode('ALL')" data-i18n="mode.all">Allow All</button>
+            <button class="mode-btn" id="btnModeWhitelist" onclick="setMode('WHITELIST')" data-i18n="mode.whitelist">Whitelist</button>
+            <button class="mode-btn" id="btnModeBlacklist" onclick="setMode('BLACKLIST')" data-i18n="mode.blacklist">Blacklist</button>
         </div>
 
         <div class="mode-desc" id="modeDescription">
@@ -678,20 +780,20 @@
 
         <!-- Clean Essential Action Bar -->
         <div class="action-row">
-            <button class="btn btn-recommend" onclick="selectRecommended()">⭐ Recommended</button>
-            <button class="btn btn-accent" onclick="openImportModal()">📥 Import</button>
-            <button class="btn btn-accent" onclick="exportToClipboard()">📋 Export</button>
-            <button class="btn" onclick="selectAll(true)">Select All</button>
-            <button class="btn" onclick="selectAll(false)">Clear</button>
+            <button class="btn btn-recommend" onclick="selectRecommended()" data-i18n="act.recommended">⭐ Recommended</button>
+            <button class="btn btn-accent" onclick="openImportModal()" data-i18n="act.import">📥 Import</button>
+            <button class="btn btn-accent" onclick="exportToClipboard()" data-i18n="act.export">📋 Export</button>
+            <button class="btn" onclick="selectAll(true)" data-i18n="act.selectAll">Select All</button>
+            <button class="btn" onclick="selectAll(false)" data-i18n="act.clear">Clear</button>
         </div>
 
         <!-- View Filter Tabs: All / Enabled / Disabled / Active / Stopped -->
         <div class="filter-tabs">
-            <button class="filter-tab active" id="tabFilterAll" onclick="setViewFilter('ALL')">All (<span id="countAll">0</span>)</button>
-            <button class="filter-tab" id="tabFilterEnabled" onclick="setViewFilter('ENABLED')">Enabled (<span id="countEnabled">0</span>)</button>
-            <button class="filter-tab" id="tabFilterDisabled" onclick="setViewFilter('DISABLED')">Disabled (<span id="countDisabled">0</span>)</button>
-            <button class="filter-tab" id="tabFilterActive" onclick="setViewFilter('ACTIVE')">Active (<span id="countActive">0</span>)</button>
-            <button class="filter-tab" id="tabFilterStopped" onclick="setViewFilter('STOPPED')">Stopped (<span id="countStopped">0</span>)</button>
+            <button class="filter-tab active" id="tabFilterAll" onclick="setViewFilter('ALL')"><span data-i18n="tab.all">All</span> (<span id="countAll">0</span>)</button>
+            <button class="filter-tab" id="tabFilterEnabled" onclick="setViewFilter('ENABLED')"><span data-i18n="tab.enabled">Enabled</span> (<span id="countEnabled">0</span>)</button>
+            <button class="filter-tab" id="tabFilterDisabled" onclick="setViewFilter('DISABLED')"><span data-i18n="tab.disabled">Disabled</span> (<span id="countDisabled">0</span>)</button>
+            <button class="filter-tab" id="tabFilterActive" onclick="setViewFilter('ACTIVE')"><span data-i18n="tab.active">Active</span> (<span id="countActive">0</span>)</button>
+            <button class="filter-tab" id="tabFilterStopped" onclick="setViewFilter('STOPPED')"><span data-i18n="tab.stopped">Stopped</span> (<span id="countStopped">0</span>)</button>
         </div>
 
         <!-- Search Bar -->
@@ -699,12 +801,12 @@
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" id="searchInput" placeholder="Search package name..." oninput="onSearchInput()">
+            <input type="text" id="searchInput" placeholder="Search package name..." data-i18n-ph="search.placeholder" oninput="onSearchInput()">
         </div>
 
         <!-- Dynamic App List -->
         <div class="app-list" id="appList" onscroll="handleListScroll()">
-            <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">Loading applications...</div>
+            <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;" data-i18n="list.loading">Loading applications...</div>
         </div>
     </div>
 </div>
@@ -712,13 +814,207 @@
 <!-- Floating Save Bar -->
 <div class="save-bar">
     <div>
-        <div style="font-size: 0.78rem; font-weight: 600;" id="saveBarStatus">Changes Ready</div>
-        <div style="font-size: 0.65rem; color: var(--text-muted);">Syncs live without reboot</div>
+        <div style="font-size: 0.78rem; font-weight: 600;" id="saveBarStatus" data-i18n="save.ready">Changes Ready</div>
+        <div style="font-size: 0.65rem; color: var(--text-muted);" data-i18n="save.hint">Syncs live without reboot</div>
     </div>
-    <button class="save-btn" onclick="saveConfiguration()">Save Changes</button>
+    <button class="save-btn" onclick="saveConfiguration()" data-i18n="save.button">Save Changes</button>
 </div>
 
 <script>
+    /* =========================================================================
+     * Localization
+     * Strings live in webroot/lang/<code>.json and lang/index.json lists what
+     * ships, so adding a language is one file plus one line - no edit to this
+     * page. The markup itself carries English, so the UI stays readable even
+     * when the dictionaries cannot be fetched at all.
+     * ====================================================================== */
+    const LANG_KEY = 'fcm_ui_lang';
+    const DEFAULT_LANG = 'en';
+    let LANG = DEFAULT_LANG;
+    let LANGS = [{ code: 'en', name: 'English' }];
+    const DICT = {};
+
+    function store(key, value) {
+        try { localStorage.setItem(key, value); } catch (e) { /* storage may be unavailable */ }
+    }
+
+    function restore(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+
+    async function loadJson(path) {
+        const res = await fetch(path, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(path + ': HTTP ' + res.status);
+        return res.json();
+    }
+
+    // Dictionaries are cached, so a later fetch failure (or a WebView that
+    // blocks the request) keeps the last known translation instead of falling
+    // back to raw keys.
+    async function loadDict(code) {
+        if (DICT[code]) return DICT[code];
+        try {
+            const data = await loadJson('lang/' + code + '.json');
+            DICT[code] = data;
+            store('fcm_lang_' + code, JSON.stringify(data));
+            return data;
+        } catch (e) {
+            const cached = restore('fcm_lang_' + code);
+            if (cached) {
+                try {
+                    DICT[code] = JSON.parse(cached);
+                    return DICT[code];
+                } catch (e2) { /* corrupt cache, ignore */ }
+            }
+            console.warn('i18n: cannot load ' + code, e);
+            return null;
+        }
+    }
+
+    function t(key, vars) {
+        const table = DICT[LANG] || {};
+        const base = DICT[DEFAULT_LANG] || {};
+        let str = (key in table) ? table[key] : ((key in base) ? base[key] : key);
+        if (vars) {
+            Object.keys(vars).forEach(k => {
+                str = str.split('{' + k + '}').join(vars[k]);
+            });
+        }
+        return str;
+    }
+
+    function detectLang() {
+        const saved = restore(LANG_KEY);
+        if (saved && LANGS.some(l => l.code === saved)) return saved;
+        const nav = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+        const exact = LANGS.find(l => nav === l.code.toLowerCase());
+        const base = LANGS.find(l => nav.split('-')[0] === l.code.toLowerCase());
+        return (exact || base || { code: DEFAULT_LANG }).code;
+    }
+
+    function renderLangOptions() {
+        const sel = document.getElementById('langSelect');
+        if (!sel) return;
+        sel.innerHTML = LANGS.map(l =>
+            '<option value="' + l.code + '">' + l.name + '</option>').join('');
+        sel.value = LANG;
+    }
+
+    function applyI18n() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            el.textContent = t(el.getAttribute('data-i18n'));
+        });
+        document.querySelectorAll('[data-i18n-html]').forEach(el => {
+            el.innerHTML = t(el.getAttribute('data-i18n-html'));
+        });
+        document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+            el.placeholder = t(el.getAttribute('data-i18n-ph'));
+        });
+        document.documentElement.lang = LANG;
+        const sel = document.getElementById('langSelect');
+        if (sel) sel.value = LANG;
+    }
+
+    async function setLang(code) {
+        LANG = code;
+        store(LANG_KEY, code);
+        await loadDict(code);
+        applyI18n();
+        updateModeUI();
+        if (installedApps.length) filterApps(); else loadStatus();
+        renderRomStatus();
+    }
+
+    async function initI18n() {
+        try {
+            const list = await loadJson('lang/index.json');
+            if (Array.isArray(list) && list.length) LANGS = list;
+        } catch (e) {
+            console.warn('i18n: language index unavailable', e);
+        }
+        LANG = detectLang();
+        renderLangOptions();
+        await loadDict(DEFAULT_LANG);
+        if (LANG !== DEFAULT_LANG) await loadDict(LANG);
+        applyI18n();
+    }
+
+    /* =========================================================================
+     * Framework patch state (OTA guard)
+     * ====================================================================== */
+    const MODDIR = '/data/adb/modules/fcm_notification_fix';
+    let romState = null;
+
+    async function refreshRomStatus() {
+        const res = await execCommand(`sh ${MODDIR}/repatch.sh status 2>/dev/null`);
+        const kv = {};
+        (res.stdout || '').split('\n').forEach(line => {
+            const i = line.indexOf('=');
+            if (i > 0) kv[line.substring(0, i).trim()] = line.substring(i + 1).trim();
+        });
+        romState = kv.state ? kv : null;
+        renderRomStatus();
+    }
+
+    function renderRomStatus() {
+        const badge = document.getElementById('romBadge');
+        const hint = document.getElementById('romHint');
+        const btn = document.getElementById('btnRepatch');
+        if (!badge || !hint || !btn) return;
+
+        if (!romState) {
+            badge.textContent = t('rom.state.checking');
+            badge.className = 'status-pill status-stopped';
+            hint.innerHTML = t('rom.hint.unavailable');
+            btn.style.display = 'none';
+            return;
+        }
+
+        document.getElementById('romCurrent').textContent = romState.current || '—';
+        document.getElementById('romStored').textContent = romState.stored || '—';
+        document.getElementById('romLive').textContent =
+            romState.active === 'yes' ? t('rom.live.patched') : t('rom.live.stock');
+
+        const state = romState.state;
+        badge.textContent = t('rom.state.' + state);
+        badge.className = 'status-pill ' + (
+            state === 'ok' ? 'status-running' :
+            state === 'failed' ? 'status-stopped' : 'status-warn'
+        );
+        hint.innerHTML = t('rom.hint.' + state) + (
+            state === 'failed' && romState.last ? '<br><code>' + romState.last + '</code>' : ''
+        );
+
+        if (state === 'reboot') {
+            btn.style.display = '';
+            btn.textContent = t('rom.reboot');
+            btn.onclick = () => execCommand('svc power reboot || reboot');
+        } else {
+            btn.textContent = t('rom.repatch');
+            btn.onclick = runRepatch;
+            btn.style.display = (state === 'pending' || state === 'failed') ? '' : 'none';
+        }
+    }
+
+    async function runRepatch() {
+        const btn = document.getElementById('btnRepatch');
+        btn.disabled = true;
+        showToast(t('rom.toast.started'));
+        if (romState) { romState.state = 'running'; renderRomStatus(); }
+
+        const res = await execCommand(`sh ${MODDIR}/repatch.sh run 2>&1`);
+        const out = res.stdout || '';
+        if (out.indexOf('RESULT=OK') !== -1) {
+            showToast(t('rom.toast.ok'));
+        } else if (out.indexOf('RESULT=BUSY') !== -1) {
+            showToast(t('rom.toast.busy'));
+        } else {
+            showToast(t('rom.toast.fail'));
+        }
+        btn.disabled = false;
+        refreshRomStatus();
+    }
+
     // Universal KernelSU / APatch / Magisk Execution Bridge
     let cbCounter = 0;
     function execCommand(cmd) {
@@ -871,7 +1167,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         } catch (e) {
             console.error('Failed to load status:', e);
             document.getElementById('appList').innerHTML = 
-                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">Failed to initialize WebUI bridge.<br><small>${e.message}</small></div>`;
+                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">${t('bridge.fail')}<br><small>${e.message}</small></div>`;
         }
     }
 
@@ -894,7 +1190,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             const pkg = badge.getAttribute('data-badge-pkg');
             const isStopped = stoppedApps.has(pkg);
             badge.className = `status-pill ${isStopped ? 'status-stopped' : 'status-running'}`;
-            badge.textContent = isStopped ? 'STOPPED' : 'ACTIVE';
+            badge.textContent = isStopped ? t('pill.stopped') : t('pill.active');
         });
     }
 
@@ -941,26 +1237,26 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         btnBlack.className = 'mode-btn' + (currentMode === 'BLACKLIST' ? ' active blacklist' : '');
 
         if (currentMode === 'ALL') {
-            badge.textContent = 'ALLOW ALL';
+            badge.textContent = t('badge.all');
             badge.className = 'status-pill status-running';
             badge.style.background = '';
             badge.style.color = '';
-            desc.innerHTML = '<strong>Allow All</strong>: All apps receive C2DM wake flag (<code>0x20</code>). Every stopped app wakes on push.';
-            listTitle.textContent = 'Installed Apps';
+            desc.innerHTML = t('mode.desc.all');
+            listTitle.textContent = t('list.title.all');
         } else if (currentMode === 'WHITELIST') {
-            badge.textContent = 'WHITELIST';
+            badge.textContent = t('badge.whitelist');
             badge.className = 'status-pill';
             badge.style.background = 'rgba(6, 182, 212, 0.2)';
             badge.style.color = '#22d3ee';
-            desc.innerHTML = '<strong>Whitelist</strong>: ONLY checked apps will wake up and thaw on pushes. Unchecked apps stay strictly stopped.';
-            listTitle.textContent = 'Allowed Packages';
+            desc.innerHTML = t('mode.desc.whitelist');
+            listTitle.textContent = t('list.title.whitelist');
         } else if (currentMode === 'BLACKLIST') {
-            badge.textContent = 'BLACKLIST';
+            badge.textContent = t('badge.blacklist');
             badge.className = 'status-pill';
             badge.style.background = 'rgba(244, 63, 94, 0.2)';
             badge.style.color = '#fb7185';
-            desc.innerHTML = '<strong>Blacklist</strong>: Checked apps are BLOCKED from waking or thawing on pushes. All other apps wake up normally.';
-            listTitle.textContent = 'Blocked Packages';
+            desc.innerHTML = t('mode.desc.blacklist');
+            listTitle.textContent = t('list.title.blacklist');
         }
 
         updateCounts();
@@ -984,7 +1280,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         document.getElementById('countDisabled').textContent = disabled;
         document.getElementById('countActive').textContent = activeCount;
         document.getElementById('countStopped').textContent = stoppedCount;
-        document.getElementById('selectedCount').textContent = `${enabled} SELECTED`;
+        document.getElementById('selectedCount').textContent = t('pill.selected', { n: enabled });
     }
 
     function onSearchInput() {
@@ -998,7 +1294,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
 
         if (installedApps.length === 0) {
-            document.getElementById('appList').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">No third-party apps found.</div>`;
+            document.getElementById('appList').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;">${t('list.empty')}</div>`;
             return;
         }
 
@@ -1022,7 +1318,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         listEl.innerHTML = '';
 
         if (filteredApps.length === 0) {
-            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.75rem;">No apps matching current filter.</div>`;
+            listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 20px; font-size: 0.75rem;">${t('list.noMatch')}</div>`;
             updateCounts();
             return;
         }
@@ -1044,7 +1340,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
                     </span>
                 </div>
                 <div class="app-actions">
-                    <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? 'STOPPED' : 'ACTIVE'}</span>
+                    <span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? t('pill.stopped') : t('pill.active')}</span>
                     <label class="switch" onclick="event.stopPropagation()">
                         <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleApp('${pkg}', this.checked)">
                         <span class="slider ${sliderClass}"></span>
@@ -1090,7 +1386,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         sentinel.style.textAlign = 'center';
         sentinel.style.color = 'var(--text-muted)';
         sentinel.style.fontSize = '0.68rem';
-        sentinel.textContent = `Scroll for more (${renderedCount}/${filteredApps.length})...`;
+        sentinel.textContent = t('list.more', { a: renderedCount, b: filteredApps.length });
         listEl.appendChild(sentinel);
 
         if ('IntersectionObserver' in window) {
@@ -1155,9 +1451,9 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
     function copyPkg(event, pkg) {
         if (event) event.stopPropagation();
         copyText(pkg).then(() => {
-            showToast(`Copied ${pkg} 📋`);
+            showToast(t('toast.copied', { pkg }));
         }).catch(() => {
-            showToast(`Package: ${pkg}`);
+            showToast(t('toast.pkg', { pkg }));
         });
     }
 
@@ -1170,7 +1466,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             }
         });
         filterApps();
-        showToast(`Selected ${count} Recommended Apps (Bank, Chat, Mail, 2FA) ✓`);
+        showToast(t('toast.recommended', { n: count }));
     }
 
     function selectAll(val) {
@@ -1190,8 +1486,8 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         const help = document.getElementById('modalHelp');
         const applyBtn = document.getElementById('modalApplyBtn');
 
-        title.textContent = '📥 Import Package Preset';
-        help.textContent = 'Tap below, long-press to Paste, or type packages (separated by newlines or commas):';
+        title.textContent = t('modal.title.import');
+        help.textContent = t('modal.help.import');
         textarea.value = '';
         applyBtn.style.display = 'inline-flex';
         modal.classList.add('show');
@@ -1201,12 +1497,12 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
     function exportToClipboard() {
         const pkgList = Array.from(selectedApps).join('\n');
         if (!pkgList) {
-            showToast('No packages selected to export');
+            showToast(t('toast.noExport'));
             return;
         }
 
         copyText(pkgList).then(() => {
-            showToast(`Copied ${selectedApps.size} packages to clipboard ✓`);
+            showToast(t('toast.exported', { n: selectedApps.size }));
         }).catch(() => {
             const modal = document.getElementById('ioModal');
             const textarea = document.getElementById('modalTextarea');
@@ -1214,8 +1510,8 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             const help = document.getElementById('modalHelp');
             const applyBtn = document.getElementById('modalApplyBtn');
 
-            title.textContent = '📋 Exported Packages';
-            help.textContent = 'Copy the selected packages below:';
+            title.textContent = t('modal.title.export');
+            help.textContent = t('modal.help.export');
             textarea.value = pkgList;
             applyBtn.style.display = 'none';
             modal.classList.add('show');
@@ -1237,7 +1533,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
     function applyImport() {
         const rawText = document.getElementById('modalTextarea').value;
         if (!rawText.trim()) {
-            showToast('No packages entered');
+            showToast(t('toast.noInput'));
             return;
         }
 
@@ -1253,7 +1549,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
 
         filterApps();
         closeModal();
-        showToast(`Imported & selected ${matchCount} matching apps ✓`);
+        showToast(t('toast.imported', { n: matchCount }));
     }
 
     function copyText(str) {
@@ -1294,12 +1590,12 @@ chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
 `;
             const res = await execCommand(cmd);
             if (res.success || res.errno === 0) {
-                showToast('Configuration Saved ✓');
+                showToast(t('toast.saved'));
             } else {
-                alert('Error saving: ' + res.stderr);
+                alert(t('alert.saveError') + res.stderr);
             }
         } catch (e) {
-            alert('Failed to save: ' + e.message);
+            alert(t('alert.saveFail') + e.message);
         }
     }
 
@@ -1310,8 +1606,12 @@ chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
         setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
-    // Initialize
-    loadStatus();
+    // Initialize: dictionaries first, so nothing renders in raw keys
+    initI18n().finally(() => {
+        updateModeUI();
+        loadStatus();
+        refreshRomStatus();
+    });
 </script>
 
 </body>

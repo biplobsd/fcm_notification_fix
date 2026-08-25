@@ -61,20 +61,16 @@ if [ "$IS_XIAOMI" != "true" ]; then
     abort_install "Non-Xiaomi device detected ($MANUFACTURER)."
 fi
 
-# Detect OS & Region Profile
-OS_TYPE="hyperos"
-[ "$API_LEVEL" -eq 33 ] && OS_TYPE="miui14"
-
-REGION_TYPE="global"
-case "$INCREMENTAL" in
-    *CNXM*|*cnxm*) REGION_TYPE="cn" ;;
-esac
-REGION_PROP=$(getprop ro.miui.region | tr '[:upper:]' '[:lower:]')
-[ "$REGION_PROP" = "cn" ] && REGION_TYPE="cn"
+# Detect OS & Region Profile. The detection lives in common.sh so that the
+# post-OTA re-patch resolves exactly the same patcher strategy as this install.
+. "$MODPATH/common.sh"
+detect_rom_profile
+OS_TYPE="$ROM_OS"
+REGION_TYPE="$ROM_REGION"
 
 # Guard against unsupported profiles
-if [ "$OS_TYPE" = "hyperos" ] && [ "$REGION_TYPE" = "global" ]; then
-    abort_install "HyperOS Global patcher is not available (only HyperOS China is currently supported)."
+if ! PROFILE_REASON="$(rom_profile_supported)"; then
+    abort_install "$PROFILE_REASON"
 fi
 
 # 3. Locate Dalvik / ART Runtime
@@ -116,11 +112,7 @@ OLD_MOD_DIR="/data/adb/modules/$MODULE_ID"
 STOCK_DIR="$MODPATH/stock"
 STASH_STATUS="none"   # none | kept | created | carried | skipped
 
-is_stock_jar() {
-    # FcmWakeFilter exists only in this module's patched output; framework dex
-    # entries are ZIP-stored uncompressed, so the class name is greppable.
-    [ "$(grep -ac FcmWakeFilter "$1" 2>/dev/null)" = "0" ]
-}
+# is_stock_jar() comes from common.sh (shared with repatch.sh)
 
 # Carry an existing stash forward so it survives the modules_update swap
 if [ -f "$OLD_MOD_DIR/stock/services.jar" ] && [ -f "$OLD_MOD_DIR/stock/miui-services.jar" ]; then
@@ -219,13 +211,19 @@ ui_print "- [PASS] All patch checkpoints verified successfully!"
 ui_print "- Performing atomic swap into module filesystem..."
 
 # 7. Atomic Swap into Module Overlay Structure
+# The patched miui-services.jar has to land where this ROM actually reads it:
+# HyperOS serves it from /system_ext, older MIUI builds from /system/framework.
 mkdir -p "$MODPATH/system/framework"
-mkdir -p "$MODPATH/system_ext/framework"
-mkdir -p "$MODPATH/system/system_ext/framework"
-
 cp "$STAGE_DIR/services.jar" "$MODPATH/system/framework/services.jar"
-cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system_ext/framework/miui-services.jar"
-cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/system_ext/framework/miui-services.jar"
+
+if [ "$MIUI_SERVICES_STOCK" = "/system/framework/miui-services.jar" ]; then
+    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/framework/miui-services.jar"
+else
+    mkdir -p "$MODPATH/system_ext/framework"
+    mkdir -p "$MODPATH/system/system_ext/framework"
+    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system_ext/framework/miui-services.jar"
+    cp "$STAGE_DIR/miui-services.jar" "$MODPATH/system/system_ext/framework/miui-services.jar"
+fi
 
 # Initialize default FCM dynamic filter config if not existing
 CONF_FILE="/data/system/fcm_wake.conf"
@@ -240,91 +238,31 @@ EOF
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
-# 7.5 Pre-compile system_server AOT cache (dex2oat)
-DEX2OAT_BIN=""
-if [ -f "/apex/com.android.art/bin/dex2oat64" ]; then
-    DEX2OAT_BIN="/apex/com.android.art/bin/dex2oat64"
-elif [ -f "/system/bin/dex2oat64" ]; then
-    DEX2OAT_BIN="/system/bin/dex2oat64"
-elif [ -f "/apex/com.android.art/bin/dex2oat" ]; then
-    DEX2OAT_BIN="/apex/com.android.art/bin/dex2oat"
-elif [ -f "/system/bin/dex2oat" ]; then
-    DEX2OAT_BIN="/system/bin/dex2oat"
-fi
+# Keep the patch engine inside the module: after an OTA the firmware guard in
+# post-fs-data.sh skips every mount, and repatch.sh needs the engine to rebuild
+# the jars against the new firmware without a re-flash.
+# (~1.3 MB; delete tools/ manually if you prefer the lean ~30 KB module.)
 
-if [ -n "$DEX2OAT_BIN" ]; then
-    ARCH=$(getprop ro.bionic.arch)
-    [ -z "$ARCH" ] && ARCH="arm64"
+# Record the firmware this patch was built against - the OTA guard compares it
+# with the running build on every boot.
+getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
+rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
+rm -f "$MODPATH/skip_mount"
 
-    ui_print "- Pre-compiling system_server native AOT cache (dex2oat on $ARCH)..."
-    mkdir -p "/data/dalvik-cache/$ARCH"
-
-    SERVICES_OAT_NAME="$(echo "$SERVICES_STOCK" | sed 's|^/||; s|/|@|g')@classes.dex"
-    MIUI_OAT_NAME="$(echo "$MIUI_SERVICES_STOCK" | sed 's|^/||; s|/|@|g')@classes.dex"
-
-    # Dynamically resolve SYSTEMSERVERCLASSPATH from environment or live system_server process
-    SSCP="$SYSTEMSERVERCLASSPATH"
-    if [ -z "$SSCP" ]; then
-        SSPID=$(pidof system_server)
-        [ -n "$SSPID" ] && SSCP=$(cat /proc/$SSPID/environ 2>/dev/null | tr '\0' '\n' | grep '^SYSTEMSERVERCLASSPATH=' | cut -d= -f2-)
-        [ -z "$SSCP" ] && SSCP=$(cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep '^SYSTEMSERVERCLASSPATH=' | cut -d= -f2-)
-    fi
-
-    get_clc_for_jar() {
-        target="$1"
-        res=""
-        OLD_IFS="$IFS"
-        IFS=:
-        for j in $SSCP; do
-            if [ "$j" = "$target" ] || [ "$(basename "$j")" = "$(basename "$target")" ]; then
-                break
-            fi
-            if [ -n "$res" ]; then
-                res="$res:$j"
-            else
-                res="$j"
-            fi
-        done
-        IFS="$OLD_IFS"
-        echo "PCL[$res]"
-    }
-
-    SERVICES_CLC=$(get_clc_for_jar "$SERVICES_STOCK")
-    MIUI_CLC=$(get_clc_for_jar "$MIUI_SERVICES_STOCK")
-
-    "$DEX2OAT_BIN" \
-        --instruction-set="$ARCH" \
-        --dex-file="$STAGE_DIR/services.jar" \
-        --dex-location="$SERVICES_STOCK" \
-        --oat-file="/data/dalvik-cache/$ARCH/$SERVICES_OAT_NAME" \
-        --compiler-filter=speed \
-        --class-loader-context="$SERVICES_CLC" \
-        --generate-mini-debug-info >/dev/null 2>&1 || true
-
-    "$DEX2OAT_BIN" \
-        --instruction-set="$ARCH" \
-        --dex-file="$STAGE_DIR/miui-services.jar" \
-        --dex-location="$MIUI_SERVICES_STOCK" \
-        --oat-file="/data/dalvik-cache/$ARCH/$MIUI_OAT_NAME" \
-        --compiler-filter=speed \
-        --class-loader-context="$MIUI_CLC" \
-        --generate-mini-debug-info >/dev/null 2>&1 || true
-
-    chmod 0644 /data/dalvik-cache/"$ARCH"/*services* 2>/dev/null || true
-    chown root:root /data/dalvik-cache/"$ARCH"/*services* 2>/dev/null || true
-    chcon u:object_r:dalvikcache_data_file:s0 /data/dalvik-cache/"$ARCH"/*services* 2>/dev/null || true
-    ui_print "- [PASS] Native AOT speed compilation complete."
-fi
-
-# Remove tools directory to keep installed module lean (~30KB)
-rm -rf "$MODPATH/tools"
+# Signal post-fs-data to purge stale dalvik-cache once on first boot
+touch "$MODPATH/wipe_cache_once"
 
 # 8. Apply File Permissions and SELinux Attributes
-set_perm "$MODPATH/system/framework/services.jar" 0 0 0644 "u:object_r:system_file:s0"
-set_perm "$MODPATH/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:system_file:s0"
-set_perm "$MODPATH/system/system_ext/framework/miui-services.jar" 0 0 0644 "u:object_r:system_file:s0"
+for jar in "$MODPATH/system/framework/services.jar" \
+           "$MODPATH/system/framework/miui-services.jar" \
+           "$MODPATH/system_ext/framework/miui-services.jar" \
+           "$MODPATH/system/system_ext/framework/miui-services.jar"; do
+    [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
+done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
+[ -f "$MODPATH/repatch.sh" ] && set_perm "$MODPATH/repatch.sh" 0 0 0755
+[ -f "$MODPATH/common.sh" ] && set_perm "$MODPATH/common.sh" 0 0 0755
 
 if [ -d "$MODPATH/webroot" ]; then
     set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
@@ -340,5 +278,7 @@ case "$STASH_STATUS" in
     created) ui_print "- Pristine stock jars stashed inside module for future upgrades (~$(du -k "$STOCK_DIR" 2>/dev/null | cut -f1 | tail -n1) KB)" ;;
 esac
 
+ui_print "- Firmware recorded: $(getprop ro.build.version.incremental)"
+ui_print "- After an OTA the module stays unmounted and re-patches itself on the next boot"
 ui_print "- [PASS] Atomic swap completed. Module ready!"
 ui_print "***********************************************"

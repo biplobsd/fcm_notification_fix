@@ -7,6 +7,17 @@ until [ "$(getprop sys.boot_completed)" = "1" ]; do
 done
 
 # ==============================================================================
+# 0. Post-OTA Re-Patch
+# ==============================================================================
+# When the firmware build changed under the module, post-fs-data.sh skipped every
+# framework mount and left a pending flag: the device is running stock. Re-patch
+# against the new stock jars in the background and notify the user to reboot. On
+# failure the device simply stays stock and the state remains visible in the WebUI.
+if [ -f "$MODDIR/repatch_pending" ] && [ -f "$MODDIR/repatch.sh" ]; then
+    ( sleep 20; sh "$MODDIR/repatch.sh" run ) >/dev/null 2>&1 &
+fi
+
+# ==============================================================================
 # 1. Global Lockscreen & Always-On Display (AOD) Notification Lighting & Wakeup
 # ==============================================================================
 # Wake screen / Light up screen on notification:
