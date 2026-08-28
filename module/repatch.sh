@@ -64,10 +64,6 @@ clear_stale_running() {
     fi
 }
 
-# Where the patched miui-services.jar has to land for this ROM layout.
-miui_dests() {
-    module_dest_paths "$MODDIR" "$MIUI_LIVE"
-}
 
 cmd_status() {
     clear_stale_running
@@ -179,15 +175,13 @@ cmd_run() {
         return 1
     fi
 
-    mkdir -p "$MODDIR/system/framework"
-    cp -f "$STAGE_DIR/services.jar" "$MODDIR/system/framework/services.jar"
+    mkdir -p "$MODDIR/framework"
+    cp -f "$STAGE_DIR/services.jar" "$MODDIR/framework/services.jar"
+    cp -f "$STAGE_DIR/miui-services.jar" "$MODDIR/framework/miui-services.jar"
 
-    for dest in $(miui_dests); do
-        mkdir -p "${dest%/*}"
-        cp -f "$STAGE_DIR/miui-services.jar" "$dest"
-    done
+    rm -rf "$MODDIR/system" "$MODDIR/system_ext"
 
-    for f in "$MODDIR/system/framework/services.jar" $(miui_dests); do
+    for f in "$MODDIR/framework/services.jar" "$MODDIR/framework/miui-services.jar"; do
         [ -f "$f" ] || continue
         chown 0:0 "$f" 2>/dev/null
         chmod 0644 "$f" 2>/dev/null
@@ -213,10 +207,10 @@ cmd_run() {
     echo "$CUR" > "$MODDIR/rom.fingerprint"
     rm -f "$FLAG_PENDING" "$FLAG_RUNNING"
     touch "$FLAG_REBOOT"
+    touch "$SKIP_MOUNT"
     rm -rf "$STAGE_DIR"
 
-    # skip_mount stays until the next boot: post-fs-data.sh removes it once the
-    # recorded fingerprint matches again, so nothing is served this boot.
+    # Stealth in-memory tmpfs mount will be activated by post-fs-data.sh on next boot
     log "re-patch OK for firmware $CUR - reboot required to serve the new jars"
     notify "Framework re-patched for firmware $CUR. Reboot to re-enable push notification fixes."
     echo "RESULT=OK"

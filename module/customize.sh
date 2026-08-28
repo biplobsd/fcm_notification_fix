@@ -197,15 +197,13 @@ ui_print ""
 ui_print "- [PASS] All patch checkpoints verified successfully!"
 ui_print "- Performing atomic swap into module filesystem..."
 
-# 7. Atomic Swap into Module Overlay Structure
-mkdir -p "$MODPATH/system/framework"
-cp "$STAGE_DIR/services.jar" "$MODPATH/system/framework/services.jar"
+# 7. Atomic Swap into Module Framework Directory
+mkdir -p "$MODPATH/framework"
+cp "$STAGE_DIR/services.jar" "$MODPATH/framework/services.jar"
+cp "$STAGE_DIR/miui-services.jar" "$MODPATH/framework/miui-services.jar"
 
-# Stage miui-services.jar dynamically into all derived module overlay paths
-for dest in $(module_dest_paths "$MODPATH" "$MIUI_SERVICES_STOCK"); do
-    mkdir -p "${dest%/*}"
-    cp "$STAGE_DIR/miui-services.jar" "$dest"
-done
+# Purge any legacy disk overlay directories
+rm -rf "$MODPATH/system" "$MODPATH/system_ext"
 
 # Initialize default FCM dynamic filter config if not existing
 CONF_FILE="/data/system/fcm_wake.conf"
@@ -239,10 +237,10 @@ fi
 # with the running build on every boot.
 getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
 rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
-rm -f "$MODPATH/skip_mount"
+touch "$MODPATH/skip_mount"
 
 # 8. Apply File Permissions and SELinux Attributes
-for jar in "$MODPATH/system/framework/services.jar" $(module_dest_paths "$MODPATH" "$MIUI_SERVICES_STOCK"); do
+for jar in "$MODPATH/framework/services.jar" "$MODPATH/framework/miui-services.jar"; do
     [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
 done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
