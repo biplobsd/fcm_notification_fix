@@ -61,30 +61,6 @@ live_miui_services() {
     done
 }
 
-# Returns all module destination paths for a given framework jar path,
-# handling both direct overlay paths (KernelSU/APatch) and Magisk /system mirrors.
-module_dest_paths() {
-    _base_dir="$1"
-    _stock_path="$2"
-    [ -z "$_stock_path" ] && return 0
-
-    # Primary path matching stock layout (e.g. $MODDIR/system_ext/...)
-    echo "$_base_dir$_stock_path"
-
-    # Mirror for Magisk compatibility if target is outside /system
-    case "$_stock_path" in
-        /system/system_ext/*|/system/product/*)
-            # If stock path was already nested in /system, also emit un-nested path for direct overlays
-            echo "$_base_dir${_stock_path#/system}"
-            ;;
-        /system/*)
-            ;;
-        *)
-            # If stock was top-level (/system_ext, /product), emit Magisk system/ mirror
-            echo "$_base_dir/system$_stock_path"
-            ;;
-    esac
-}
 
 # Pre-compiles system_server framework jars with dex2oat using full speed AOT
 # so that the runtime never suffers from interpreter or JIT lag.

@@ -197,15 +197,34 @@ ui_print ""
 ui_print "- [PASS] All patch checkpoints verified successfully!"
 ui_print "- Performing atomic swap into module filesystem..."
 
-# 7. Atomic Swap into Module Overlay Structure
-mkdir -p "$MODPATH/system/framework"
-cp "$STAGE_DIR/services.jar" "$MODPATH/system/framework/services.jar"
+# 7. Atomic Swap into Module Framework Directory
+PUB_DIR="$MODPATH/framework_staging_$$"
+rm -rf "$PUB_DIR"
+mkdir -p "$PUB_DIR"
 
-# Stage miui-services.jar dynamically into all derived module overlay paths
-for dest in $(module_dest_paths "$MODPATH" "$MIUI_SERVICES_STOCK"); do
-    mkdir -p "${dest%/*}"
-    cp "$STAGE_DIR/miui-services.jar" "$dest"
-done
+PUB_OK=1
+cp -f "$STAGE_DIR/services.jar" "$PUB_DIR/services.jar" || PUB_OK=0
+cp -f "$STAGE_DIR/miui-services.jar" "$PUB_DIR/miui-services.jar" || PUB_OK=0
+
+_sz_srv_src=$(wc -c < "$STAGE_DIR/services.jar" 2>/dev/null || echo 0)
+_sz_srv_pub=$(wc -c < "$PUB_DIR/services.jar" 2>/dev/null || echo 0)
+_sz_miui_src=$(wc -c < "$STAGE_DIR/miui-services.jar" 2>/dev/null || echo 0)
+_sz_miui_pub=$(wc -c < "$PUB_DIR/miui-services.jar" 2>/dev/null || echo 0)
+
+if [ "$PUB_OK" -ne 1 ] || \
+   [ "$_sz_srv_pub" -lt 1000000 ] || [ "$_sz_srv_pub" -ne "$_sz_srv_src" ] || \
+   [ "$_sz_miui_pub" -lt 1000000 ] || [ "$_sz_miui_pub" -ne "$_sz_miui_src" ]; then
+    rm -rf "$PUB_DIR"
+    abort_install "Failed to stage and validate patched framework JARs for publication."
+fi
+
+# Purge any legacy disk overlay directories and atomically replace framework
+rm -rf "$MODPATH/framework" "$MODPATH/system" "$MODPATH/system_ext"
+
+if ! mv "$PUB_DIR" "$MODPATH/framework"; then
+    rm -rf "$PUB_DIR"
+    abort_install "Failed to publish framework directory into module."
+fi
 
 # Initialize default FCM dynamic filter config if not existing
 CONF_FILE="/data/system/fcm_wake.conf"
@@ -222,7 +241,7 @@ fi
 
 # 7.5 Pre-compile system_server AOT cache (dex2oat)
 ui_print "- Pre-compiling system_server native AOT cache (dex2oat)..."
-if compile_aot_cache "$STAGE_DIR/services.jar" "$SERVICES_STOCK" "$STAGE_DIR/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
+if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
     ui_print "- [PASS] Native AOT speed compilation complete."
     rm -f "$MODPATH/wipe_cache_once"
 else
@@ -239,10 +258,10 @@ fi
 # with the running build on every boot.
 getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
 rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
-rm -f "$MODPATH/skip_mount"
+touch "$MODPATH/skip_mount"
 
 # 8. Apply File Permissions and SELinux Attributes
-for jar in "$MODPATH/system/framework/services.jar" $(module_dest_paths "$MODPATH" "$MIUI_SERVICES_STOCK"); do
+for jar in "$MODPATH/framework/services.jar" "$MODPATH/framework/miui-services.jar"; do
     [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
 done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755

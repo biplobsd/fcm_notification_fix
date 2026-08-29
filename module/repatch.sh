@@ -64,10 +64,6 @@ clear_stale_running() {
     fi
 }
 
-# Where the patched miui-services.jar has to land for this ROM layout.
-miui_dests() {
-    module_dest_paths "$MODDIR" "$MIUI_LIVE"
-}
 
 cmd_status() {
     clear_stale_running
@@ -179,20 +175,46 @@ cmd_run() {
         return 1
     fi
 
-    mkdir -p "$MODDIR/system/framework"
-    cp -f "$STAGE_DIR/services.jar" "$MODDIR/system/framework/services.jar"
+    PUB_DIR="$MODDIR/framework_staging_$$"
+    rm -rf "$PUB_DIR"
+    mkdir -p "$PUB_DIR"
 
-    for dest in $(miui_dests); do
-        mkdir -p "${dest%/*}"
-        cp -f "$STAGE_DIR/miui-services.jar" "$dest"
+    PUB_OK=1
+    cp -f "$STAGE_DIR/services.jar" "$PUB_DIR/services.jar" || PUB_OK=0
+    cp -f "$STAGE_DIR/miui-services.jar" "$PUB_DIR/miui-services.jar" || PUB_OK=0
+
+    _sz_srv_src=$(wc -c < "$STAGE_DIR/services.jar" 2>/dev/null || echo 0)
+    _sz_srv_pub=$(wc -c < "$PUB_DIR/services.jar" 2>/dev/null || echo 0)
+    _sz_miui_src=$(wc -c < "$STAGE_DIR/miui-services.jar" 2>/dev/null || echo 0)
+    _sz_miui_pub=$(wc -c < "$PUB_DIR/miui-services.jar" 2>/dev/null || echo 0)
+
+    if [ "$PUB_OK" -ne 1 ] || \
+       [ "$_sz_srv_pub" -lt 1000000 ] || [ "$_sz_srv_pub" -ne "$_sz_srv_src" ] || \
+       [ "$_sz_miui_pub" -lt 1000000 ] || [ "$_sz_miui_pub" -ne "$_sz_miui_src" ]; then
+        log "re-patch FAILED: staged framework JARs validation failed"
+        rm -rf "$PUB_DIR" "$STAGE_DIR"
+        rm -f "$FLAG_RUNNING"
+        touch "$FLAG_FAILED"
+        notify "Automatic re-patch failed on firmware $CUR: framework publication staging failed."
+        echo "RESULT=FAIL"
+        return 1
+    fi
+
+    for f in "$PUB_DIR/services.jar" "$PUB_DIR/miui-services.jar"; do
+        chown 0:0 "$f" 2>/dev/null || true
+        chmod 0644 "$f" 2>/dev/null || true
+        chcon u:object_r:system_file:s0 "$f" 2>/dev/null || true
     done
 
-    for f in "$MODDIR/system/framework/services.jar" $(miui_dests); do
-        [ -f "$f" ] || continue
-        chown 0:0 "$f" 2>/dev/null
-        chmod 0644 "$f" 2>/dev/null
-        chcon u:object_r:system_file:s0 "$f" 2>/dev/null
-    done
+    rm -rf "$MODDIR/framework" "$MODDIR/system" "$MODDIR/system_ext"
+    if ! mv "$PUB_DIR" "$MODDIR/framework"; then
+        log "re-patch FAILED: failed to move staged framework directory"
+        rm -rf "$PUB_DIR" "$STAGE_DIR"
+        rm -f "$FLAG_RUNNING"
+        touch "$FLAG_FAILED"
+        echo "RESULT=FAIL"
+        return 1
+    fi
 
     # Refresh the pristine stock stash so manual upgrades keep working
     if [ -d "$MODDIR/stock" ]; then
@@ -202,7 +224,7 @@ cmd_run() {
     fi
 
     # Pre-compile system_server AOT cache (dex2oat)
-    if compile_aot_cache "$STAGE_DIR/services.jar" "$SERVICES_LIVE" "$STAGE_DIR/miui-services.jar" "$MIUI_LIVE"; then
+    if compile_aot_cache "$MODDIR/framework/services.jar" "$SERVICES_LIVE" "$MODDIR/framework/miui-services.jar" "$MIUI_LIVE"; then
         log "native AOT speed compilation complete"
         rm -f "$MODDIR/wipe_cache_once"
     else
@@ -213,10 +235,10 @@ cmd_run() {
     echo "$CUR" > "$MODDIR/rom.fingerprint"
     rm -f "$FLAG_PENDING" "$FLAG_RUNNING"
     touch "$FLAG_REBOOT"
+    touch "$SKIP_MOUNT"
     rm -rf "$STAGE_DIR"
 
-    # skip_mount stays until the next boot: post-fs-data.sh removes it once the
-    # recorded fingerprint matches again, so nothing is served this boot.
+    # Stealth in-memory tmpfs mount will be activated by post-fs-data.sh on next boot
     log "re-patch OK for firmware $CUR - reboot required to serve the new jars"
     notify "Framework re-patched for firmware $CUR. Reboot to re-enable push notification fixes."
     echo "RESULT=OK"
