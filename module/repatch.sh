@@ -175,18 +175,46 @@ cmd_run() {
         return 1
     fi
 
-    mkdir -p "$MODDIR/framework"
-    cp -f "$STAGE_DIR/services.jar" "$MODDIR/framework/services.jar"
-    cp -f "$STAGE_DIR/miui-services.jar" "$MODDIR/framework/miui-services.jar"
+    PUB_DIR="$MODDIR/framework_staging_$$"
+    rm -rf "$PUB_DIR"
+    mkdir -p "$PUB_DIR"
 
-    rm -rf "$MODDIR/system" "$MODDIR/system_ext"
+    PUB_OK=1
+    cp -f "$STAGE_DIR/services.jar" "$PUB_DIR/services.jar" || PUB_OK=0
+    cp -f "$STAGE_DIR/miui-services.jar" "$PUB_DIR/miui-services.jar" || PUB_OK=0
 
-    for f in "$MODDIR/framework/services.jar" "$MODDIR/framework/miui-services.jar"; do
-        [ -f "$f" ] || continue
-        chown 0:0 "$f" 2>/dev/null
-        chmod 0644 "$f" 2>/dev/null
-        chcon u:object_r:system_file:s0 "$f" 2>/dev/null
+    _sz_srv_src=$(wc -c < "$STAGE_DIR/services.jar" 2>/dev/null || echo 0)
+    _sz_srv_pub=$(wc -c < "$PUB_DIR/services.jar" 2>/dev/null || echo 0)
+    _sz_miui_src=$(wc -c < "$STAGE_DIR/miui-services.jar" 2>/dev/null || echo 0)
+    _sz_miui_pub=$(wc -c < "$PUB_DIR/miui-services.jar" 2>/dev/null || echo 0)
+
+    if [ "$PUB_OK" -ne 1 ] || \
+       [ "$_sz_srv_pub" -lt 1000000 ] || [ "$_sz_srv_pub" -ne "$_sz_srv_src" ] || \
+       [ "$_sz_miui_pub" -lt 1000000 ] || [ "$_sz_miui_pub" -ne "$_sz_miui_src" ]; then
+        log "re-patch FAILED: staged framework JARs validation failed"
+        rm -rf "$PUB_DIR" "$STAGE_DIR"
+        rm -f "$FLAG_RUNNING"
+        touch "$FLAG_FAILED"
+        notify "Automatic re-patch failed on firmware $CUR: framework publication staging failed."
+        echo "RESULT=FAIL"
+        return 1
+    fi
+
+    for f in "$PUB_DIR/services.jar" "$PUB_DIR/miui-services.jar"; do
+        chown 0:0 "$f" 2>/dev/null || true
+        chmod 0644 "$f" 2>/dev/null || true
+        chcon u:object_r:system_file:s0 "$f" 2>/dev/null || true
     done
+
+    rm -rf "$MODDIR/framework" "$MODDIR/system" "$MODDIR/system_ext"
+    if ! mv "$PUB_DIR" "$MODDIR/framework"; then
+        log "re-patch FAILED: failed to move staged framework directory"
+        rm -rf "$PUB_DIR" "$STAGE_DIR"
+        rm -f "$FLAG_RUNNING"
+        touch "$FLAG_FAILED"
+        echo "RESULT=FAIL"
+        return 1
+    fi
 
     # Refresh the pristine stock stash so manual upgrades keep working
     if [ -d "$MODDIR/stock" ]; then
@@ -196,7 +224,7 @@ cmd_run() {
     fi
 
     # Pre-compile system_server AOT cache (dex2oat)
-    if compile_aot_cache "$STAGE_DIR/services.jar" "$SERVICES_LIVE" "$STAGE_DIR/miui-services.jar" "$MIUI_LIVE"; then
+    if compile_aot_cache "$MODDIR/framework/services.jar" "$SERVICES_LIVE" "$MODDIR/framework/miui-services.jar" "$MIUI_LIVE"; then
         log "native AOT speed compilation complete"
         rm -f "$MODDIR/wipe_cache_once"
     else

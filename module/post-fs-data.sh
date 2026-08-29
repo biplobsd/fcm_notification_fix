@@ -77,7 +77,11 @@ mount_stealth_jar() {
     fi
 
     chmod 644 "$_staged" 2>/dev/null || true
-    chcon u:object_r:system_file:s0 "$_staged" 2>/dev/null || true
+    if ! chcon u:object_r:system_file:s0 "$_staged" 2>/dev/null; then
+        umount -l "$TMP_DIR" 2>/dev/null || true
+        rm -rf "$TMP_DIR" 2>/dev/null
+        return 1
+    fi
 
     # Staging succeeded: safely replace the target mount
     umount "$_dst" 2>/dev/null || true
@@ -95,18 +99,14 @@ mount_stealth_jar() {
     return 0
 }
 
+SERVICES_DST="/system/framework/services.jar"
+
 # Resolve patched services.jar
 SERVICES_SRC=""
 if [ -f "$MODDIR/framework/services.jar" ]; then
     SERVICES_SRC="$MODDIR/framework/services.jar"
 elif [ -f "$MODDIR/system/framework/services.jar" ]; then
     SERVICES_SRC="$MODDIR/system/framework/services.jar"
-fi
-
-if [ -n "$SERVICES_SRC" ]; then
-    if ! mount_stealth_jar "$SERVICES_SRC" /system/framework/services.jar "services.jar"; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: failed to stealth-mount services.jar" >> "$MODDIR/repatch.log"
-    fi
 fi
 
 # Resolve patched miui-services.jar
@@ -139,8 +139,34 @@ else
 fi
 [ -z "$MIUI_DST" ] && MIUI_DST="/system_ext/framework/miui-services.jar"
 
-if [ -n "$MIUI_SRC" ] && [ -n "$MIUI_DST" ]; then
-    if ! mount_stealth_jar "$MIUI_SRC" "$MIUI_DST" "miui-services.jar"; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: failed to stealth-mount miui-services.jar to $MIUI_DST" >> "$MODDIR/repatch.log"
-    fi
+# Both source JARs and target destinations must be present and valid
+if [ -z "$SERVICES_SRC" ] || [ ! -f "$SERVICES_SRC" ] || [ ! -e "$SERVICES_DST" ] || \
+   [ -z "$MIUI_SRC" ] || [ ! -f "$MIUI_SRC" ] || [ -z "$MIUI_DST" ] || [ ! -e "$MIUI_DST" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: framework source or destination missing (services: $SERVICES_SRC -> $SERVICES_DST, miui: $MIUI_SRC -> $MIUI_DST)" >> "$MODDIR/repatch.log"
+    exit 0
+fi
+
+# Mount transactionally with automatic rollback on any failure
+MOUNTED_TARGETS=""
+
+rollback_mounts() {
+    for _tgt in $MOUNTED_TARGETS; do
+        umount -l "$_tgt" 2>/dev/null || umount "$_tgt" 2>/dev/null || true
+    done
+}
+
+if mount_stealth_jar "$SERVICES_SRC" "$SERVICES_DST" "services.jar"; then
+    MOUNTED_TARGETS="$MOUNTED_TARGETS $SERVICES_DST"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: failed to stealth-mount services.jar" >> "$MODDIR/repatch.log"
+    rollback_mounts
+    exit 0
+fi
+
+if mount_stealth_jar "$MIUI_SRC" "$MIUI_DST" "miui-services.jar"; then
+    MOUNTED_TARGETS="$MOUNTED_TARGETS $MIUI_DST"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: failed to stealth-mount miui-services.jar to $MIUI_DST, rolling back" >> "$MODDIR/repatch.log"
+    rollback_mounts
+    exit 0
 fi
