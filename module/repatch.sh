@@ -18,11 +18,14 @@
 # Usage: repatch.sh status | run
 # ==============================================================================
 
-MODDIR=${0%/*}
+MODDIR="${0%/*}"
+[ "$MODDIR" = "$0" ] && MODDIR="."
+[ -d "$MODDIR" ] || MODDIR="/data/adb/modules/fcm_notification_fix"
+[ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
 LOG="$MODDIR/repatch.log"
 
 # shellcheck source=common.sh
-. "$MODDIR/common.sh"
+[ -f "$MODDIR/common.sh" ] && . "$MODDIR/common.sh"
 
 FLAG_PENDING="$MODDIR/repatch_pending"
 FLAG_RUNNING="$MODDIR/repatch_running"
@@ -60,11 +63,24 @@ notify() {
 # Drops a running flag left behind by a killed run.
 clear_stale_running() {
     [ -f "$FLAG_RUNNING" ] || return 0
+
+    # 1. Check if the recorded PID is dead
+    LOCK_PID="$(cat "$FLAG_RUNNING" 2>/dev/null | tr -cd '0-9')"
+    if [ -n "$LOCK_PID" ]; then
+        if ! kill -0 "$LOCK_PID" 2>/dev/null; then
+            rm -f "$FLAG_RUNNING"
+            log "cleared stale running flag (process $LOCK_PID no longer alive)"
+            return 0
+        fi
+    fi
+
+    # 2. Fallback to timestamp check in case of PID reuse or unreadable PID
     NOW="$(date +%s 2>/dev/null || echo 0)"
-    TS="$(date -r "$FLAG_RUNNING" +%s 2>/dev/null || echo 0)"
+    TS="$(date -r "$FLAG_RUNNING" +%s 2>/dev/null || stat -c %Y "$FLAG_RUNNING" 2>/dev/null || echo 0)"
     if [ "$NOW" -gt 0 ] && [ "$TS" -gt 0 ] && [ "$((NOW - TS))" -gt "$STALE_RUN_SECONDS" ]; then
         rm -f "$FLAG_RUNNING"
         log "cleared stale running flag (previous re-patch never finished)"
+        return 0
     fi
 }
 
@@ -139,16 +155,37 @@ cmd_status() {
 
 cmd_run() {
     clear_stale_running
-    if [ -f "$FLAG_RUNNING" ]; then
-        echo "RESULT=BUSY"
-        return 0
+    # Atomically acquire lock using noclobber (O_CREAT | O_EXCL)
+    if ! ( set -C; echo "$$" > "$FLAG_RUNNING" ) 2>/dev/null; then
+        clear_stale_running
+        if ! ( set -C; echo "$$" > "$FLAG_RUNNING" ) 2>/dev/null; then
+            echo "RESULT=BUSY"
+            return 0
+        fi
     fi
+
+    rm -f "$FLAG_FAILED"
+
+    STAGE_DIR="/data/local/tmp/fcm_repatch_$$"
+    [ -d "/data/local/tmp" ] || STAGE_DIR="${TMPDIR:-/tmp}/fcm_repatch_$$"
+    PUB_DIR="$MODDIR/framework_staging_$$"
+
+    cleanup_on_exit() {
+        rm -rf "$STAGE_DIR" "$PUB_DIR" 2>/dev/null
+        if [ -f "$FLAG_RUNNING" ]; then
+            RUN_PID="$(cat "$FLAG_RUNNING" 2>/dev/null | tr -cd '0-9')"
+            [ "$RUN_PID" = "$$" ] && rm -f "$FLAG_RUNNING"
+        fi
+    }
+    trap 'cleanup_on_exit' INT TERM HUP
 
     CUR="$(current_fp)"
     PATCHER_JAR="$MODDIR/tools/patcher.jar"
 
     if [ ! -f "$PATCHER_JAR" ]; then
         log "re-patch aborted: patcher engine missing (re-flash the module zip)"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         notify "Firmware changed and the patch engine is missing. Re-flash the module zip to restore push notifications."
         echo "RESULT=FAIL"
@@ -157,6 +194,8 @@ cmd_run() {
 
     if [ -z "$MIUI_LIVE" ]; then
         log "re-patch aborted: no miui-services.jar found on this ROM"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         echo "RESULT=FAIL"
         return 1
@@ -167,6 +206,8 @@ cmd_run() {
     detect_rom_profile
     if ! REASON="$(rom_profile_supported)"; then
         log "re-patch aborted: $REASON"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         notify "Firmware changed to a profile this module cannot patch: $REASON The device stays on stock framework."
         echo "RESULT=FAIL"
@@ -176,15 +217,14 @@ cmd_run() {
     # Never patch an already patched jar: that would stack hooks on hooks.
     if ! is_stock_jar "$SERVICES_LIVE" || ! is_stock_jar "$MIUI_LIVE"; then
         log "re-patch aborted: live framework jars are not stock (module overlay still active?)"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         notify "Automatic re-patch could not run because the framework is not in its stock state. Re-flash the module zip."
         echo "RESULT=FAIL"
         return 1
     fi
 
-    touch "$FLAG_RUNNING"
-    rm -f "$FLAG_FAILED"
-    STAGE_DIR="/data/local/tmp/fcm_repatch_$$"
     mkdir -p "$STAGE_DIR"
 
     CUR_DISPLAY="$(get_rom_display_version 2>/dev/null || echo "$CUR")"
@@ -204,15 +244,14 @@ cmd_run() {
 
     if [ "$STATUS" -ne 0 ] || [ ! -f "$STAGE_DIR/services.jar" ] || [ ! -f "$STAGE_DIR/miui-services.jar" ]; then
         log "re-patch FAILED (exit $STATUS) - device stays on stock framework"
-        rm -rf "$STAGE_DIR"
-        rm -f "$FLAG_RUNNING"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         notify "Automatic re-patch failed on firmware $CUR_DISPLAY. The device runs on stock framework; push notifications are unfixed until the module is re-flashed."
         echo "RESULT=FAIL"
         return 1
     fi
 
-    PUB_DIR="$MODDIR/framework_staging_$$"
     rm -rf "$PUB_DIR"
     mkdir -p "$PUB_DIR"
 
@@ -229,8 +268,8 @@ cmd_run() {
        [ "$_sz_srv_pub" -lt 1000000 ] || [ "$_sz_srv_pub" -ne "$_sz_srv_src" ] || \
        [ "$_sz_miui_pub" -lt 1000000 ] || [ "$_sz_miui_pub" -ne "$_sz_miui_src" ]; then
         log "re-patch FAILED: staged framework JARs validation failed"
-        rm -rf "$PUB_DIR" "$STAGE_DIR"
-        rm -f "$FLAG_RUNNING"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         notify "Automatic re-patch failed on firmware $CUR_DISPLAY: framework publication staging failed."
         echo "RESULT=FAIL"
@@ -246,8 +285,8 @@ cmd_run() {
     rm -rf "$MODDIR/framework" "$MODDIR/system" "$MODDIR/system_ext"
     if ! mv "$PUB_DIR" "$MODDIR/framework"; then
         log "re-patch FAILED: failed to move staged framework directory"
-        rm -rf "$PUB_DIR" "$STAGE_DIR"
-        rm -f "$FLAG_RUNNING"
+        cleanup_on_exit
+        trap - INT TERM HUP
         touch "$FLAG_FAILED"
         echo "RESULT=FAIL"
         return 1
@@ -270,10 +309,12 @@ cmd_run() {
     fi
 
     echo "$CUR" > "$MODDIR/rom.fingerprint"
-    rm -f "$FLAG_PENDING" "$FLAG_RUNNING"
+    rm -f "$FLAG_PENDING"
+    cleanup_on_exit
+    trap - INT TERM HUP
+
     touch "$FLAG_REBOOT"
     touch "$SKIP_MOUNT"
-    rm -rf "$STAGE_DIR"
 
     # Stealth in-memory tmpfs mount will be activated by post-fs-data.sh on next boot
     log "re-patch OK for firmware $CUR_DISPLAY - reboot required to serve the new jars"

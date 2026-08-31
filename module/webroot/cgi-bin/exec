@@ -11,8 +11,8 @@ MODDIR="${0%/*}/../.."
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
 
 # Ensure config file exists with proper permissions
-if [ ! -f "$CONF_FILE" ]; then
-    cat <<'EOF' > "$CONF_FILE"
+if [ -d "/data/system" ] && [ ! -f "$CONF_FILE" ]; then
+    cat <<'EOF' > "$CONF_FILE" 2>/dev/null || true
 # HyperOS FCM Dynamic Wake Filter Configuration
 # Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
 MODE=ALL
