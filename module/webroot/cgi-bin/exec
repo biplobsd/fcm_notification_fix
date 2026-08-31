@@ -10,8 +10,10 @@ MODDIR="${0%/*}/../.."
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules/fcm_notification_fix"
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
 
-echo "Content-Type: application/json"
-echo ""
+if [ -n "$GATEWAY_INTERFACE" ] || [ -n "$REQUEST_METHOD" ] || [ -n "$SERVER_PROTOCOL" ]; then
+    echo "Content-Type: application/json"
+    echo ""
+fi
 
 if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
     echo '{"status":"ok"}'
