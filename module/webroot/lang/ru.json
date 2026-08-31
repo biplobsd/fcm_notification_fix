@@ -77,5 +77,22 @@
   "toast.imported": "Импортировано и выбрано совпадений: {n} ✓",
   "toast.saved": "Конфигурация сохранена ✓",
   "alert.saveError": "Ошибка сохранения: ",
-  "alert.saveFail": "Не удалось сохранить: "
+  "alert.saveFail": "Не удалось сохранить: ",
+  "sound.title": "Анти-заглушение звука",
+  "sound.badge.active": "БЕЗ ОГРАНИЧЕНИЙ",
+  "sound.badge.custom": "НАСТРОЕНО",
+  "sound.badge.stock": "СТОКОВЫЙ",
+  "sound.desc": "Защита звуков уведомлений от автоматического заглушения и кулдаунов HyperOS.",
+  "sound.feat.miui_cooldown": "Заглушение серии в MIUI",
+  "sound.feat.miui_cooldown.hint": "Отключает 10-секундное заглушение частых уведомлений подряд",
+  "sound.feat.android15_cooldown": "Кулдаун Android 15",
+  "sound.feat.android15_cooldown.hint": "Отключает снижение громкости и блокировку «лавины» push",
+  "sound.feat.offbody": "Заглушение вне рук",
+  "sound.feat.offbody.hint": "Отключает заглушение по датчикам, когда телефон лежит или в кармане",
+  "sound.feat.incall": "Сигнал во время звонка",
+  "sound.feat.incall.hint": "Разрешает звуковой сигнал уведомления во время разговора",
+  "sound.btn.apply": "⚡ Убрать автозаглушение",
+  "sound.btn.restore": "↺ Восстановить сток",
+  "sound.toast.applied": "Анти-заглушение применено (все 4 опции активны) ✓",
+  "sound.toast.restored": "Стоковые настройки звука восстановлены ✓"
 }

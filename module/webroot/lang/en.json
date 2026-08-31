@@ -77,5 +77,22 @@
   "toast.imported": "Imported & selected {n} matching apps ✓",
   "toast.saved": "Configuration Saved ✓",
   "alert.saveError": "Error saving: ",
-  "alert.saveFail": "Failed to save: "
+  "alert.saveFail": "Failed to save: ",
+  "sound.title": "Sound Anti-Mute",
+  "sound.badge.active": "UNRESTRICTED",
+  "sound.badge.custom": "CUSTOM",
+  "sound.badge.stock": "STOCK DEFAULT",
+  "sound.desc": "Prevent HyperOS from auto-silencing or throttling notification sound alerts.",
+  "sound.feat.miui_cooldown": "MIUI 10s Burst Mute",
+  "sound.feat.miui_cooldown.hint": "Disables 10s muting for successive notification bursts",
+  "sound.feat.android15_cooldown": "Android 15 Cooldown",
+  "sound.feat.android15_cooldown.hint": "Disables politeness and avalanche volume reduction",
+  "sound.feat.offbody": "Off-Body Sensor Mute",
+  "sound.feat.offbody.hint": "Prevents muting when phone is on table or in pocket",
+  "sound.feat.incall": "In-Call Alert Beeps",
+  "sound.feat.incall.hint": "Allows audible notification beeps during active calls",
+  "sound.btn.apply": "⚡ Eliminate Sound Silencing",
+  "sound.btn.restore": "↺ Restore Defaults",
+  "sound.toast.applied": "Sound anti-mute applied (all features active) ✓",
+  "sound.toast.restored": "Stock sound settings restored from backup ✓"
 }

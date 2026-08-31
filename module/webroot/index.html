@@ -460,8 +460,56 @@
             background-color: var(--accent-rose);
         }
 
+        input:checked + .slider.green {
+            background-color: var(--accent-green);
+        }
+
         input:checked + .slider:before {
             transform: translateX(16px);
+        }
+
+        /* Sound Anti-Mute Row Styles */
+        .sound-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 6px 0 8px 0;
+        }
+
+        .sound-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 8px 10px;
+            transition: border-color 0.15s ease, background-color 0.15s ease;
+        }
+
+        .sound-row:hover {
+            border-color: rgba(255, 255, 255, 0.14);
+            background: rgba(0, 0, 0, 0.38);
+        }
+
+        .sound-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding-right: 8px;
+            min-width: 0;
+        }
+
+        .sound-name {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .sound-hint {
+            font-size: 0.67rem;
+            color: var(--text-sub);
+            line-height: 1.25;
         }
 
         /* Floating Save Bar */
@@ -818,6 +866,74 @@
             <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;" data-i18n="list.loading">Loading applications...</div>
         </div>
     </div>
+
+    <!-- Notification Sound Anti-Mute Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+                <span data-i18n="sound.title">Sound Anti-Mute</span>
+            </div>
+            <span id="soundBadge" class="status-pill status-stopped" data-i18n="sound.badge.stock">STOCK DEFAULT</span>
+        </div>
+
+        <div class="mode-desc" data-i18n="sound.desc" style="margin-bottom: 8px;">
+            Prevent HyperOS from auto-silencing or throttling notification sound alerts.
+        </div>
+
+        <div class="sound-list" id="soundList">
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.miui_cooldown">MIUI 10s Burst Mute</div>
+                    <div class="sound-hint" data-i18n="sound.feat.miui_cooldown.hint">Disables 10s muting for successive notification bursts</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchMiuiCooldown" onchange="toggleSoundFeature('miui_cooldown', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.android15_cooldown">Android 15 Cooldown</div>
+                    <div class="sound-hint" data-i18n="sound.feat.android15_cooldown.hint">Disables politeness and avalanche volume reduction</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchA15Cooldown" onchange="toggleSoundFeature('android15_cooldown', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.offbody">Off-Body Sensor Mute</div>
+                    <div class="sound-hint" data-i18n="sound.feat.offbody.hint">Prevents muting when phone is on table or in pocket</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchOffbody" onchange="toggleSoundFeature('offbody_mute', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.incall">In-Call Alert Beeps</div>
+                    <div class="sound-hint" data-i18n="sound.feat.incall.hint">Allows audible notification beeps during active calls</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchIncall" onchange="toggleSoundFeature('in_call', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-recommend" id="btnApplySound" onclick="applySoundFix()" data-i18n="sound.btn.apply">⚡ Eliminate Sound Silencing</button>
+            <button class="btn" id="btnRestoreSound" onclick="restoreSoundFix()" data-i18n="sound.btn.restore" style="display: none;">↺ Restore Defaults</button>
+        </div>
+    </div>
 </div>
 
 <!-- Floating Save Bar -->
@@ -930,6 +1046,7 @@
         await loadDict(code);
         applyI18n();
         updateModeUI();
+        updateSoundFixUI();
         if (installedApps.length) filterApps(); else loadStatus();
         renderRomStatus();
     }
@@ -1020,6 +1137,136 @@
         }
         btn.disabled = false;
         refreshRomStatus();
+    }
+
+    /* =========================================================================
+     * Notification Sound Anti-Mute & Backup Controller
+     * ====================================================================== */
+    let soundFeatures = {
+        miui_cooldown: false,
+        android15_cooldown: false,
+        offbody_mute: false,
+        in_call: false
+    };
+    let soundFixHasBackup = false;
+
+    function updateSoundFixUI(active, hasBackup, features) {
+        if (hasBackup !== undefined) soundFixHasBackup = !!hasBackup;
+        if (features) {
+            soundFeatures = Object.assign(soundFeatures, features);
+        }
+
+        const swMiui = document.getElementById('switchMiuiCooldown');
+        const swA15 = document.getElementById('switchA15Cooldown');
+        const swOffbody = document.getElementById('switchOffbody');
+        const swIncall = document.getElementById('switchIncall');
+        const badge = document.getElementById('soundBadge');
+        const btnApply = document.getElementById('btnApplySound');
+        const btnRestore = document.getElementById('btnRestoreSound');
+
+        if (swMiui) swMiui.checked = !!soundFeatures.miui_cooldown;
+        if (swA15) swA15.checked = !!soundFeatures.android15_cooldown;
+        if (swOffbody) swOffbody.checked = !!soundFeatures.offbody_mute;
+        if (swIncall) swIncall.checked = !!soundFeatures.in_call;
+
+        const countActive = (soundFeatures.miui_cooldown ? 1 : 0) +
+                            (soundFeatures.android15_cooldown ? 1 : 0) +
+                            (soundFeatures.offbody_mute ? 1 : 0) +
+                            (soundFeatures.in_call ? 1 : 0);
+
+        if (badge) {
+            if (countActive === 4) {
+                badge.className = 'status-pill status-running';
+                badge.textContent = t('sound.badge.active');
+            } else if (countActive > 0) {
+                badge.className = 'status-pill status-running';
+                badge.textContent = t('sound.badge.custom') + ` (${countActive}/4)`;
+            } else {
+                badge.className = 'status-pill status-stopped';
+                badge.textContent = t('sound.badge.stock');
+            }
+        }
+
+        if (btnApply) {
+            btnApply.style.opacity = (countActive === 4) ? '0.75' : '1';
+        }
+        if (btnRestore) {
+            btnRestore.style.display = (countActive > 0 || soundFixHasBackup) ? 'inline-flex' : 'none';
+        }
+    }
+
+    async function loadSoundFixStatus() {
+        try {
+            const res = await execAction('get_sound_fix_status');
+            if (res && res.success && res.data) {
+                updateSoundFixUI(res.data.active, res.data.has_backup, res.data.features);
+            }
+        } catch (e) {
+            console.warn('Failed to load sound fix status:', e);
+        }
+    }
+
+    async function toggleSoundFeature(featureName, isEnabled) {
+        try {
+            const res = await execAction('set_sound_feature', { feature: featureName, enabled: isEnabled });
+            if (res && res.success && res.data) {
+                updateSoundFixUI(res.data.active, true, res.data.features);
+            } else {
+                showToast(t('alert.saveFail') + (res.stderr || 'Unknown error'));
+                loadSoundFixStatus();
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+            loadSoundFixStatus();
+        }
+    }
+
+    async function applySoundFix() {
+        const btn = document.getElementById('btnApplySound');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await execAction('apply_sound_fix');
+            if (res && res.success) {
+                showToast(t('sound.toast.applied'));
+                updateSoundFixUI(true, true, {
+                    miui_cooldown: true,
+                    android15_cooldown: true,
+                    offbody_mute: true,
+                    in_call: true
+                });
+                loadSoundFixStatus();
+            } else {
+                showToast(t('alert.saveFail') + (res.stderr || (res.data && res.data.message) || 'Unknown error'));
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function restoreSoundFix() {
+        const btn = document.getElementById('btnRestoreSound');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await execAction('restore_sound_fix');
+            if (res && res.success) {
+                showToast(t('sound.toast.restored'));
+                updateSoundFixUI(false, true, {
+                    miui_cooldown: false,
+                    android15_cooldown: false,
+                    offbody_mute: false,
+                    in_call: false
+                });
+                loadSoundFixStatus();
+            } else {
+                showToast(t('alert.saveFail') + (res.stderr || (res.data && res.data.message) || 'Unknown error'));
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     }
 
     // KernelSU / APatch / Magisk Execution Bridge
@@ -1176,6 +1423,9 @@
             installedApps = (data.installed || []).sort();
 
             updateModeUI();
+            if (data.sound_active !== undefined) {
+                updateSoundFixUI(data.sound_active, data.sound_backup);
+            }
             filterApps();
             checkDraftChanges();
 
@@ -1627,6 +1877,7 @@
         updateModeUI();
         loadStatus();
         refreshRomStatus();
+        loadSoundFixStatus();
     });
 </script>
 
