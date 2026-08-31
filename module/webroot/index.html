@@ -469,7 +469,9 @@
             position: fixed;
             bottom: max(10px, env(safe-area-inset-bottom, 10px));
             left: 50%;
-            transform: translateX(-50%);
+            transform: translateX(-50%) translateY(120%);
+            opacity: 0;
+            pointer-events: none;
             width: calc(100% - 20px);
             max-width: 520px;
             background: rgba(15, 23, 42, 0.95);
@@ -483,6 +485,13 @@
             justify-content: space-between;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
             z-index: 100;
+            transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease;
+        }
+
+        .save-bar.visible {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
         }
 
         .save-btn {
@@ -812,7 +821,7 @@
 </div>
 
 <!-- Floating Save Bar -->
-<div class="save-bar">
+<div class="save-bar" id="saveBar">
     <div>
         <div style="font-size: 0.78rem; font-weight: 600;" id="saveBarStatus" data-i18n="save.ready">Changes Ready</div>
         <div style="font-size: 0.65rem; color: var(--text-muted);" data-i18n="save.hint">Syncs live without reboot</div>
@@ -942,17 +951,15 @@
     /* =========================================================================
      * Framework patch state (OTA guard)
      * ====================================================================== */
-    const MODDIR = '/data/adb/modules/fcm_notification_fix';
     let romState = null;
 
     async function refreshRomStatus() {
-        const res = await execCommand(`sh ${MODDIR}/repatch.sh status 2>/dev/null`);
-        const kv = {};
-        (res.stdout || '').split('\n').forEach(line => {
-            const i = line.indexOf('=');
-            if (i > 0) kv[line.substring(0, i).trim()] = line.substring(i + 1).trim();
-        });
-        romState = kv.state ? kv : null;
+        const res = await execAction('repatch_status');
+        if (res.data && res.data.state) {
+            romState = res.data;
+        } else {
+            romState = null;
+        }
         renderRomStatus();
     }
 
@@ -988,7 +995,7 @@
         if (state === 'reboot') {
             btn.style.display = '';
             btn.textContent = t('rom.reboot');
-            btn.onclick = () => execCommand('svc power reboot || reboot');
+            btn.onclick = () => execAction('reboot');
         } else {
             btn.textContent = t('rom.repatch');
             btn.onclick = runRepatch;
@@ -1002,8 +1009,8 @@
         showToast(t('rom.toast.started'));
         if (romState) { romState.state = 'running'; renderRomStatus(); }
 
-        const res = await execCommand(`sh ${MODDIR}/repatch.sh run 2>&1`);
-        const out = res.stdout || '';
+        const res = await execAction('repatch_run');
+        const out = (res.data && res.data.output) || res.stdout || '';
         if (out.indexOf('RESULT=OK') !== -1) {
             showToast(t('rom.toast.ok'));
         } else if (out.indexOf('RESULT=BUSY') !== -1) {
@@ -1015,40 +1022,47 @@
         refreshRomStatus();
     }
 
-    // Universal KernelSU / APatch / Magisk Execution Bridge
+    // KernelSU / APatch / Magisk Execution Bridge
     let cbCounter = 0;
-    function execCommand(cmd) {
+    async function execAction(action, payload) {
+        const ksuObj = (window.ksu || (typeof ksu !== 'undefined' ? ksu : null));
+        if (!ksuObj || typeof ksuObj.exec !== 'function') {
+            return { success: false, stderr: 'KernelSU bridge not available', data: null };
+        }
+
         return new Promise((resolve) => {
-            const ksuObj = (window.ksu || (typeof ksu !== 'undefined' ? ksu : null));
-            if (ksuObj && typeof ksuObj.exec === 'function') {
-                const cbName = 'fcm_cb_' + Date.now() + '_' + (cbCounter++);
-                window[cbName] = function(errno, stdout, stderr) {
-                    delete window[cbName];
-                    resolve({ 
-                        errno: errno ?? 0, 
-                        stdout: (stdout || '').trim(), 
-                        stderr: (stderr || '').trim(), 
-                        success: (errno === 0) 
-                    });
-                };
+            const cbName = 'fcm_cb_' + Date.now() + '_' + (cbCounter++);
+            const jsonPayload = payload ? (typeof payload === 'string' ? payload : JSON.stringify(payload)) : '';
+            const escapedPayload = jsonPayload.replace(/'/g, "'\\''");
+            const cmd = `sh /data/adb/modules/fcm_notification_fix/webroot/cgi-bin/exec '${action}' '${escapedPayload}' 2>/dev/null`;
+
+            window[cbName] = function(errno, stdout, stderr) {
+                delete window[cbName];
+                const outStr = (stdout || '').trim();
+                let data = null;
                 try {
-                    ksuObj.exec(cmd, '{}', cbName);
-                    return;
-                } catch (e) {
-                    delete window[cbName];
-                }
-            }
+                    const start = outStr.indexOf('{');
+                    const end = outStr.lastIndexOf('}');
+                    if (start !== -1 && end > start) {
+                        data = JSON.parse(outStr.substring(start, end + 1));
+                    }
+                } catch (e) {}
 
-            // HTTP Fallback
-            if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
-                fetch('/cgi-bin/exec?' + encodeURIComponent(cmd))
-                    .then(r => r.text())
-                    .then(txt => resolve({ errno: 0, stdout: txt.trim(), stderr: '', success: true }))
-                    .catch(err => resolve({ errno: -1, stdout: '', stderr: err.message, success: false }));
-                return;
-            }
+                resolve({
+                    errno: errno ?? 0,
+                    stdout: outStr,
+                    stderr: (stderr || '').trim(),
+                    success: (errno === 0 && data && data.status === 'ok'),
+                    data: data
+                });
+            };
 
-            resolve({ errno: -1, stdout: '', stderr: 'KernelSU bridge not available', success: false });
+            try {
+                ksuObj.exec(cmd, '{}', cbName);
+            } catch (e) {
+                delete window[cbName];
+                resolve({ success: false, stderr: e.message, data: null });
+            }
         });
     }
 
@@ -1107,10 +1121,38 @@
     }
 
     let currentMode = 'ALL';
+    let savedMode = 'ALL';
     let viewFilter = 'ALL'; // 'ALL' | 'ENABLED' | 'DISABLED' | 'ACTIVE' | 'STOPPED'
     let installedApps = [];
     let stoppedApps = new Set();
     let selectedApps = new Set();
+    let savedApps = new Set();
+
+    function checkDraftChanges() {
+        let isDirty = false;
+        if (currentMode !== savedMode) {
+            isDirty = true;
+        } else if (selectedApps.size !== savedApps.size) {
+            isDirty = true;
+        } else {
+            for (const app of selectedApps) {
+                if (!savedApps.has(app)) {
+                    isDirty = true;
+                    break;
+                }
+            }
+        }
+
+        const saveBar = document.getElementById('saveBar');
+        if (saveBar) {
+            if (isDirty) {
+                saveBar.classList.add('visible');
+            } else {
+                saveBar.classList.remove('visible');
+            }
+        }
+        return isDirty;
+    }
 
     // Lazy Rendering & Virtualization State
     let filteredApps = [];
@@ -1121,48 +1163,23 @@
 
     async function loadStatus() {
         try {
-            // Stage 1: Ultra-fast load (Conf + 3rd-party App list in < 30ms)
-            const cmd1 = `
-if [ ! -f /data/system/fcm_wake.conf ]; then
-    echo "MODE=ALL" > /data/system/fcm_wake.conf
-    chmod 0644 /data/system/fcm_wake.conf
-    chown system:system /data/system/fcm_wake.conf 2>/dev/null
-    chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
-fi
-cat /data/system/fcm_wake.conf 2>/dev/null
-echo "---FCM_SEP---"
-pm list packages -3 2>/dev/null | sed 's/^package://'
-`;
-            const res1 = await execCommand(cmd1);
-            if (!res1.success && !res1.stdout) {
-                throw new Error(res1.stderr || 'Command execution failed');
+            const res = await execAction('load_status');
+            if (!res.success || !res.data) {
+                throw new Error(res.stderr || (res.data && res.data.message) || 'Status fetch failed');
             }
 
-            const parts = res1.stdout.split('---FCM_SEP---');
-            const confText = (parts[0] || '').trim();
-            const installedText = (parts[1] || '').trim();
-
-            // Parse conf
-            currentMode = 'ALL';
-            selectedApps.clear();
-            const confLines = confText.split('\n');
-            for (const line of confLines) {
-                const l = line.trim();
-                if (!l || l.startsWith('#')) continue;
-                if (l.startsWith('MODE=')) {
-                    currentMode = l.substring(5).toUpperCase().trim();
-                } else {
-                    selectedApps.add(l);
-                }
-            }
-
-            // Parse installed apps
-            installedApps = installedText.split('\n').map(s => s.trim()).filter(Boolean).sort();
+            const data = res.data;
+            savedMode = (data.mode || 'ALL').toUpperCase();
+            currentMode = savedMode;
+            savedApps = new Set(data.packages || []);
+            selectedApps = new Set(savedApps);
+            installedApps = (data.installed || []).sort();
 
             updateModeUI();
             filterApps();
+            checkDraftChanges();
 
-            // Stage 2: Background async fetch for stopped status (Zero blocking lag)
+            // Background fetch for stopped state
             loadStoppedStatusAsync();
         } catch (e) {
             console.error('Failed to load status:', e);
@@ -1173,10 +1190,9 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
 
     async function loadStoppedStatusAsync() {
         try {
-            const cmd2 = `dumpsys package 2>/dev/null | awk '/Package \\[/{sub(/.*Package \\[\\s*/, ""); sub(/\\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}'`;
-            const res2 = await execCommand(cmd2);
-            if (res2.stdout) {
-                stoppedApps = new Set(res2.stdout.split('\n').map(s => s.trim()).filter(Boolean));
+            const res = await execAction('stopped');
+            if (res.data && res.data.stopped) {
+                stoppedApps = new Set(res.data.stopped);
                 updateCounts();
                 updateStoppedBadgesInDOM();
             }
@@ -1201,6 +1217,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         document.querySelectorAll('.slider').forEach(slider => {
             slider.className = 'slider ' + (currentMode === 'BLACKLIST' ? 'rose' : (currentMode === 'WHITELIST' ? 'cyan' : ''));
         });
+        checkDraftChanges();
     }
 
     function setViewFilter(filter) {
@@ -1446,6 +1463,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         }
 
         updateCounts();
+        checkDraftChanges();
     }
 
     function copyPkg(event, pkg) {
@@ -1466,6 +1484,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             }
         });
         filterApps();
+        checkDraftChanges();
         showToast(t('toast.recommended', { n: count }));
     }
 
@@ -1476,6 +1495,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
             selectedApps.clear();
         }
         filterApps();
+        checkDraftChanges();
     }
 
     /* === Import & Export Preset System === */
@@ -1548,6 +1568,7 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
         });
 
         filterApps();
+        checkDraftChanges();
         closeModal();
         showToast(t('toast.imported', { n: matchCount }));
     }
@@ -1576,23 +1597,18 @@ pm list packages -3 2>/dev/null | sed 's/^package://'
 
     async function saveConfiguration() {
         try {
-            const pkgList = Array.from(selectedApps).join('\n');
-            const cmd = `
-cat <<'EOF' > /data/system/fcm_wake.conf
-# HyperOS FCM Dynamic Wake Filter Configuration
-# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
-MODE=${currentMode}
-${pkgList}
-EOF
-chmod 0644 /data/system/fcm_wake.conf
-chown system:system /data/system/fcm_wake.conf 2>/dev/null
-chcon u:object_r:system_data_file:s0 /data/system/fcm_wake.conf 2>/dev/null
-`;
-            const res = await execCommand(cmd);
-            if (res.success || res.errno === 0) {
+            const payload = {
+                mode: currentMode,
+                packages: Array.from(selectedApps)
+            };
+            const res = await execAction('save_config', payload);
+            if (res.success) {
+                savedMode = currentMode;
+                savedApps = new Set(selectedApps);
+                checkDraftChanges();
                 showToast(t('toast.saved'));
             } else {
-                alert(t('alert.saveError') + res.stderr);
+                alert(t('alert.saveError') + ((res.data && res.data.message) || res.stderr || ''));
             }
         } catch (e) {
             alert(t('alert.saveFail') + e.message);

@@ -4,3 +4,6 @@ module/tools/patcher.jar
 *.log
 tests/fixtures/
 __pycache__/
+
+reports
+reviews.txt

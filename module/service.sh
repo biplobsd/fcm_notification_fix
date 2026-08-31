@@ -106,18 +106,24 @@ if [ ! -f "$STOCK_CONF" ]; then
     mv -f "$STOCK_TMP" "$STOCK_CONF" 2>/dev/null
 fi
 
-# Wake screen / Light up screen on notification:
-settings put secure notification_animation_style screen_on 2>/dev/null
-settings put system wake_up_for_notification 1 2>/dev/null
-settings put secure lock_screen_wake_up_for_notification 1 2>/dev/null
-settings put system wakeup_for_keyguard_notification 1 2>/dev/null
-settings put secure full_screen_aod_notification 1 2>/dev/null
+# Wake screen / Light up screen on notification and notification privacy settings
+# Applied only once on initial module setup to preserve subsequent user modifications
+if [ ! -f "$MODDIR/.defaults_applied" ]; then
+    DEFAULTS_OK=1
+    settings put secure notification_animation_style screen_on 2>/dev/null || DEFAULTS_OK=0
+    settings put system wake_up_for_notification 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure lock_screen_wake_up_for_notification 1 2>/dev/null || DEFAULTS_OK=0
+    settings put system wakeup_for_keyguard_notification 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure full_screen_aod_notification 1 2>/dev/null || DEFAULTS_OK=0
 
-# Show all notifications and their full contents on lock screen (No hidden content):
-settings put secure lock_screen_show_notifications 1 2>/dev/null
-settings put secure lock_screen_allow_private_notifications 1 2>/dev/null
-settings put system pref_key_enable_notification_body 1 2>/dev/null
-settings put secure lock_screen_show_only_unseen_notifications 0 2>/dev/null
+    # Show all notifications and their full contents on lock screen (No hidden content):
+    settings put secure lock_screen_show_notifications 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure lock_screen_allow_private_notifications 1 2>/dev/null || DEFAULTS_OK=0
+    settings put system pref_key_enable_notification_body 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure lock_screen_show_only_unseen_notifications 0 2>/dev/null || DEFAULTS_OK=0
+
+    [ "$DEFAULTS_OK" -eq 1 ] && touch "$MODDIR/.defaults_applied" 2>/dev/null
+fi
 
 # ==============================================================================
 # 2. Google Play Services (GMS) Surgical Exemption
@@ -159,7 +165,7 @@ fi
 # if an app/channel already has an entry (whether true or false), it is untouched.
 sync_notification_channels() {
   XML="/data/user_de/0/com.android.systemui/shared_prefs/app_notification.xml"
-  [ -f "$XML" ] && chcon u:object_r:system_app_data_file:s0 "$XML" 2>/dev/null
+  # Keep stock SELinux context so platform_app can commit/rename SharedPreferences without AVC denial
 
   dumpsys notification --noredact 2>/dev/null | awk -v xml="$XML" '
     BEGIN {
@@ -179,7 +185,7 @@ sync_notification_channels() {
       pkg = a[1];
       pkg_key = pkg "_keyguard";
       if (pkg != "" && !(pkg_key in existing)) {
-        print pkg, "";
+        print pkg "\t";
         existing[pkg_key] = 1;
       }
     }
@@ -190,16 +196,17 @@ sync_notification_channels() {
       if (pkg != "" && id != "") {
         ch_key = pkg "_" id "_keyguard";
         if (!(ch_key in existing)) {
-          print pkg, id;
+          print pkg "\t" id;
           existing[ch_key] = 1;
         }
       }
     }
-  ' | while read -r pkg ch; do
+  ' | while IFS=$'\t' read -r pkg ch; do
     if [ -z "$ch" ]; then
       content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
     else
-      content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra channel_id:s:"$ch" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
+      # Backslash-escape colons in channel ID to satisfy content CLI key:type:val parser
+      content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra "channel_id:s:${ch//:/\\:}" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
     fi
   done
 }
