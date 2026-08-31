@@ -5,10 +5,12 @@
 
 CONF_FILE="/data/system/fcm_wake.conf"
 
+# Resolve module directory
+MODDIR="${0%/*}/../.."
+[ -d "$MODDIR" ] || MODDIR="/data/adb/modules/fcm_notification_fix"
+[ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
+
 echo "Content-Type: application/json"
-echo "Access-Control-Allow-Origin: *"
-echo "Access-Control-Allow-Methods: GET, POST, OPTIONS"
-echo "Access-Control-Allow-Headers: Content-Type"
 echo ""
 
 if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
@@ -23,19 +25,21 @@ if [ ! -f "$CONF_FILE" ]; then
 # Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST
 MODE=ALL
 EOF
-    chmod 0644 "$CONF_FILE"
+    chmod 0644 "$CONF_FILE" 2>/dev/null || true
     chown system:system "$CONF_FILE" 2>/dev/null || true
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
 ACTION="$QUERY_STRING"
-if [ -z "$ACTION" ]; then
-    ACTION="status"
-fi
+[ -z "$ACTION" ] && ACTION="$1"
+[ -z "$ACTION" ] && ACTION="status"
 
-case "$ACTION" in
-    status|get_status)
-        # Parse mode and packages from conf
+# Strip any query parameters if passed as action?param
+ACTION_BASE="${ACTION%%&*}"
+ACTION_BASE="${ACTION_BASE%%\?*}"
+
+case "$ACTION_BASE" in
+    status|load_status|get_status)
         MODE="ALL"
         PACKAGES=""
         if [ -f "$CONF_FILE" ]; then
@@ -55,24 +59,33 @@ case "$ACTION" in
         USER_PKGS=$(pm list packages -3 2>/dev/null | sed 's/^package://' | sort | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
         [ -z "$USER_PKGS" ] && USER_PKGS="[]"
 
-        # Get stopped packages list
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s"}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART"
+        ;;
+
+    stopped)
+        # Fetch stopped packages list
         STOPPED_PKGS=$(dumpsys package 2>/dev/null | awk '/Package \[/{sub(/.*Package \[/, ""); sub(/\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
         [ -z "$STOPPED_PKGS" ] && STOPPED_PKGS="[]"
-
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"stopped":%s,"prestart":"%s"}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$STOPPED_PKGS" "$PRESTART"
+        printf '{"status":"ok","stopped":%s}\n' "$STOPPED_PKGS"
         ;;
 
     save_config)
-        # Read POST body
-        read -r BODY
+        if [ -n "$2" ]; then
+            BODY="$2"
+        else
+            BODY="$(cat 2>/dev/null)"
+        fi
         
-        # Extract mode
-        NEW_MODE=$(echo "$BODY" | grep -o '"mode":"[^"]*"' | cut -d: -f2 | tr -d '"')
-        [ -z "$NEW_MODE" ] && NEW_MODE="ALL"
+        # Extract and validate mode
+        NEW_MODE=$(echo "$BODY" | grep -o '"mode":"[^"]*"' | cut -d: -f2 | tr -d '"' | tr '[:lower:]' '[:upper:]')
+        case "$NEW_MODE" in
+            ALL|WHITELIST|BLACKLIST) ;;
+            *) NEW_MODE="ALL" ;;
+        esac
         
-        # Extract package list
-        PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -v "^$")
+        # Extract and sanitize package list (only valid package names)
+        PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
 
         # Write to atomic temp file first
         TMP_CONF="/data/system/fcm_wake.conf.tmp.$$"
@@ -85,12 +98,12 @@ case "$ACTION" in
             fi
         } > "$TMP_CONF"
 
-        chmod 0644 "$TMP_CONF"
+        chmod 0644 "$TMP_CONF" 2>/dev/null || true
         chown system:system "$TMP_CONF" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
 
-        mv -f "$TMP_CONF" "$CONF_FILE"
-        chmod 0644 "$CONF_FILE"
+        mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null || true
+        chmod 0644 "$CONF_FILE" 2>/dev/null || true
         chown system:system "$CONF_FILE" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 
@@ -98,43 +111,90 @@ case "$ACTION" in
         ;;
 
     set_prestart)
-        read -r BODY
+        if [ -n "$2" ]; then
+            BODY="$2"
+        else
+            BODY="$(cat 2>/dev/null)"
+        fi
         VAL=$(echo "$BODY" | grep -o '"prestart":"[^"]*"' | cut -d: -f2 | tr -d '"')
-        [ -z "$VAL" ] && VAL="true"
+        [ "$VAL" = "false" ] && VAL="false" || VAL="true"
         setprop persist.sys.miui.prestart "$VAL"
         printf '{"status":"ok","prestart":"%s"}\n' "$VAL"
         ;;
 
+    repatch_status)
+        if [ -f "$MODDIR/repatch.sh" ]; then
+            STATUS_OUT=$(sh "$MODDIR/repatch.sh" status 2>/dev/null)
+        else
+            STATUS_OUT="state=ok"
+        fi
+        
+        ST_STATE=$(echo "$STATUS_OUT" | grep "^state=" | cut -d= -f2- | tr -d '\r\n')
+        ST_CUR=$(echo "$STATUS_OUT" | grep "^current=" | cut -d= -f2- | tr -d '\r\n')
+        ST_STORED=$(echo "$STATUS_OUT" | grep "^stored=" | cut -d= -f2- | tr -d '\r\n')
+        ST_ACTIVE=$(echo "$STATUS_OUT" | grep "^active=" | cut -d= -f2- | tr -d '\r\n')
+        ST_LAST=$(echo "$STATUS_OUT" | grep "^last=" | cut -d= -f2- | tr -d '\r\n' | sed 's/"/\\"/g')
+        
+        [ -z "$ST_STATE" ] && ST_STATE="ok"
+        
+        printf '{"status":"ok","state":"%s","current":"%s","stored":"%s","active":"%s","last":"%s"}\n' \
+            "$ST_STATE" "$ST_CUR" "$ST_STORED" "$ST_ACTIVE" "$ST_LAST"
+        ;;
+
+    repatch_run)
+        if [ -f "$MODDIR/repatch.sh" ]; then
+            REPATCH_OUT=$(sh "$MODDIR/repatch.sh" run 2>&1)
+            REPATCH_STATUS=$?
+        else
+            REPATCH_OUT="RESULT=FAIL"
+            REPATCH_STATUS=1
+        fi
+        
+        printf '{"status":"ok","exit_code":%d,"output":"%s"}\n' \
+            "$REPATCH_STATUS" "$(echo "$REPATCH_OUT" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        ;;
+
+    reboot)
+        ( sleep 1; svc power reboot || reboot ) >/dev/null 2>&1 &
+        echo '{"status":"ok","message":"Rebooting device"}'
+        ;;
+
     test_push)
-        read -r BODY
+        if [ -n "$2" ]; then
+            BODY="$2"
+        else
+            BODY="$(cat 2>/dev/null)"
+        fi
         TARGET_PKG=$(echo "$BODY" | grep -o '"package":"[^"]*"' | cut -d: -f2 | tr -d '"')
         
-        if [ -z "$TARGET_PKG" ]; then
-            echo '{"status":"error","message":"Target package required"}'
+        # Strictly validate package name pattern
+        if [ -z "$TARGET_PKG" ] || ! echo "$TARGET_PKG" | grep -Eq '^[a-zA-Z0-9._-]+$'; then
+            echo '{"status":"error","message":"Valid target package required"}'
             exit 0
         fi
 
+        # 1. Force-stop the target package first to measure wake from stopped state
+        am force-stop "$TARGET_PKG" 2>/dev/null || true
+        sleep 0.2
+
+        # 2. Fire broadcast WITHOUT --include-stopped-packages flag
         T_START=$(date +%s%3N 2>/dev/null || date +%s)
-        OUTPUT=$(am broadcast -a com.google.android.c2dm.intent.RECEIVE -p "$TARGET_PKG" --include-stopped-packages 2>&1)
+        OUTPUT=$(am broadcast -a com.google.android.c2dm.intent.RECEIVE -p "$TARGET_PKG" 2>&1)
         T_END=$(date +%s%3N 2>/dev/null || date +%s)
         DIFF=$((T_END - T_START))
         [ "$DIFF" -lt 0 ] && DIFF=0
 
-        # Check if process is running
+        # 3. Check if target process was woken up
+        sleep 0.3
         IS_RUNNING=false
         PID=$(pidof "$TARGET_PKG" 2>/dev/null)
         [ -n "$PID" ] && IS_RUNNING=true
 
-        printf '{"status":"ok","package":"%s","latency_ms":%d,"running":%s,"output":"%s"}\n' \
-            "$TARGET_PKG" "$DIFF" "$IS_RUNNING" "$(echo "$OUTPUT" | tr '\n' ' ' | sed 's/"/\\"/g')"
+        printf '{"status":"ok","package":"%s","latency_ms":%d,"running":%s,"woke_from_stopped":%s,"output":"%s"}\n' \
+            "$TARGET_PKG" "$DIFF" "$IS_RUNNING" "$IS_RUNNING" "$(echo "$OUTPUT" | tr '\n' ' ' | sed 's/"/\\"/g')"
         ;;
 
     *)
-        # Support raw shell commands if passed via query string
-        if [ -n "$ACTION" ]; then
-            sh -c "$ACTION" 2>&1
-        else
-            echo '{"status":"error","message":"Unknown action"}'
-        fi
+        echo '{"status":"error","message":"Unknown or unsupported action"}'
         ;;
 esac
