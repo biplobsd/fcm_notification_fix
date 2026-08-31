@@ -122,7 +122,7 @@ cmd_status() {
         STATE=failed
     elif [ -f "$FLAG_PENDING" ]; then
         STATE=pending
-    elif [ "$STORED" != "-" ] && [ "$STORED" != "$CUR" ]; then
+    elif [ "$STORED" != "-" ] && ! is_fingerprint_match "$STORED" "$CUR"; then
         STATE=pending
     else
         STATE=ok

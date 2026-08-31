@@ -36,7 +36,15 @@ else
 fi
 STORED_FP="$(cat "$MODDIR/rom.fingerprint" 2>/dev/null)"
 
-if [ -z "$STORED_FP" ] || [ -z "$CURRENT_FP" ] || [ "$STORED_FP" != "$CURRENT_FP" ]; then
+if command -v is_fingerprint_match >/dev/null 2>&1; then
+    MATCH_OK=0
+    is_fingerprint_match "$STORED_FP" "$CURRENT_FP" && MATCH_OK=1
+else
+    MATCH_OK=0
+    [ -n "$STORED_FP" ] && [ "$STORED_FP" = "$CURRENT_FP" ] && MATCH_OK=1
+fi
+
+if [ "$MATCH_OK" -ne 1 ]; then
     touch "$MODDIR/repatch_pending"
     rm -f "$MODDIR/repatch_reboot"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] firmware changed or unverified ($STORED_FP -> $CURRENT_FP): module not mounted, re-patch pending" >> "$MODDIR/repatch.log"
