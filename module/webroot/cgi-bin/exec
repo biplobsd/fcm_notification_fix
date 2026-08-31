@@ -120,8 +120,8 @@ case "$ACTION" in
         fi
         
         ST_STATE=$(echo "$STATUS_OUT" | grep "^state=" | cut -d= -f2- | tr -d '\r\n')
-        ST_CUR=$(echo "$STATUS_OUT" | grep "^current=" | cut -d= -f2- | tr -d '\r\n')
-        ST_STORED=$(echo "$STATUS_OUT" | grep "^stored=" | cut -d= -f2- | tr -d '\r\n')
+        ST_CUR=$(echo "$STATUS_OUT" | grep "^current=" | cut -d= -f2- | tr -d '\r\n' | sed 's/"/\\"/g')
+        ST_STORED=$(echo "$STATUS_OUT" | grep "^stored=" | cut -d= -f2- | tr -d '\r\n' | sed 's/"/\\"/g')
         ST_ACTIVE=$(echo "$STATUS_OUT" | grep "^active=" | cut -d= -f2- | tr -d '\r\n')
         ST_LAST=$(echo "$STATUS_OUT" | grep "^last=" | cut -d= -f2- | tr -d '\r\n' | sed 's/"/\\"/g')
         

@@ -42,7 +42,11 @@ log() {
 }
 
 current_fp() {
-    getprop ro.build.version.incremental
+    if command -v get_rom_fingerprint >/dev/null 2>&1; then
+        get_rom_fingerprint
+    else
+        echo "$(getprop ro.build.fingerprint)|$(getprop ro.system.build.fingerprint)|$(getprop ro.system_ext.build.fingerprint)|$(getprop ro.build.version.incremental)|$(getprop persist.sys.xms.version)"
+    fi
 }
 
 stored_fp() {
@@ -72,6 +76,36 @@ cmd_status() {
     STORED="$(stored_fp)"
     [ -z "$STORED" ] && STORED="-"
 
+    # User-friendly display versions for UI
+    if command -v get_rom_display_version >/dev/null 2>&1; then
+        CUR_DISPLAY="$(get_rom_display_version)"
+    else
+        CUR_DISPLAY="$(getprop ro.build.version.incremental)"
+    fi
+
+    STORED_DISPLAY="$STORED"
+    if [ "$STORED" = "$CUR" ]; then
+        STORED_DISPLAY="$CUR_DISPLAY"
+    elif [ "$STORED" != "-" ]; then
+        case "$STORED" in
+            *"|"*)
+                _stored_inc=$(echo "$STORED" | cut -d'|' -f4 2>/dev/null)
+                _stored_xms=$(echo "$STORED" | cut -d'|' -f5 2>/dev/null)
+                if [ -n "$_stored_inc" ] && [ -n "$_stored_xms" ]; then
+                    case "$_stored_inc" in
+                        *"."*"$_stored_xms"*) STORED_DISPLAY="$_stored_inc" ;;
+                        *) STORED_DISPLAY="${_stored_inc}.${_stored_xms}" ;;
+                    esac
+                elif [ -n "$_stored_inc" ]; then
+                    STORED_DISPLAY="$_stored_inc"
+                fi
+                ;;
+            *)
+                STORED_DISPLAY="$STORED"
+                ;;
+        esac
+    fi
+
     # Whether the patch is actually live is a property of the jar the system
     # reads, not of /proc/mounts: KernelSU and APatch serve modules through
     # OverlayFS, where individual file mounts are not listed there at all.
@@ -97,8 +131,8 @@ cmd_status() {
     LAST="$(tail -n 1 "$LOG" 2>/dev/null | tr -d '\r')"
 
     echo "state=$STATE"
-    echo "current=$CUR"
-    echo "stored=$STORED"
+    echo "current=$CUR_DISPLAY"
+    echo "stored=$STORED_DISPLAY"
     echo "active=$ACTIVE"
     echo "last=$LAST"
 }
@@ -153,7 +187,10 @@ cmd_run() {
     STAGE_DIR="/data/local/tmp/fcm_repatch_$$"
     mkdir -p "$STAGE_DIR"
 
-    log "re-patching for firmware $CUR (was $(stored_fp)) - profile $ROM_OS/$ROM_REGION, SDK $ROM_SDK"
+    CUR_DISPLAY="$(get_rom_display_version 2>/dev/null || echo "$CUR")"
+    STORED_DISPLAY="$(cmd_status | grep '^stored=' | cut -d= -f2-)"
+
+    log "re-patching for firmware $CUR_DISPLAY (was $STORED_DISPLAY) - profile $ROM_OS/$ROM_REGION, SDK $ROM_SDK"
 
     execute_patcher_engine "$PATCHER_JAR" "$STAGE_DIR" \
         --services "$SERVICES_LIVE" \
@@ -170,7 +207,7 @@ cmd_run() {
         rm -rf "$STAGE_DIR"
         rm -f "$FLAG_RUNNING"
         touch "$FLAG_FAILED"
-        notify "Automatic re-patch failed on firmware $CUR. The device runs on stock framework; push notifications are unfixed until the module is re-flashed."
+        notify "Automatic re-patch failed on firmware $CUR_DISPLAY. The device runs on stock framework; push notifications are unfixed until the module is re-flashed."
         echo "RESULT=FAIL"
         return 1
     fi
@@ -195,7 +232,7 @@ cmd_run() {
         rm -rf "$PUB_DIR" "$STAGE_DIR"
         rm -f "$FLAG_RUNNING"
         touch "$FLAG_FAILED"
-        notify "Automatic re-patch failed on firmware $CUR: framework publication staging failed."
+        notify "Automatic re-patch failed on firmware $CUR_DISPLAY: framework publication staging failed."
         echo "RESULT=FAIL"
         return 1
     fi
@@ -239,8 +276,8 @@ cmd_run() {
     rm -rf "$STAGE_DIR"
 
     # Stealth in-memory tmpfs mount will be activated by post-fs-data.sh on next boot
-    log "re-patch OK for firmware $CUR - reboot required to serve the new jars"
-    notify "Framework re-patched for firmware $CUR. Reboot to re-enable push notification fixes."
+    log "re-patch OK for firmware $CUR_DISPLAY - reboot required to serve the new jars"
+    notify "Framework re-patched for firmware $CUR_DISPLAY. Reboot to re-enable push notification fixes."
     echo "RESULT=OK"
     return 0
 }
