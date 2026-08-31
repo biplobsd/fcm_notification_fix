@@ -12,4 +12,4 @@
 ## 3. Zero CPU / GPU / Battery Overhead
 - No script or background process may continuously consume CPU cycles or keep wake locks active.
 - Device must be allowed to enter deep suspend (Doze mode) without background scripts waking CPU cores.
-- Do not fight system thermal daemons (e.g., `mi_thermald`) with loops or forced clock unclamp watchdogs.
+- Do not fight system thermal daemons (e.g., `mi_thermald`) with loops or forced clock-unclamp watchdogs.

@@ -102,7 +102,11 @@ case "$ACTION_BASE" in
         chown system:system "$TMP_CONF" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
 
-        mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null || true
+        if ! mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null; then
+            rm -f "$TMP_CONF" 2>/dev/null
+            echo '{"status":"error","message":"Failed to save configuration"}'
+            exit 1
+        fi
         chmod 0644 "$CONF_FILE" 2>/dev/null || true
         chown system:system "$CONF_FILE" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true

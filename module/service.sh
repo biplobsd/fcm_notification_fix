@@ -109,19 +109,20 @@ fi
 # Wake screen / Light up screen on notification and notification privacy settings
 # Applied only once on initial module setup to preserve subsequent user modifications
 if [ ! -f "$MODDIR/.defaults_applied" ]; then
-    settings put secure notification_animation_style screen_on 2>/dev/null
-    settings put system wake_up_for_notification 1 2>/dev/null
-    settings put secure lock_screen_wake_up_for_notification 1 2>/dev/null
-    settings put system wakeup_for_keyguard_notification 1 2>/dev/null
-    settings put secure full_screen_aod_notification 1 2>/dev/null
+    DEFAULTS_OK=1
+    settings put secure notification_animation_style screen_on 2>/dev/null || DEFAULTS_OK=0
+    settings put system wake_up_for_notification 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure lock_screen_wake_up_for_notification 1 2>/dev/null || DEFAULTS_OK=0
+    settings put system wakeup_for_keyguard_notification 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure full_screen_aod_notification 1 2>/dev/null || DEFAULTS_OK=0
 
     # Show all notifications and their full contents on lock screen (No hidden content):
-    settings put secure lock_screen_show_notifications 1 2>/dev/null
-    settings put secure lock_screen_allow_private_notifications 1 2>/dev/null
-    settings put system pref_key_enable_notification_body 1 2>/dev/null
-    settings put secure lock_screen_show_only_unseen_notifications 0 2>/dev/null
+    settings put secure lock_screen_show_notifications 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure lock_screen_allow_private_notifications 1 2>/dev/null || DEFAULTS_OK=0
+    settings put system pref_key_enable_notification_body 1 2>/dev/null || DEFAULTS_OK=0
+    settings put secure lock_screen_show_only_unseen_notifications 0 2>/dev/null || DEFAULTS_OK=0
 
-    touch "$MODDIR/.defaults_applied" 2>/dev/null || true
+    [ "$DEFAULTS_OK" -eq 1 ] && touch "$MODDIR/.defaults_applied" 2>/dev/null
 fi
 
 # ==============================================================================
