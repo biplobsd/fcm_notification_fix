@@ -43,23 +43,15 @@ get_rom_display_version() {
     fi
 }
 
-# Compares stored fingerprint against current running fingerprint with full backward
-# compatibility. Matches if signatures are identical or if stored is in legacy single-string
-# format matching base incremental version.
+# Compares stored fingerprint against the current composite fingerprint. Legacy
+# incremental-only values cannot verify partition-level framework versions and
+# therefore require a fresh stock stash.
 is_fingerprint_match() {
     _stored="$1"
     _current="$2"
     [ -z "$_stored" ] || [ -z "$_current" ] && return 1
     [ "$_stored" = "$_current" ] && return 0
 
-    # Legacy format fallback (stored has no "|" delimiter from earlier module versions)
-    case "$_stored" in
-        *"|"*) return 1 ;;
-        *)
-            _inc="$(getprop ro.build.version.incremental)"
-            [ -n "$_inc" ] && [ "$_stored" = "$_inc" ] && return 0
-            ;;
-    esac
     return 1
 }
 
@@ -259,4 +251,3 @@ execute_patcher_engine() {
     echo "ERROR: Neither dalvikvm nor app_process runtime found." >&2
     return 1
 }
-
