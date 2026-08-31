@@ -1034,7 +1034,7 @@
             const cbName = 'fcm_cb_' + Date.now() + '_' + (cbCounter++);
             const jsonPayload = payload ? (typeof payload === 'string' ? payload : JSON.stringify(payload)) : '';
             const escapedPayload = jsonPayload.replace(/'/g, "'\\''");
-            const cmd = `sh /data/adb/modules/fcm_notification_fix/webroot/cgi-bin/exec '${action}' '${escapedPayload}' 2>/dev/null`;
+            const cmd = `EXEC="/data/adb/modules/fcm_notification_fix/webroot/cgi-bin/exec"; [ -f "$EXEC" ] || EXEC="/data/adb/modules_update/fcm_notification_fix/webroot/cgi-bin/exec"; sh "$EXEC" '${action}' '${escapedPayload}' 2>/dev/null`;
 
             window[cbName] = function(errno, stdout, stderr) {
                 delete window[cbName];
@@ -1595,18 +1595,24 @@
         });
     }
 
+    let latestSaveId = 0;
     async function saveConfiguration() {
+        const thisSaveId = ++latestSaveId;
+        const submittedMode = currentMode;
+        const submittedApps = new Set(selectedApps);
         try {
             const payload = {
-                mode: currentMode,
-                packages: Array.from(selectedApps)
+                mode: submittedMode,
+                packages: Array.from(submittedApps)
             };
             const res = await execAction('save_config', payload);
             if (res.success) {
-                savedMode = currentMode;
-                savedApps = new Set(selectedApps);
-                checkDraftChanges();
-                showToast(t('toast.saved'));
+                if (thisSaveId === latestSaveId) {
+                    savedMode = submittedMode;
+                    savedApps = submittedApps;
+                    checkDraftChanges();
+                    showToast(t('toast.saved'));
+                }
             } else {
                 alert(t('alert.saveError') + ((res.data && res.data.message) || res.stderr || ''));
             }

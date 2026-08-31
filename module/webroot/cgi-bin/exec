@@ -75,6 +75,7 @@ case "$ACTION" in
 
         # Write to atomic temp file first
         TMP_CONF="/data/system/fcm_wake.conf.tmp.$$"
+        [ -d "/data/system" ] || TMP_CONF="${TMPDIR:-/tmp}/fcm_wake.conf.tmp.$$"
         {
             echo "# HyperOS FCM Dynamic Wake Filter Configuration"
             echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
@@ -139,9 +140,11 @@ case "$ACTION" in
             REPATCH_OUT="RESULT=FAIL"
             REPATCH_STATUS=1
         fi
+
+        [ "$REPATCH_STATUS" -eq 0 ] && REPATCH_ST="ok" || REPATCH_ST="error"
         
-        printf '{"status":"ok","exit_code":%d,"output":"%s"}\n' \
-            "$REPATCH_STATUS" "$(echo "$REPATCH_OUT" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')"
+        printf '{"status":"%s","exit_code":%d,"output":"%s"}\n' \
+            "$REPATCH_ST" "$REPATCH_STATUS" "$(echo "$REPATCH_OUT" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')"
         ;;
 
     reboot)
