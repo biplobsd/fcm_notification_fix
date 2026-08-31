@@ -57,7 +57,7 @@ mount_stealth_jar() {
 
     TMP_DIR="/dev/.fcm_stage_${$}_$(date +%s%N 2>/dev/null || echo $$)"
     mkdir -p "$TMP_DIR" || return 1
-    if ! mount -t tmpfs -o mode=0755,size=100M tmpfs "$TMP_DIR" 2>/dev/null; then
+    if ! mount -t tmpfs -o mode=0755,size=100M fcm_stage "$TMP_DIR" 2>/dev/null; then
         rm -rf "$TMP_DIR" 2>/dev/null
         return 1
     fi
@@ -83,15 +83,44 @@ mount_stealth_jar() {
         return 1
     fi
 
-    # Staging succeeded: safely replace the target mount
-    umount "$_dst" 2>/dev/null || true
+    # Staging succeeded: validate any existing mount before replacing
+    _existing_src=$(awk -v tgt="$_dst" '
+        $5 == tgt {
+            for (i = 6; i <= NF; i++) {
+                if ($i == "-") {
+                    src = $(i+2);
+                    break;
+                }
+            }
+        }
+        END { if (src != "") print src; }
+    ' /proc/self/mountinfo 2>/dev/null)
+    if [ -n "$_existing_src" ]; then
+        case "$_existing_src" in
+            fcm_stage|"$MODDIR"/*|/data/adb/modules/fcm_notification_fix/*|/data/adb/modules_update/fcm_notification_fix/*)
+                umount "$_dst" 2>/dev/null || umount -l "$_dst" 2>/dev/null || true
+                ;;
+            *)
+                # Foreign module mount detected on target: abort to avoid detaching or clobbering other modules
+                umount -l "$TMP_DIR" 2>/dev/null || true
+                rm -rf "$TMP_DIR" 2>/dev/null
+                return 1
+                ;;
+        esac
+    fi
+
     if ! mount -o bind "$_staged" "$_dst" 2>/dev/null; then
         umount -l "$TMP_DIR" 2>/dev/null || true
         rm -rf "$TMP_DIR" 2>/dev/null
         return 1
     fi
 
-    mount -o remount,ro,bind "$_dst" 2>/dev/null || true
+    if ! mount -o remount,ro,bind "$_dst" 2>/dev/null; then
+        umount -l "$_dst" 2>/dev/null || true
+        umount -l "$TMP_DIR" 2>/dev/null || true
+        rm -rf "$TMP_DIR" 2>/dev/null
+        return 1
+    fi
 
     # Clean up staging mount; pinned VFS inode at $_dst persists
     umount -l "$TMP_DIR" 2>/dev/null || true
