@@ -97,7 +97,7 @@ mount_stealth_jar() {
     ' /proc/self/mountinfo 2>/dev/null)
     if [ -n "$_existing_src" ]; then
         case "$_existing_src" in
-            fcm_stage|"$MODDIR"/*|/data/adb/modules/fcm_notification_fix/*)
+            fcm_stage|"$MODDIR"/*|/data/adb/modules/fcm_notification_fix/*|/data/adb/modules_update/fcm_notification_fix/*)
                 umount "$_dst" 2>/dev/null || umount -l "$_dst" 2>/dev/null || true
                 ;;
             *)

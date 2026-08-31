@@ -271,6 +271,7 @@ done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 [ -f "$MODPATH/uninstall.sh" ] && set_perm "$MODPATH/uninstall.sh" 0 0 0755
+[ -f "$MODPATH/restore-on-boot.sh" ] && set_perm "$MODPATH/restore-on-boot.sh" 0 0 0755
 [ -f "$MODPATH/repatch.sh" ] && set_perm "$MODPATH/repatch.sh" 0 0 0755
 [ -f "$MODPATH/common.sh" ] && set_perm "$MODPATH/common.sh" 0 0 0755
 [ -f "$MODPATH/tools/patcher" ] && set_perm "$MODPATH/tools/patcher" 0 0 0755

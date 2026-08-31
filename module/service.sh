@@ -70,20 +70,34 @@ if [ ! -f "$STOCK_CONF" ]; then
         op_status=$?
         op_mode="unknown"
         if [ "$op_status" -eq 0 ] && [ -n "$op_out" ]; then
-            case "$op_out" in
-                *": allow"*) op_mode="allow" ;;
-                *": ignore"*) op_mode="ignore" ;;
-                *": deny"*) op_mode="deny" ;;
-                *": foreground"*) op_mode="foreground" ;;
-                *": default"*) op_mode="default" ;;
-                *"Default mode: allow"*) op_mode="allow" ;;
-                *"Default mode: ignore"*) op_mode="ignore" ;;
-                *"Default mode: deny"*) op_mode="deny" ;;
-                *"Default mode: foreground"*) op_mode="foreground" ;;
-                *"Default mode: default"*) op_mode="default" ;;
-                *"No operations."*) op_mode="default" ;;
-                *) op_mode="unknown" ;;
-            esac
+            op_line=$(printf '%s\n' "$op_out" | awk -v op="$op" '
+                $0 ~ "^[[:space:]]*" op "[[:space:]]*:" { print; exit }
+            ')
+            if [ -n "$op_line" ]; then
+                case "$op_line" in
+                    *": allow"*) op_mode="allow" ;;
+                    *": ignore"*) op_mode="ignore" ;;
+                    *": deny"*) op_mode="deny" ;;
+                    *": foreground"*) op_mode="foreground" ;;
+                    *": default"*) op_mode="default" ;;
+                esac
+            else
+                default_line=$(printf '%s\n' "$op_out" | awk '
+                    /^[[:space:]]*Default mode[[:space:]]*:/ { print; exit }
+                ')
+                case "$default_line" in
+                    *": allow"*) op_mode="allow" ;;
+                    *": ignore"*) op_mode="ignore" ;;
+                    *": deny"*) op_mode="deny" ;;
+                    *": foreground"*) op_mode="foreground" ;;
+                    *": default"*) op_mode="default" ;;
+                    *)
+                        case "$op_out" in
+                            *"No operations."*) op_mode="default" ;;
+                        esac
+                        ;;
+                esac
+            fi
         fi
         echo "gms_appop:${op}=${op_mode}" >> "$STOCK_TMP"
     done
