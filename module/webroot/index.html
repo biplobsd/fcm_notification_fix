@@ -1022,81 +1022,48 @@
         refreshRomStatus();
     }
 
-    // Universal KernelSU / APatch / Magisk Execution Bridge
+    // KernelSU / APatch / Magisk Execution Bridge
     let cbCounter = 0;
-
-    function parseJsonPayload(raw) {
-        if (!raw || typeof raw !== 'string') return null;
-        const s = raw.trim();
-        try { return JSON.parse(s); } catch (e) {}
-        const start = s.indexOf('{');
-        const end = s.lastIndexOf('}');
-        if (start !== -1 && end > start) {
-            try { return JSON.parse(s.substring(start, end + 1)); } catch (e) {}
-        }
-        return null;
-    }
-
     async function execAction(action, payload) {
-        // 1. Primary Bridge: KernelSU / APatch / Magisk JS Interface
         const ksuObj = (window.ksu || (typeof ksu !== 'undefined' ? ksu : null));
-        if (ksuObj && typeof ksuObj.exec === 'function') {
-            return new Promise((resolve) => {
-                const cbName = 'fcm_cb_' + Date.now() + '_' + (cbCounter++);
-                const jsonPayload = payload ? (typeof payload === 'string' ? payload : JSON.stringify(payload)) : '';
-                const escapedPayload = jsonPayload.replace(/'/g, "'\\''");
-                const cmd = `sh /data/adb/modules/fcm_notification_fix/webroot/cgi-bin/exec '${action}' '${escapedPayload}' 2>/dev/null`;
+        if (!ksuObj || typeof ksuObj.exec !== 'function') {
+            return { success: false, stderr: 'KernelSU bridge not available', data: null };
+        }
 
-                window[cbName] = function(errno, stdout, stderr) {
-                    delete window[cbName];
-                    const outStr = (stdout || '').trim();
-                    const errStr = (stderr || '').trim();
-                    const data = parseJsonPayload(outStr);
-                    resolve({
-                        errno: errno ?? 0,
-                        stdout: outStr,
-                        stderr: errStr,
-                        success: (errno === 0 && data && data.status === 'ok'),
-                        data: data
-                    });
-                };
+        return new Promise((resolve) => {
+            const cbName = 'fcm_cb_' + Date.now() + '_' + (cbCounter++);
+            const jsonPayload = payload ? (typeof payload === 'string' ? payload : JSON.stringify(payload)) : '';
+            const escapedPayload = jsonPayload.replace(/'/g, "'\\''");
+            const cmd = `sh /data/adb/modules/fcm_notification_fix/webroot/cgi-bin/exec '${action}' '${escapedPayload}' 2>/dev/null`;
 
+            window[cbName] = function(errno, stdout, stderr) {
+                delete window[cbName];
+                const outStr = (stdout || '').trim();
+                let data = null;
                 try {
-                    ksuObj.exec(cmd, '{}', cbName);
-                } catch (e) {
-                    try {
-                        ksuObj.exec(cmd, cbName);
-                    } catch (e2) {
-                        delete window[cbName];
-                        resolve({ success: false, stderr: e.message || e2.message, data: null });
+                    const start = outStr.indexOf('{');
+                    const end = outStr.lastIndexOf('}');
+                    if (start !== -1 && end > start) {
+                        data = JSON.parse(outStr.substring(start, end + 1));
                     }
-                }
-            });
-        }
+                } catch (e) {}
 
-        // 2. Secondary Bridge: HTTP CGI Backend (if served by a standalone web server with CGI)
-        if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
+                resolve({
+                    errno: errno ?? 0,
+                    stdout: outStr,
+                    stderr: (stderr || '').trim(),
+                    success: (errno === 0 && data && data.status === 'ok'),
+                    data: data
+                });
+            };
+
             try {
-                const url = '/cgi-bin/exec?' + encodeURIComponent(action);
-                const opts = payload ? {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: typeof payload === 'string' ? payload : JSON.stringify(payload)
-                } : { method: 'GET' };
-                const resp = await fetch(url, opts);
-                const text = await resp.text();
-                if (text.startsWith('#!')) {
-                    throw new Error('Static HTTP server cannot execute CGI; KernelSU root bridge is required.');
-                }
-                const data = parseJsonPayload(text);
-                if (!data) throw new Error('Invalid JSON: ' + text.substring(0, 80));
-                return { success: data.status === 'ok', data, stdout: text, stderr: '' };
-            } catch (err) {
-                return { success: false, stderr: err.message, data: null };
+                ksuObj.exec(cmd, '{}', cbName);
+            } catch (e) {
+                delete window[cbName];
+                resolve({ success: false, stderr: e.message, data: null });
             }
-        }
-
-        return { success: false, stderr: 'Execution bridge not available', data: null };
+        });
     }
 
     // Critical App Recommendation Engine

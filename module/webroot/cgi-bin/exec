@@ -10,16 +10,6 @@ MODDIR="${0%/*}/../.."
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules/fcm_notification_fix"
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
 
-if [ -n "$GATEWAY_INTERFACE" ] || [ -n "$REQUEST_METHOD" ] || [ -n "$SERVER_PROTOCOL" ]; then
-    echo "Content-Type: application/json"
-    echo ""
-fi
-
-if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
-    echo '{"status":"ok"}'
-    exit 0
-fi
-
 # Ensure config file exists with proper permissions
 if [ ! -f "$CONF_FILE" ]; then
     cat <<'EOF' > "$CONF_FILE"
@@ -32,15 +22,9 @@ EOF
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
-ACTION="$QUERY_STRING"
-[ -z "$ACTION" ] && ACTION="$1"
-[ -z "$ACTION" ] && ACTION="status"
+ACTION="${1:-status}"
 
-# Strip any query parameters if passed as action?param
-ACTION_BASE="${ACTION%%&*}"
-ACTION_BASE="${ACTION_BASE%%\?*}"
-
-case "$ACTION_BASE" in
+case "$ACTION" in
     status|load_status|get_status)
         MODE="ALL"
         PACKAGES=""
