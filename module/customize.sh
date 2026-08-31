@@ -112,6 +112,10 @@ if [ -f "$OLD_MOD_DIR/stock/services.jar" ] && [ -f "$OLD_MOD_DIR/stock/miui-ser
     [ -f "$OLD_MOD_DIR/stock/fingerprint" ] && cp -f "$OLD_MOD_DIR/stock/fingerprint" "$STOCK_DIR/fingerprint"
 fi
 
+# Carry forward stock settings backup and defaults marker across updates
+[ -f "$OLD_MOD_DIR/stock_settings.conf" ] && cp -f "$OLD_MOD_DIR/stock_settings.conf" "$MODPATH/stock_settings.conf" 2>/dev/null || true
+[ -f "$OLD_MOD_DIR/.defaults_applied" ] && cp -f "$OLD_MOD_DIR/.defaults_applied" "$MODPATH/.defaults_applied" 2>/dev/null || true
+
 # Decide which jar copies the patch engine should read
 SERVICES_READ="$SERVICES_STOCK"
 MIUI_READ="$MIUI_SERVICES_STOCK"
@@ -266,6 +270,7 @@ for jar in "$MODPATH/framework/services.jar" "$MODPATH/framework/miui-services.j
 done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
+[ -f "$MODPATH/uninstall.sh" ] && set_perm "$MODPATH/uninstall.sh" 0 0 0755
 [ -f "$MODPATH/repatch.sh" ] && set_perm "$MODPATH/repatch.sh" 0 0 0755
 [ -f "$MODPATH/common.sh" ] && set_perm "$MODPATH/common.sh" 0 0 0755
 [ -f "$MODPATH/tools/patcher" ] && set_perm "$MODPATH/tools/patcher" 0 0 0755

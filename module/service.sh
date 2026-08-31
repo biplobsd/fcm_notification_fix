@@ -20,6 +20,78 @@ fi
 # ==============================================================================
 # 1. Global Lockscreen & Always-On Display (AOD) Notification Lighting & Wakeup
 # ==============================================================================
+STOCK_CONF="$MODDIR/stock_settings.conf"
+
+SETTINGS_LIST="
+secure:notification_animation_style
+system:wake_up_for_notification
+secure:lock_screen_wake_up_for_notification
+system:wakeup_for_keyguard_notification
+secure:full_screen_aod_notification
+secure:lock_screen_show_notifications
+secure:lock_screen_allow_private_notifications
+system:pref_key_enable_notification_body
+secure:lock_screen_show_only_unseen_notifications
+"
+
+GMS_APPOPS="
+RUN_IN_BACKGROUND
+RUN_ANY_IN_BACKGROUND
+10008
+WAKE_LOCK
+"
+
+# First boot: backup stock settings and GMS state if not already recorded
+if [ ! -f "$STOCK_CONF" ]; then
+    STOCK_TMP="$MODDIR/stock_settings.conf.tmp.$$"
+    rm -f "$STOCK_TMP" 2>/dev/null
+    : > "$STOCK_TMP"
+
+    for entry in $SETTINGS_LIST; do
+        [ -z "$entry" ] && continue
+        ns="${entry%%:*}"
+        k="${entry#*:}"
+        val=$(settings get "$ns" "$k" 2>/dev/null | tr -d '\r')
+        [ -z "$val" ] && val="null"
+        echo "${ns}:${k}=${val}" >> "$STOCK_TMP"
+    done
+
+    # Backup initial GMS Doze user-whitelist state
+    if cmd deviceidle whitelist 2>/dev/null | grep -q "com.google.android.gms"; then
+        echo "gms_user_whitelisted=1" >> "$STOCK_TMP"
+    else
+        echo "gms_user_whitelisted=0" >> "$STOCK_TMP"
+    fi
+
+    # Backup initial GMS AppOps state for surgical restoration on uninstall
+    for op in $GMS_APPOPS; do
+        [ -z "$op" ] && continue
+        op_out=$(cmd appops get com.google.android.gms "$op" 2>/dev/null)
+        op_status=$?
+        op_mode="unknown"
+        if [ "$op_status" -eq 0 ] && [ -n "$op_out" ]; then
+            case "$op_out" in
+                *": allow"*) op_mode="allow" ;;
+                *": ignore"*) op_mode="ignore" ;;
+                *": deny"*) op_mode="deny" ;;
+                *": foreground"*) op_mode="foreground" ;;
+                *": default"*) op_mode="default" ;;
+                *"Default mode: allow"*) op_mode="allow" ;;
+                *"Default mode: ignore"*) op_mode="ignore" ;;
+                *"Default mode: deny"*) op_mode="deny" ;;
+                *"Default mode: foreground"*) op_mode="foreground" ;;
+                *"Default mode: default"*) op_mode="default" ;;
+                *"No operations."*) op_mode="default" ;;
+                *) op_mode="unknown" ;;
+            esac
+        fi
+        echo "gms_appop:${op}=${op_mode}" >> "$STOCK_TMP"
+    done
+
+    chmod 0600 "$STOCK_TMP" 2>/dev/null
+    mv -f "$STOCK_TMP" "$STOCK_CONF" 2>/dev/null
+fi
+
 # Wake screen / Light up screen on notification:
 settings put secure notification_animation_style screen_on 2>/dev/null
 settings put system wake_up_for_notification 1 2>/dev/null
@@ -137,6 +209,3 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 
 # Run sync asynchronously on boot completion
 sync_notification_channels &
-
-
-
