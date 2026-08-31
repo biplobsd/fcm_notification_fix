@@ -59,15 +59,20 @@ case "$ACTION" in
         [ -z "$USER_PKGS" ] && USER_PKGS="[]"
 
         read_sound_settings
+        FEAT_MIUI=false; [ "$V_RNM_MUTE" = "0" ] && FEAT_MIUI=true
+        FEAT_A15=false; [ "$V_NOTIF_COOL_EN" = "0" ] && FEAT_A15=true
+        FEAT_OFFBODY=false; [ "$V_MUTE_OFF_BODY" = "0" ] && FEAT_OFFBODY=true
+        FEAT_INCALL=false; [ "$V_IN_CALL" = "1" ] && FEAT_INCALL=true
+
         SOUND_ACTIVE=false
-        if [ "$V_RNM_MUTE" = "0" ] && [ "$V_NOTIF_COOL_EN" = "0" ]; then
+        if [ "$FEAT_MIUI" = "true" ] && [ "$FEAT_A15" = "true" ] && [ "$FEAT_OFFBODY" = "true" ] && [ "$FEAT_INCALL" = "true" ]; then
             SOUND_ACTIVE=true
         fi
         SOUND_BACKUP=false
         [ -f "$SOUND_BACKUP_FILE" ] && SOUND_BACKUP=true
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP"
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
         ;;
 
     stopped)
@@ -233,8 +238,16 @@ case "$ACTION" in
         FEAT=$(echo "$BODY" | grep -o '"feature":"[^"]*"' | cut -d: -f2 | tr -d '"')
         VAL=$(echo "$BODY" | grep -o '"enabled":[^,}]*' | cut -d: -f2 | tr -d ' "')
 
+        case "$FEAT" in
+            miui_cooldown|android15_cooldown|offbody_mute|in_call) ;;
+            *)
+                echo '{"status":"error","message":"Unknown or missing sound feature"}'
+                exit 0
+                ;;
+        esac
+
         read_sound_settings
-        if [ ! -f "$SOUND_BACKUP_FILE" ]; then
+        if [ "$VAL" = "true" ] && [ ! -f "$SOUND_BACKUP_FILE" ]; then
             TMP_BACKUP="/data/system/fcm_sound_backup.json.tmp.$$"
             printf '{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s","in_call":"%s"}\n' \
                 "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY" "$V_IN_CALL" > "$TMP_BACKUP"
@@ -295,6 +308,10 @@ case "$ACTION" in
                 else
                     restore_setting secure in_call_notification_enabled "$(get_b_val in_call)"
                 fi
+                ;;
+            *)
+                echo '{"status":"error","message":"Unknown or missing sound feature"}'
+                exit 0
                 ;;
         esac
 
