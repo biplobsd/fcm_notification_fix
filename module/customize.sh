@@ -125,33 +125,35 @@ LIVE_IS_STOCK=1
 is_stock_jar "$SERVICES_STOCK" || LIVE_IS_STOCK=0
 is_stock_jar "$MIUI_SERVICES_STOCK" || LIVE_IS_STOCK=0
 
-CURRENT_FP="$(getprop ro.build.version.incremental)"
+CURRENT_FP="$(get_rom_fingerprint)"
 STASHED_FP="$(cat "$STOCK_DIR/fingerprint" 2>/dev/null)"
 
 if [ "$LIVE_IS_STOCK" != "1" ]; then
     ui_print "- Live framework jars already contain a previous patch"
     if [ -f "$STOCK_DIR/services.jar" ] && [ -f "$STOCK_DIR/miui-services.jar" ] \
-        && [ -n "$STASHED_FP" ] && [ "$STASHED_FP" = "$CURRENT_FP" ] \
+        && is_fingerprint_match "$STASHED_FP" "$CURRENT_FP" \
         && is_stock_jar "$STOCK_DIR/services.jar" && is_stock_jar "$STOCK_DIR/miui-services.jar"; then
         SERVICES_READ="$STOCK_DIR/services.jar"
         MIUI_READ="$STOCK_DIR/miui-services.jar"
         USING_STASH=1
         STASH_STATUS="carried"
+        get_rom_fingerprint > "$STOCK_DIR/fingerprint"
         ui_print "- Valid stock stash found (firmware match)"
         ui_print "- Re-patching engine input: stashed stock jars"
-    elif [ -n "$STASHED_FP" ] && [ "$STASHED_FP" != "$CURRENT_FP" ]; then
-        abort_install "Firmware changed since the stock stash was taken (stashed: $STASHED_FP, current: $CURRENT_FP). Disable this module in your manager, reboot, then re-flash this zip to re-stash against the current firmware."
+    elif [ -n "$STASHED_FP" ] && ! is_fingerprint_match "$STASHED_FP" "$CURRENT_FP"; then
+        abort_install "Firmware changed since the stock stash was taken. Disable this module in your manager, reboot, then re-flash this zip to re-stash against the current firmware."
     else
         abort_install "No valid stock stash found for a live upgrade. Disable this module in your manager, reboot, then re-flash this zip — the first install on stock jars will create the stash automatically."
     fi
-elif [ -d "$STOCK_DIR" ] && [ -n "$STASHED_FP" ] && [ "$STASHED_FP" != "$CURRENT_FP" ]; then
+elif [ -d "$STOCK_DIR" ] && [ -n "$STASHED_FP" ] && ! is_fingerprint_match "$STASHED_FP" "$CURRENT_FP"; then
     rm -rf "$STOCK_DIR"   # stale stash from older firmware; recreate below
 fi
 
 if [ "$USING_STASH" != "1" ] && [ "$LIVE_IS_STOCK" = "1" ]; then
-    if [ -f "$STOCK_DIR/services.jar" ] && [ "$STASHED_FP" = "$CURRENT_FP" ] \
+    if [ -f "$STOCK_DIR/services.jar" ] && is_fingerprint_match "$STASHED_FP" "$CURRENT_FP" \
         && is_stock_jar "$STOCK_DIR/services.jar" && is_stock_jar "$STOCK_DIR/miui-services.jar"; then
         STASH_STATUS="kept"
+        get_rom_fingerprint > "$STOCK_DIR/fingerprint"
     else
         FREE_KB=$(df -k /data/adb 2>/dev/null | tail -n 1 | awk '{print $4}')
         NEED_KB=$(( ($(stat -c %s "$SERVICES_STOCK") + $(stat -c %s "$MIUI_SERVICES_STOCK")) / 1024 + 4096 ))
@@ -160,7 +162,7 @@ if [ "$USING_STASH" != "1" ] && [ "$LIVE_IS_STOCK" = "1" ]; then
             mkdir -p "$STOCK_DIR"
             cp -f "$SERVICES_STOCK" "$STOCK_DIR/services.jar"
             cp -f "$MIUI_SERVICES_STOCK" "$STOCK_DIR/miui-services.jar"
-            getprop ro.build.version.incremental > "$STOCK_DIR/fingerprint"
+            get_rom_fingerprint > "$STOCK_DIR/fingerprint"
             STASH_STATUS="created"
         else
             STASH_STATUS="skipped"
@@ -260,7 +262,7 @@ fi
 
 # Record the firmware this patch was built against - the OTA guard compares it
 # with the running build on every boot.
-getprop ro.build.version.incremental > "$MODPATH/rom.fingerprint"
+get_rom_fingerprint > "$MODPATH/rom.fingerprint"
 rm -f "$MODPATH/repatch_pending" "$MODPATH/repatch_failed" "$MODPATH/repatch_reboot" "$MODPATH/repatch_running"
 touch "$MODPATH/skip_mount"
 
@@ -294,7 +296,7 @@ case "$STASH_STATUS" in
     created) ui_print "- Pristine stock jars stashed inside module for future upgrades (~$(du -k "$STOCK_DIR" 2>/dev/null | cut -f1 | tail -n1) KB)" ;;
 esac
 
-ui_print "- Firmware recorded: $(getprop ro.build.version.incremental)"
+ui_print "- Firmware recorded: $(get_rom_display_version)"
 ui_print "- After an OTA the module stays unmounted and re-patches itself on the next boot"
 ui_print "- [PASS] Atomic swap completed. Module ready!"
 ui_print "***********************************************"

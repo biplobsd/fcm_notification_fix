@@ -20,27 +20,39 @@ fi
 # never auto-mount disk directories into the global namespace.
 touch "$MODDIR/skip_mount"
 
+# Sourced helpers (e.g. get_rom_fingerprint, live_miui_services)
+[ -f "$MODDIR/common.sh" ] && . "$MODDIR/common.sh"
+
 # 2. Firmware Change Guard (OTA safety)
 # The patched jars are built against one specific firmware build. After an OTA
 # the rest of the ROM has moved on and serving them is a bootloop, so when the
 # build recorded at install time no longer matches the running one the module
 # serves nothing at all: the device boots on 100% stock framework and
 # service.sh re-patches against the new firmware after boot.
-CURRENT_FP="$(getprop ro.build.version.incremental)"
+if command -v get_rom_fingerprint >/dev/null 2>&1; then
+    CURRENT_FP="$(get_rom_fingerprint)"
+else
+    CURRENT_FP="$(getprop ro.build.fingerprint)|$(getprop ro.system.build.fingerprint)|$(getprop ro.system_ext.build.fingerprint)|$(getprop ro.build.version.incremental)|$(getprop persist.sys.xms.version)"
+fi
 STORED_FP="$(cat "$MODDIR/rom.fingerprint" 2>/dev/null)"
 
-if [ -n "$STORED_FP" ] && [ -n "$CURRENT_FP" ] && [ "$STORED_FP" != "$CURRENT_FP" ]; then
+if command -v is_fingerprint_match >/dev/null 2>&1; then
+    MATCH_OK=0
+    is_fingerprint_match "$STORED_FP" "$CURRENT_FP" && MATCH_OK=1
+else
+    MATCH_OK=0
+    [ -n "$STORED_FP" ] && [ "$STORED_FP" = "$CURRENT_FP" ] && MATCH_OK=1
+fi
+
+if [ "$MATCH_OK" -ne 1 ]; then
     touch "$MODDIR/repatch_pending"
     rm -f "$MODDIR/repatch_reboot"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] firmware changed ($STORED_FP -> $CURRENT_FP): module not mounted, re-patch pending" >> "$MODDIR/repatch.log"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] firmware changed or unverified ($STORED_FP -> $CURRENT_FP): module not mounted, re-patch pending" >> "$MODDIR/repatch.log"
     exit 0
 fi
 
 # Clear transient state flags
 rm -f "$MODDIR/repatch_pending" "$MODDIR/repatch_reboot" "$MODDIR/repatch_failed"
-
-# Sourced helpers (e.g. live_miui_services)
-[ -f "$MODDIR/common.sh" ] && . "$MODDIR/common.sh"
 
 # 3. Anonymous In-Memory tmpfs Stealth Mounts
 # Files are staged in a transient private tmpfs in RAM, verified, bind-mounted

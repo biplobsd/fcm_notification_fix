@@ -8,6 +8,53 @@
 # strategy than the install did.
 # ==============================================================================
 
+# Returns a composite signature that uniquely identifies the OS, partition-level framework jars,
+# and carrier/XMS hotfix sub-versions (e.g. 3.0.307.0.WOKCNXM.C11).
+# Any change to system, system_ext, or OS build triggers a mismatch.
+get_rom_fingerprint() {
+    _fp="$(getprop ro.build.fingerprint)"
+    _sys_fp="$(getprop ro.system.build.fingerprint)"
+    _ext_fp="$(getprop ro.system_ext.build.fingerprint)"
+    _inc="$(getprop ro.build.version.incremental)"
+    _xms="$(getprop persist.sys.xms.version)"
+    [ -z "$_xms" ] && _xms="$(getprop ro.mi.xms.version.incremental)"
+    [ -z "$_fp" ] && _fp="$(getprop ro.bootimage.build.fingerprint)"
+    [ -z "$_fp" ] && _fp="$_inc"
+
+    echo "${_fp}|${_sys_fp}|${_ext_fp}|${_inc}|${_xms}"
+}
+
+# Returns a user-friendly version string for UI display and terminal logging.
+# Formats: "OS3.0.307.0.WOKCNXM.C11" or "OS1.0.30.0.UNACNXM" or fallback to incremental.
+get_rom_display_version() {
+    _inc="$(getprop ro.build.version.incremental)"
+    _xms="$(getprop persist.sys.xms.version)"
+    [ -z "$_xms" ] && _xms="$(getprop ro.mi.xms.version.incremental)"
+
+    if [ -n "$_inc" ] && [ -n "$_xms" ]; then
+        case "$_inc" in
+            *"."*"$_xms"*) echo "$_inc" ;;
+            *) echo "${_inc}.${_xms}" ;;
+        esac
+    elif [ -n "$_inc" ]; then
+        echo "$_inc"
+    else
+        echo "$(getprop ro.build.display.id)"
+    fi
+}
+
+# Compares stored fingerprint against the current composite fingerprint. Legacy
+# incremental-only values cannot verify partition-level framework versions and
+# therefore require a fresh stock stash.
+is_fingerprint_match() {
+    _stored="$1"
+    _current="$2"
+    [ -z "$_stored" ] || [ -z "$_current" ] && return 1
+    [ "$_stored" = "$_current" ] && return 0
+
+    return 1
+}
+
 # Fills ROM_SDK / ROM_OS / ROM_REGION / ROM_INCREMENTAL from the running build.
 detect_rom_profile() {
     ROM_SDK="$(getprop ro.build.version.sdk)"
@@ -22,6 +69,8 @@ detect_rom_profile() {
         *CNXM*|*cnxm*) ROM_REGION="cn" ;;
     esac
     REGION_PROP="$(getprop ro.miui.region | tr '[:upper:]' '[:lower:]')"
+    [ -z "$REGION_PROP" ] && REGION_PROP="$(getprop ro.miui.build.region | tr '[:upper:]' '[:lower:]')"
+    [ -z "$REGION_PROP" ] && REGION_PROP="$(getprop ro.vendor.miui.region | tr '[:upper:]' '[:lower:]')"
     [ "$REGION_PROP" = "cn" ] && ROM_REGION="cn"
 }
 
@@ -202,4 +251,3 @@ execute_patcher_engine() {
     echo "ERROR: Neither dalvikvm nor app_process runtime found." >&2
     return 1
 }
-

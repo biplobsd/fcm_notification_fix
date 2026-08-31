@@ -120,10 +120,10 @@ case "$ACTION" in
         fi
         
         ST_STATE=$(echo "$STATUS_OUT" | grep "^state=" | cut -d= -f2- | tr -d '\r\n')
-        ST_CUR=$(echo "$STATUS_OUT" | grep "^current=" | cut -d= -f2- | tr -d '\r\n')
-        ST_STORED=$(echo "$STATUS_OUT" | grep "^stored=" | cut -d= -f2- | tr -d '\r\n')
+        ST_CUR=$(echo "$STATUS_OUT" | grep "^current=" | cut -d= -f2- | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        ST_STORED=$(echo "$STATUS_OUT" | grep "^stored=" | cut -d= -f2- | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
         ST_ACTIVE=$(echo "$STATUS_OUT" | grep "^active=" | cut -d= -f2- | tr -d '\r\n')
-        ST_LAST=$(echo "$STATUS_OUT" | grep "^last=" | cut -d= -f2- | tr -d '\r\n' | sed 's/"/\\"/g')
+        ST_LAST=$(echo "$STATUS_OUT" | grep "^last=" | cut -d= -f2- | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
         
         [ -z "$ST_STATE" ] && ST_STATE="ok"
         
@@ -141,7 +141,7 @@ case "$ACTION" in
         fi
         
         printf '{"status":"ok","exit_code":%d,"output":"%s"}\n' \
-            "$REPATCH_STATUS" "$(echo "$REPATCH_OUT" | tr '\n' ' ' | sed 's/"/\\"/g')"
+            "$REPATCH_STATUS" "$(echo "$REPATCH_OUT" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')"
         ;;
 
     reboot)
