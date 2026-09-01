@@ -3,7 +3,7 @@
 # HyperOS FCM Whitelist & Wake Filter - KernelSU CGI Backend
 # ==============================================================================
 
-CONF_FILE="/data/system/fcm_wake.conf"
+CONF_FILE="${CONF_FILE:-/data/system/fcm_wake.conf}"
 
 # Resolve module directory
 MODDIR="${0%/*}/../.."
@@ -83,8 +83,10 @@ case "$ACTION" in
         PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
 
         # Write to atomic temp file first
-        TMP_CONF="/data/system/fcm_wake.conf.tmp.$$"
-        [ -d "/data/system" ] || TMP_CONF="${TMPDIR:-/tmp}/fcm_wake.conf.tmp.$$"
+        CONF_DIR="${CONF_FILE%/*}"
+        [ "$CONF_DIR" = "$CONF_FILE" ] && CONF_DIR="."
+        TMP_CONF="${CONF_DIR}/fcm_wake.conf.tmp.$$"
+        ([ -d "$CONF_DIR" ] && [ -w "$CONF_DIR" ]) || TMP_CONF="${TMPDIR:-/tmp}/fcm_wake.conf.tmp.$$"
         {
             echo "# HyperOS FCM Dynamic Wake Filter Configuration"
             echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
@@ -117,7 +119,7 @@ case "$ACTION" in
 
         CURRENT_REVISION=$(sed -n 's/^# Revision: \([0-9][0-9]*\)$/\1/p' "$CONF_FILE" 2>/dev/null | head -n1)
         [ -n "$CURRENT_REVISION" ] || CURRENT_REVISION=0
-        if [ "$NEW_REVISION" -lt "$CURRENT_REVISION" ]; then
+        if [ "$NEW_REVISION" -le "$CURRENT_REVISION" ]; then
             echo '{"status":"error","message":"A newer configuration has already been saved"}'
             exit 0
         fi

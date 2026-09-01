@@ -309,13 +309,27 @@ cmd_run() {
         touch "$MODDIR/wipe_cache_once"
     fi
 
-    echo "$CUR" > "$MODDIR/rom.fingerprint"
-    rm -f "$FLAG_PENDING"
+    STATE_OK=1
+    echo "$CUR" > "$MODDIR/rom.fingerprint" 2>/dev/null || STATE_OK=0
+    [ -f "$MODDIR/rom.fingerprint" ] && [ "$(cat "$MODDIR/rom.fingerprint" 2>/dev/null)" = "$CUR" ] || STATE_OK=0
+    rm -f "$FLAG_PENDING" 2>/dev/null || STATE_OK=0
+    [ -f "$FLAG_PENDING" ] && STATE_OK=0
+    touch "$FLAG_REBOOT" 2>/dev/null || STATE_OK=0
+    [ -f "$FLAG_REBOOT" ] || STATE_OK=0
+    touch "$SKIP_MOUNT" 2>/dev/null || STATE_OK=0
+    [ -f "$SKIP_MOUNT" ] || STATE_OK=0
+
+    if [ "$STATE_OK" -ne 1 ]; then
+        log "re-patch FAILED: failed to persist completion state"
+        cleanup_on_exit
+        trap - INT TERM HUP
+        touch "$FLAG_FAILED" 2>/dev/null || true
+        echo "RESULT=FAIL"
+        return 1
+    fi
+
     cleanup_on_exit
     trap - INT TERM HUP
-
-    touch "$FLAG_REBOOT"
-    touch "$SKIP_MOUNT"
 
     # Stealth in-memory tmpfs mount will be activated by post-fs-data.sh on next boot
     log "re-patch OK for firmware $CUR_DISPLAY - reboot required to serve the new jars"
