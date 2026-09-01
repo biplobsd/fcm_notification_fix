@@ -3,14 +3,48 @@
 # HyperOS FCM Whitelist & Wake Filter - KernelSU CGI Backend
 # ==============================================================================
 
-CONF_FILE="/data/system/fcm_wake.conf"
-SOUND_BACKUP_FILE="/data/system/fcm_sound_backup.json"
-SOUND_STATE_FILE="/data/system/fcm_sound_state.json"
+DATA_DIR="/data/system"
+if [ ! -d "$DATA_DIR" ] || [ ! -w "$DATA_DIR" ]; then
+    DATA_DIR="${TMPDIR:-/tmp}"
+fi
+CONF_FILE="$DATA_DIR/fcm_wake.conf"
+SOUND_BACKUP_FILE="$DATA_DIR/fcm_sound_backup.json"
+SOUND_STATE_FILE="$DATA_DIR/fcm_sound_state.json"
+SOUND_LOCK_FILE="$DATA_DIR/fcm_sound.lock"
 
 # Resolve module directory
 MODDIR="${0%/*}/../.."
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules/fcm_notification_fix"
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
+
+acquire_sound_lock() {
+    _retries=30
+    while [ "$_retries" -gt 0 ]; do
+        if ( set -C; echo "$$" > "$SOUND_LOCK_FILE" ) 2>/dev/null; then
+            return 0
+        fi
+        _lock_pid=$(cat "$SOUND_LOCK_FILE" 2>/dev/null | tr -cd '0-9')
+        if [ -n "$_lock_pid" ]; then
+            if ! kill -0 "$_lock_pid" 2>/dev/null; then
+                rm -f "$SOUND_LOCK_FILE" 2>/dev/null
+                continue
+            fi
+        else
+            rm -f "$SOUND_LOCK_FILE" 2>/dev/null
+            continue
+        fi
+        _retries=$((_retries - 1))
+        sleep 0.05 2>/dev/null || sleep 1
+    done
+    return 1
+}
+
+release_sound_lock() {
+    _lock_pid=$(cat "$SOUND_LOCK_FILE" 2>/dev/null | tr -cd '0-9')
+    if [ "$_lock_pid" = "$$" ]; then
+        rm -f "$SOUND_LOCK_FILE" 2>/dev/null
+    fi
+}
 
 read_sound_settings() {
     V_RNM_MUTE=$(settings get system random_note_mode_mute_time_interval_ms 2>/dev/null | tr -d '\r\n')
@@ -21,6 +55,109 @@ read_sound_settings() {
     V_NOTIF_COOL_VIB=$(settings get system notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
     V_MUTE_OFF_BODY=$(settings get system obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
     V_IN_CALL=$(settings get secure in_call_notification_enabled 2>/dev/null | tr -d '\r\n')
+}
+
+compute_sound_features() {
+    read_sound_settings
+
+    FEAT_MIUI=false
+    [ "$V_RNM_MUTE" = "0" ] && [ "$V_RNM_SEQ_TIME" = "0" ] && [ "$V_RNM_SEQ_NUM" = "100" ] && FEAT_MIUI=true
+
+    FEAT_A15=false
+    [ "$V_NOTIF_COOL_EN" = "0" ] && [ "$V_NOTIF_COOL_ALL" = "0" ] && [ "$V_NOTIF_COOL_VIB" = "1" ] && FEAT_A15=true
+
+    FEAT_OFFBODY=false
+    [ "$V_MUTE_OFF_BODY" = "0" ] && FEAT_OFFBODY=true
+
+    FEAT_INCALL=false
+    [ "$V_IN_CALL" = "1" ] && FEAT_INCALL=true
+
+    SOUND_ACTIVE=false
+    if [ "$FEAT_MIUI" = "true" ] && [ "$FEAT_A15" = "true" ] && [ "$FEAT_OFFBODY" = "true" ] && [ "$FEAT_INCALL" = "true" ]; then
+        SOUND_ACTIVE=true
+    fi
+
+    SOUND_BACKUP=false
+    [ -f "$SOUND_BACKUP_FILE" ] && SOUND_BACKUP=true
+}
+
+sync_sound_state() {
+    compute_sound_features
+    TMP_STATE="$DATA_DIR/fcm_sound_state.json.tmp.$$"
+    echo "{\"active\":$SOUND_ACTIVE}" > "$TMP_STATE" 2>/dev/null || true
+    chmod 0644 "$TMP_STATE" 2>/dev/null || true
+    chown system:system "$TMP_STATE" 2>/dev/null || true
+    chcon u:object_r:system_data_file:s0 "$TMP_STATE" 2>/dev/null || true
+    mv -f "$TMP_STATE" "$SOUND_STATE_FILE" 2>/dev/null || true
+}
+
+get_b_val() {
+    _key="$1"
+    [ -f "$SOUND_BACKUP_FILE" ] || return 0
+    sed -n "s/.*\"$_key\":\"\([^\"]*\)\".*/\1/p" "$SOUND_BACKUP_FILE" 2>/dev/null
+}
+
+create_sound_backup_if_needed() {
+    [ -f "$SOUND_BACKUP_FILE" ] && return 0
+
+    acquire_sound_lock || true
+
+    if [ ! -f "$SOUND_BACKUP_FILE" ]; then
+        read_sound_settings
+        TMP_BACKUP="$DATA_DIR/fcm_sound_backup.json.tmp.$$"
+        printf '{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s","in_call":"%s"}\n' \
+            "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY" "$V_IN_CALL" > "$TMP_BACKUP"
+        chmod 0644 "$TMP_BACKUP" 2>/dev/null || true
+        chown system:system "$TMP_BACKUP" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$TMP_BACKUP" 2>/dev/null || true
+        if [ ! -f "$SOUND_BACKUP_FILE" ]; then
+            mv -f "$TMP_BACKUP" "$SOUND_BACKUP_FILE" 2>/dev/null || true
+        else
+            rm -f "$TMP_BACKUP" 2>/dev/null || true
+        fi
+    fi
+
+    release_sound_lock
+}
+
+put_setting() {
+    _ns="$1"
+    _key="$2"
+    _val="$3"
+
+    if ! settings put "$_ns" "$_key" "$_val" 2>/dev/null; then
+        return 1
+    fi
+    _cur=$(settings get "$_ns" "$_key" 2>/dev/null | tr -d '\r\n')
+    if [ "$_cur" != "$_val" ]; then
+        return 1
+    fi
+    return 0
+}
+
+restore_setting() {
+    _ns="$1"
+    _key="$2"
+    _val="$3"
+
+    if [ -z "$_val" ] || [ "$_val" = "null" ]; then
+        if ! settings delete "$_ns" "$_key" 2>/dev/null; then
+            return 1
+        fi
+        _cur=$(settings get "$_ns" "$_key" 2>/dev/null | tr -d '\r\n')
+        if [ -n "$_cur" ] && [ "$_cur" != "null" ]; then
+            return 1
+        fi
+    else
+        if ! settings put "$_ns" "$_key" "$_val" 2>/dev/null; then
+            return 1
+        fi
+        _cur=$(settings get "$_ns" "$_key" 2>/dev/null | tr -d '\r\n')
+        if [ "$_cur" != "$_val" ]; then
+            return 1
+        fi
+    fi
+    return 0
 }
 
 # Ensure config file exists with proper permissions
@@ -58,18 +195,7 @@ case "$ACTION" in
         USER_PKGS=$(pm list packages -3 2>/dev/null | sed 's/^package://' | sort | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
         [ -z "$USER_PKGS" ] && USER_PKGS="[]"
 
-        read_sound_settings
-        FEAT_MIUI=false; [ "$V_RNM_MUTE" = "0" ] && FEAT_MIUI=true
-        FEAT_A15=false; [ "$V_NOTIF_COOL_EN" = "0" ] && FEAT_A15=true
-        FEAT_OFFBODY=false; [ "$V_MUTE_OFF_BODY" = "0" ] && FEAT_OFFBODY=true
-        FEAT_INCALL=false; [ "$V_IN_CALL" = "1" ] && FEAT_INCALL=true
-
-        SOUND_ACTIVE=false
-        if [ "$FEAT_MIUI" = "true" ] && [ "$FEAT_A15" = "true" ] && [ "$FEAT_OFFBODY" = "true" ] && [ "$FEAT_INCALL" = "true" ]; then
-            SOUND_ACTIVE=true
-        fi
-        SOUND_BACKUP=false
-        [ -f "$SOUND_BACKUP_FILE" ] && SOUND_BACKUP=true
+        compute_sound_features
 
         printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
             "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
@@ -100,7 +226,7 @@ case "$ACTION" in
         PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
 
         # Write to atomic temp file first
-        TMP_CONF="/data/system/fcm_wake.conf.tmp.$$"
+        TMP_CONF="$DATA_DIR/fcm_wake.conf.tmp.$$"
         {
             echo "# HyperOS FCM Dynamic Wake Filter Configuration"
             echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
@@ -211,19 +337,7 @@ case "$ACTION" in
         ;;
 
     sound_status|get_sound_fix_status)
-        read_sound_settings
-        SOUND_BACKUP=false
-        [ -f "$SOUND_BACKUP_FILE" ] && SOUND_BACKUP=true
-
-        FEAT_MIUI=false; [ "$V_RNM_MUTE" = "0" ] && FEAT_MIUI=true
-        FEAT_A15=false; [ "$V_NOTIF_COOL_EN" = "0" ] && FEAT_A15=true
-        FEAT_OFFBODY=false; [ "$V_MUTE_OFF_BODY" = "0" ] && FEAT_OFFBODY=true
-        FEAT_INCALL=false; [ "$V_IN_CALL" = "1" ] && FEAT_INCALL=true
-
-        SOUND_ACTIVE=false
-        if [ "$FEAT_MIUI" = "true" ] && [ "$FEAT_A15" = "true" ] && [ "$FEAT_OFFBODY" = "true" ] && [ "$FEAT_INCALL" = "true" ]; then
-            SOUND_ACTIVE=true
-        fi
+        compute_sound_features
 
         printf '{"status":"ok","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s},"settings":{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s","in_call":"%s"}}\n' \
             "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL" "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY" "$V_IN_CALL"
@@ -246,168 +360,119 @@ case "$ACTION" in
                 ;;
         esac
 
-        read_sound_settings
-        if [ "$VAL" = "true" ] && [ ! -f "$SOUND_BACKUP_FILE" ]; then
-            TMP_BACKUP="/data/system/fcm_sound_backup.json.tmp.$$"
-            printf '{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s","in_call":"%s"}\n' \
-                "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY" "$V_IN_CALL" > "$TMP_BACKUP"
-            chmod 0644 "$TMP_BACKUP" 2>/dev/null || true
-            chown system:system "$TMP_BACKUP" 2>/dev/null || true
-            chcon u:object_r:system_data_file:s0 "$TMP_BACKUP" 2>/dev/null || true
-            mv -f "$TMP_BACKUP" "$SOUND_BACKUP_FILE" 2>/dev/null || true
+        if [ "$VAL" = "true" ]; then
+            create_sound_backup_if_needed
         fi
 
-        B_DATA=$(cat "$SOUND_BACKUP_FILE" 2>/dev/null)
-        get_b_val() {
-            echo "$B_DATA" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
-        }
-        restore_setting() {
-            _ns="$1"
-            _key="$2"
-            _val="$3"
-            if [ -z "$_val" ] || [ "$_val" = "null" ]; then
-                settings delete "$_ns" "$_key" >/dev/null 2>&1 || true
-            else
-                settings put "$_ns" "$_key" "$_val" >/dev/null 2>&1 || true
-            fi
-        }
-
+        ERR=0
         case "$FEAT" in
             miui_cooldown)
                 if [ "$VAL" = "true" ]; then
-                    settings put system random_note_mode_mute_time_interval_ms 0 >/dev/null 2>&1 || true
-                    settings put system random_note_mode_sequence_time_interval_ms 0 >/dev/null 2>&1 || true
-                    settings put system random_note_mode_sequence_sound_number 100 >/dev/null 2>&1 || true
+                    put_setting system random_note_mode_mute_time_interval_ms 0 || ERR=1
+                    put_setting system random_note_mode_sequence_time_interval_ms 0 || ERR=1
+                    put_setting system random_note_mode_sequence_sound_number 100 || ERR=1
                 else
-                    restore_setting system random_note_mode_mute_time_interval_ms "$(get_b_val rnm_mute)"
-                    restore_setting system random_note_mode_sequence_time_interval_ms "$(get_b_val rnm_seq_time)"
-                    restore_setting system random_note_mode_sequence_sound_number "$(get_b_val rnm_seq_num)"
+                    restore_setting system random_note_mode_mute_time_interval_ms "$(get_b_val rnm_mute)" || ERR=1
+                    restore_setting system random_note_mode_sequence_time_interval_ms "$(get_b_val rnm_seq_time)" || ERR=1
+                    restore_setting system random_note_mode_sequence_sound_number "$(get_b_val rnm_seq_num)" || ERR=1
                 fi
                 ;;
             android15_cooldown)
                 if [ "$VAL" = "true" ]; then
-                    settings put system notification_cooldown_enabled 0 >/dev/null 2>&1 || true
-                    settings put system notification_cooldown_all 0 >/dev/null 2>&1 || true
-                    settings put system notification_cooldown_vibrate_unlocked 1 >/dev/null 2>&1 || true
+                    put_setting system notification_cooldown_enabled 0 || ERR=1
+                    put_setting system notification_cooldown_all 0 || ERR=1
+                    put_setting system notification_cooldown_vibrate_unlocked 1 || ERR=1
                 else
-                    restore_setting system notification_cooldown_enabled "$(get_b_val cooldown_en)"
-                    restore_setting system notification_cooldown_all "$(get_b_val cooldown_all)"
-                    restore_setting system notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)"
+                    restore_setting system notification_cooldown_enabled "$(get_b_val cooldown_en)" || ERR=1
+                    restore_setting system notification_cooldown_all "$(get_b_val cooldown_all)" || ERR=1
+                    restore_setting system notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)" || ERR=1
                 fi
                 ;;
             offbody_mute)
                 if [ "$VAL" = "true" ]; then
-                    settings put system obtain_mute_when_off_body 0 >/dev/null 2>&1 || true
+                    put_setting system obtain_mute_when_off_body 0 || ERR=1
                 else
-                    restore_setting system obtain_mute_when_off_body "$(get_b_val mute_off_body)"
+                    restore_setting system obtain_mute_when_off_body "$(get_b_val mute_off_body)" || ERR=1
                 fi
                 ;;
             in_call)
                 if [ "$VAL" = "true" ]; then
-                    settings put secure in_call_notification_enabled 1 >/dev/null 2>&1 || true
+                    put_setting secure in_call_notification_enabled 1 || ERR=1
                 else
-                    restore_setting secure in_call_notification_enabled "$(get_b_val in_call)"
+                    restore_setting secure in_call_notification_enabled "$(get_b_val in_call)" || ERR=1
                 fi
-                ;;
-            *)
-                echo '{"status":"error","message":"Unknown or missing sound feature"}'
-                exit 0
                 ;;
         esac
 
-        read_sound_settings
-        FEAT_MIUI=false; [ "$V_RNM_MUTE" = "0" ] && FEAT_MIUI=true
-        FEAT_A15=false; [ "$V_NOTIF_COOL_EN" = "0" ] && FEAT_A15=true
-        FEAT_OFFBODY=false; [ "$V_MUTE_OFF_BODY" = "0" ] && FEAT_OFFBODY=true
-        FEAT_INCALL=false; [ "$V_IN_CALL" = "1" ] && FEAT_INCALL=true
+        sync_sound_state
 
-        IS_ACTIVE=false
-        if [ "$FEAT_MIUI" = "true" ] && [ "$FEAT_A15" = "true" ] && [ "$FEAT_OFFBODY" = "true" ] && [ "$FEAT_INCALL" = "true" ]; then
-            IS_ACTIVE=true
+        if [ "$ERR" -ne 0 ]; then
+            printf '{"status":"error","message":"Failed to update sound feature","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
+            exit 1
         fi
 
-        echo "{\"active\":$IS_ACTIVE}" > "$SOUND_STATE_FILE" 2>/dev/null || true
-        chmod 0644 "$SOUND_STATE_FILE" 2>/dev/null || true
-
-        printf '{"status":"ok","active":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
-            "$IS_ACTIVE" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
+        printf '{"status":"ok","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
         ;;
 
     apply_sound_fix)
-        read_sound_settings
-        # Backup if not already backed up
-        if [ ! -f "$SOUND_BACKUP_FILE" ]; then
-            TMP_BACKUP="/data/system/fcm_sound_backup.json.tmp.$$"
-            printf '{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s","in_call":"%s"}\n' \
-                "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY" "$V_IN_CALL" > "$TMP_BACKUP"
-            chmod 0644 "$TMP_BACKUP" 2>/dev/null || true
-            chown system:system "$TMP_BACKUP" 2>/dev/null || true
-            chcon u:object_r:system_data_file:s0 "$TMP_BACKUP" 2>/dev/null || true
-            mv -f "$TMP_BACKUP" "$SOUND_BACKUP_FILE" 2>/dev/null || true
+        create_sound_backup_if_needed
+
+        ERR=0
+        put_setting system random_note_mode_mute_time_interval_ms 0 || ERR=1
+        put_setting system random_note_mode_sequence_time_interval_ms 0 || ERR=1
+        put_setting system random_note_mode_sequence_sound_number 100 || ERR=1
+        put_setting system notification_cooldown_enabled 0 || ERR=1
+        put_setting system notification_cooldown_all 0 || ERR=1
+        put_setting system notification_cooldown_vibrate_unlocked 1 || ERR=1
+        put_setting system obtain_mute_when_off_body 0 || ERR=1
+        put_setting secure in_call_notification_enabled 1 || ERR=1
+
+        sync_sound_state
+
+        if [ "$ERR" -ne 0 ]; then
+            printf '{"status":"error","message":"Failed to apply all sound anti-mute settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
+            exit 1
         fi
 
-        # Apply optimized settings
-        settings put system random_note_mode_mute_time_interval_ms 0 2>/dev/null || true
-        settings put system random_note_mode_sequence_time_interval_ms 0 2>/dev/null || true
-        settings put system random_note_mode_sequence_sound_number 100 2>/dev/null || true
-        settings put system notification_cooldown_enabled 0 2>/dev/null || true
-        settings put system notification_cooldown_all 0 2>/dev/null || true
-        settings put system notification_cooldown_vibrate_unlocked 1 2>/dev/null || true
-        settings put system obtain_mute_when_off_body 0 2>/dev/null || true
-        settings put secure in_call_notification_enabled 1 2>/dev/null || true
-
-        echo '{"active":true}' > "$SOUND_STATE_FILE" 2>/dev/null || true
-        chmod 0644 "$SOUND_STATE_FILE" 2>/dev/null || true
-        chown system:system "$SOUND_STATE_FILE" 2>/dev/null || true
-        chcon u:object_r:system_data_file:s0 "$SOUND_STATE_FILE" 2>/dev/null || true
-
-        echo '{"status":"ok","message":"Sound anti-mute applied successfully","active":true}'
+        printf '{"status":"ok","message":"Sound anti-mute applied successfully","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
         ;;
 
     restore_sound_fix)
+        ERR=0
         if [ -f "$SOUND_BACKUP_FILE" ]; then
-            B_DATA=$(cat "$SOUND_BACKUP_FILE" 2>/dev/null)
-            
-            get_b_val() {
-                echo "$B_DATA" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
-            }
-
-            restore_setting() {
-                _ns="$1"
-                _key="$2"
-                _val="$3"
-                if [ -z "$_val" ] || [ "$_val" = "null" ]; then
-                    settings delete "$_ns" "$_key" >/dev/null 2>&1 || true
-                else
-                    settings put "$_ns" "$_key" "$_val" >/dev/null 2>&1 || true
-                fi
-            }
-
-            restore_setting system random_note_mode_mute_time_interval_ms "$(get_b_val rnm_mute)"
-            restore_setting system random_note_mode_sequence_time_interval_ms "$(get_b_val rnm_seq_time)"
-            restore_setting system random_note_mode_sequence_sound_number "$(get_b_val rnm_seq_num)"
-            restore_setting system notification_cooldown_enabled "$(get_b_val cooldown_en)"
-            restore_setting system notification_cooldown_all "$(get_b_val cooldown_all)"
-            restore_setting system notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)"
-            restore_setting system obtain_mute_when_off_body "$(get_b_val mute_off_body)"
-            restore_setting secure in_call_notification_enabled "$(get_b_val in_call)"
+            restore_setting system random_note_mode_mute_time_interval_ms "$(get_b_val rnm_mute)" || ERR=1
+            restore_setting system random_note_mode_sequence_time_interval_ms "$(get_b_val rnm_seq_time)" || ERR=1
+            restore_setting system random_note_mode_sequence_sound_number "$(get_b_val rnm_seq_num)" || ERR=1
+            restore_setting system notification_cooldown_enabled "$(get_b_val cooldown_en)" || ERR=1
+            restore_setting system notification_cooldown_all "$(get_b_val cooldown_all)" || ERR=1
+            restore_setting system notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)" || ERR=1
+            restore_setting system obtain_mute_when_off_body "$(get_b_val mute_off_body)" || ERR=1
+            restore_setting secure in_call_notification_enabled "$(get_b_val in_call)" || ERR=1
         else
-            settings delete system random_note_mode_mute_time_interval_ms 2>/dev/null || true
-            settings delete system random_note_mode_sequence_time_interval_ms 2>/dev/null || true
-            settings delete system random_note_mode_sequence_sound_number 2>/dev/null || true
-            settings delete system notification_cooldown_enabled 2>/dev/null || true
-            settings delete system notification_cooldown_all 2>/dev/null || true
-            settings delete system notification_cooldown_vibrate_unlocked 2>/dev/null || true
-            settings delete system obtain_mute_when_off_body 2>/dev/null || true
-            settings delete secure in_call_notification_enabled 2>/dev/null || true
+            restore_setting system random_note_mode_mute_time_interval_ms "" || ERR=1
+            restore_setting system random_note_mode_sequence_time_interval_ms "" || ERR=1
+            restore_setting system random_note_mode_sequence_sound_number "" || ERR=1
+            restore_setting system notification_cooldown_enabled "" || ERR=1
+            restore_setting system notification_cooldown_all "" || ERR=1
+            restore_setting system notification_cooldown_vibrate_unlocked "" || ERR=1
+            restore_setting system obtain_mute_when_off_body "" || ERR=1
+            restore_setting secure in_call_notification_enabled "" || ERR=1
         fi
 
-        echo '{"active":false}' > "$SOUND_STATE_FILE" 2>/dev/null || true
-        chmod 0644 "$SOUND_STATE_FILE" 2>/dev/null || true
-        chown system:system "$SOUND_STATE_FILE" 2>/dev/null || true
-        chcon u:object_r:system_data_file:s0 "$SOUND_STATE_FILE" 2>/dev/null || true
+        sync_sound_state
 
-        echo '{"status":"ok","message":"Stock sound settings restored successfully","active":false}'
+        if [ "$ERR" -ne 0 ]; then
+            printf '{"status":"error","message":"Failed to restore some stock sound settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
+            exit 1
+        fi
+
+        printf '{"status":"ok","message":"Stock sound settings restored successfully","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
+            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
         ;;
 
     *)

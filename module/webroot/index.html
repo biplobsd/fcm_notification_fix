@@ -1210,9 +1210,9 @@
         try {
             const res = await execAction('set_sound_feature', { feature: featureName, enabled: isEnabled });
             if (res && res.success && res.data) {
-                updateSoundFixUI(res.data.active, true, res.data.features);
+                updateSoundFixUI(res.data.active, res.data.has_backup ?? true, res.data.features);
             } else {
-                showToast(t('alert.saveFail') + (res.stderr || 'Unknown error'));
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
                 loadSoundFixStatus();
             }
         } catch (e) {
@@ -1228,18 +1228,18 @@
             const res = await execAction('apply_sound_fix');
             if (res && res.success) {
                 showToast(t('sound.toast.applied'));
-                updateSoundFixUI(true, true, {
-                    miui_cooldown: true,
-                    android15_cooldown: true,
-                    offbody_mute: true,
-                    in_call: true
-                });
-                loadSoundFixStatus();
+                if (res.data) {
+                    updateSoundFixUI(res.data.active, true, res.data.features);
+                } else {
+                    loadSoundFixStatus();
+                }
             } else {
-                showToast(t('alert.saveFail') + (res.stderr || (res.data && res.data.message) || 'Unknown error'));
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                loadSoundFixStatus();
             }
         } catch (e) {
             showToast(t('alert.saveError') + e.message);
+            loadSoundFixStatus();
         } finally {
             if (btn) btn.disabled = false;
         }
@@ -1252,18 +1252,18 @@
             const res = await execAction('restore_sound_fix');
             if (res && res.success) {
                 showToast(t('sound.toast.restored'));
-                updateSoundFixUI(false, true, {
-                    miui_cooldown: false,
-                    android15_cooldown: false,
-                    offbody_mute: false,
-                    in_call: false
-                });
-                loadSoundFixStatus();
+                if (res.data) {
+                    updateSoundFixUI(res.data.active, res.data.has_backup ?? false, res.data.features);
+                } else {
+                    loadSoundFixStatus();
+                }
             } else {
-                showToast(t('alert.saveFail') + (res.stderr || (res.data && res.data.message) || 'Unknown error'));
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                loadSoundFixStatus();
             }
         } catch (e) {
             showToast(t('alert.saveError') + e.message);
+            loadSoundFixStatus();
         } finally {
             if (btn) btn.disabled = false;
         }
