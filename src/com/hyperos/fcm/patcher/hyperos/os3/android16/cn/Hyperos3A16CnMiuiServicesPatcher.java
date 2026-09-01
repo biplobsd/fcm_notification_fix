@@ -182,6 +182,60 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
+                    } else if (type.equals("Lcom/android/server/notification/VibRateLimiter;")) {
+                        System.out.println("  -> Located VibRateLimiter in " + entryName);
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("shouldRateLimitVib") && m.getImplementation() != null) {
+                                System.out.println("    -> Injecting FcmWakeFilter.isVibThrottleBypassEnabled hook into VibRateLimiter.shouldRateLimitVib");
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+
+                                Label continueLabel = mut.newLabelForIndex(0);
+                                ImmutableMethodReference isVibBypassRef = new ImmutableMethodReference(
+                                    "Lcom/android/server/am/FcmWakeFilter;", "isVibThrottleBypassEnabled",
+                                    Collections.emptyList(), "Z");
+
+                                int cur = 0;
+                                // 1. invoke-static {}, FcmWakeFilter->isVibThrottleBypassEnabled()Z
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 0, 0, 0, 0, 0, 0, isVibBypassRef));
+                                // 2. move-result v0
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+                                // 3. if-eqz v0, :continueLabel
+                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, continueLabel));
+                                // 4. const/4 v0, 0
+                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                                // 5. return v0
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, 0));
+
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                                result.v6_unthrottle_vib = true;
+                                result.v6_note = "VibRateLimiter.shouldRateLimitVib (Vibration Unthrottling)";
+                                dexModified = true;
+                                System.out.println("    -> [PASS] Dynamic Vibration Unthrottler check injected into VibRateLimiter.shouldRateLimitVib");
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                        if (fcmFilterClassDef != null) {
+                            boolean alreadyPresent = false;
+                            for (ClassDef c : classesList) {
+                                if (c.getType().equals("Lcom/android/server/am/FcmWakeFilter;")) {
+                                    alreadyPresent = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyPresent) {
+                                classesList.add(fcmFilterClassDef);
+                                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside VibRateLimiter into " + entryName);
+                            }
+                        }
+
                     } else {
                         classesList.add(cd);
                     }

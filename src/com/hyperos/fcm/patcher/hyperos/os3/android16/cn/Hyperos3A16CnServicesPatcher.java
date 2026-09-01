@@ -2,8 +2,10 @@ package com.hyperos.fcm.patcher.hyperos.os3.android16.cn;
 
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
+import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
 import com.android.tools.smali.dexlib2.builder.Label;
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
@@ -12,6 +14,7 @@ import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.DexFile;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
 import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
@@ -135,6 +138,79 @@ public class Hyperos3A16CnServicesPatcher {
                         if (fcmFilterClassDef != null) {
                             classesList.add(fcmFilterClassDef);
                             System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside BroadcastController into " + entryName);
+                        }
+                    } else if (type.equals("Lcom/android/server/notification/NotificationAttentionHelper;")) {
+                        System.out.println("  -> Located NotificationAttentionHelper in " + entryName);
+
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("shouldMuteNotificationLocked") && m.getImplementation() != null) {
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                int targetIdx = -1;
+                                int resReg = -1;
+
+                                List<BuilderInstruction> insns = mut.getInstructions();
+                                for (int i = 0; i < insns.size(); i++) {
+                                    BuilderInstruction ins = insns.get(i);
+                                    if (ins instanceof BuilderInstruction35c) {
+                                        BuilderInstruction35c bi = (BuilderInstruction35c) ins;
+                                        if (bi.getReference() instanceof MethodReference) {
+                                            MethodReference mr = (MethodReference) bi.getReference();
+                                            if (mr.getName().equals("suppressAlertingDueToGrouping") && mr.getReturnType().equals("Z")) {
+                                                if (i + 1 < insns.size() && insns.get(i + 1) instanceof BuilderInstruction11x) {
+                                                    BuilderInstruction11x moveRes = (BuilderInstruction11x) insns.get(i + 1);
+                                                    if (moveRes.getOpcode() == Opcode.MOVE_RESULT) {
+                                                        targetIdx = i + 2;
+                                                        resReg = moveRes.getRegisterA();
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (targetIdx != -1 && resReg != -1) {
+                                    System.out.println("    -> Injecting FcmWakeFilter.shouldSuppressGrouping hook into shouldMuteNotificationLocked (reg v" + resReg + ")");
+                                    ImmutableMethodReference wrapRef = new ImmutableMethodReference(
+                                        "Lcom/android/server/am/FcmWakeFilter;", "shouldSuppressGrouping",
+                                        Collections.singletonList("Z"), "Z");
+
+                                    mut.addInstruction(targetIdx, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, resReg, 0, 0, 0, 0, wrapRef));
+                                    mut.addInstruction(targetIdx + 1, new BuilderInstruction11x(Opcode.MOVE_RESULT, resReg));
+
+                                    methods.add(new ImmutableMethod(
+                                        m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                        m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                                    result.v5_group_alert_fix = true;
+                                    result.v5_note = "NotificationAttentionHelper.shouldMuteNotificationLocked (Group Alert Fix)";
+                                    dexModified = true;
+                                    System.out.println("    -> [PASS] Hooked Notification.suppressAlertingDueToGrouping with FcmWakeFilter");
+                                } else {
+                                    System.err.println("    -> [WARNING] suppressAlertingDueToGrouping instruction not found in shouldMuteNotificationLocked");
+                                    methods.add(m);
+                                }
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                        if (fcmFilterClassDef != null) {
+                            boolean alreadyPresent = false;
+                            for (ClassDef c : classesList) {
+                                if (c.getType().equals("Lcom/android/server/am/FcmWakeFilter;")) {
+                                    alreadyPresent = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyPresent) {
+                                classesList.add(fcmFilterClassDef);
+                                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside NotificationAttentionHelper into " + entryName);
+                            }
                         }
                     } else {
                         classesList.add(cd);

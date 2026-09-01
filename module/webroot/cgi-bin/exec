@@ -4,10 +4,10 @@
 # ==============================================================================
 
 DATA_DIR="/data/system"
-CONF_FILE="/data/system/fcm_wake.conf"
 if [ ! -d "$DATA_DIR" ] || [ ! -w "$DATA_DIR" ]; then
     DATA_DIR="${TMPDIR:-/tmp}"
 fi
+CONF_FILE="$DATA_DIR/fcm_wake.conf"
 SOUND_BACKUP_FILE="$DATA_DIR/fcm_sound_backup.json"
 SOUND_STATE_FILE="$DATA_DIR/fcm_sound_state.json"
 SOUND_LOCK_FILE="$DATA_DIR/fcm_sound.lock"
@@ -43,6 +43,19 @@ release_sound_lock() {
     _lock_pid=$(cat "$SOUND_LOCK_FILE" 2>/dev/null | tr -cd '0-9')
     if [ "$_lock_pid" = "$$" ]; then
         rm -f "$SOUND_LOCK_FILE" 2>/dev/null
+    fi
+}
+
+read_alert_fix_config() {
+    ALERT_GROUP_FIX=true
+    ALERT_UNTHROTTLE_VIB=true
+    if [ -f "$CONF_FILE" ]; then
+        if grep -qi "^GROUP_ALERT_FIX=0" "$CONF_FILE" || grep -qi "^GROUP_ALERT_FIX=false" "$CONF_FILE"; then
+            ALERT_GROUP_FIX=false
+        fi
+        if grep -qi "^UNTHROTTLE_VIB=0" "$CONF_FILE" || grep -qi "^UNTHROTTLE_VIB=false" "$CONF_FILE" || grep -qi "^UNTHROTTLE_VIBRATION=0" "$CONF_FILE"; then
+            ALERT_UNTHROTTLE_VIB=false
+        fi
     fi
 }
 
@@ -328,8 +341,8 @@ case "$ACTION" in
             MODE_LINE=$(grep "^MODE=" "$CONF_FILE" | head -n1 | cut -d= -f2 | tr -d '\r\n ')
             [ -n "$MODE_LINE" ] && MODE="$MODE_LINE"
             
-            # Read non-comment, non-empty, non-mode lines as JSON array
-            PACKAGES=$(grep -v "^#" "$CONF_FILE" | grep -v "^MODE=" | grep -v "^$" | tr -d '\r' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
+            # Read non-comment, non-empty, non-config lines as JSON array
+            PACKAGES=$(grep -v "^#" "$CONF_FILE" | grep -v "=" | grep -v "^$" | tr -d '\r' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
         fi
         [ -z "$PACKAGES" ] && PACKAGES="[]"
 
@@ -343,9 +356,10 @@ case "$ACTION" in
 
         compute_sound_features
         read_channel_sync_config
+        read_alert_fix_config
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s}}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT"
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"unthrottle_vib":%s}}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_UNTHROTTLE_VIB"
         ;;
 
     stopped)
@@ -372,12 +386,16 @@ case "$ACTION" in
         # Extract and sanitize package list (only valid package names)
         PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
 
+        read_alert_fix_config
+
         # Write to atomic temp file first
         TMP_CONF="$CONF_FILE.tmp.$$"
         {
             echo "# HyperOS FCM Dynamic Wake Filter Configuration"
             echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
             echo "MODE=$NEW_MODE"
+            [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" || echo "GROUP_ALERT_FIX=1"
+            [ "$ALERT_UNTHROTTLE_VIB" = "false" ] && echo "UNTHROTTLE_VIB=0" || echo "UNTHROTTLE_VIB=1"
             if [ -n "$PKGS" ]; then
                 echo "$PKGS"
             fi
@@ -397,6 +415,41 @@ case "$ACTION" in
         chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 
         echo '{"status":"ok","message":"Configuration saved successfully"}'
+        ;;
+
+    set_alert_fix)
+        if [ -n "$2" ]; then
+            BODY="$2"
+        else
+            BODY="$(cat 2>/dev/null)"
+        fi
+        _SET_GRP=$(echo "$BODY" | grep -o '"group_alert_fix":[a-z]*' | cut -d: -f2)
+        _SET_VIB=$(echo "$BODY" | grep -o '"unthrottle_vib":[a-z]*' | cut -d: -f2)
+
+        read_alert_fix_config
+
+        [ "$_SET_GRP" = "true" ] && ALERT_GROUP_FIX=true
+        [ "$_SET_GRP" = "false" ] && ALERT_GROUP_FIX=false
+        [ "$_SET_VIB" = "true" ] && ALERT_UNTHROTTLE_VIB=true
+        [ "$_SET_VIB" = "false" ] && ALERT_UNTHROTTLE_VIB=false
+
+        TMP_CONF="$CONF_FILE.tmp.$$"
+        if [ -f "$CONF_FILE" ]; then
+            grep -v -i "^GROUP_ALERT_FIX=" "$CONF_FILE" | grep -v -i "^UNTHROTTLE_VIB=" | grep -v -i "^UNTHROTTLE_VIBRATION=" > "$TMP_CONF"
+        else
+            echo "# HyperOS FCM Dynamic Wake Filter Configuration" > "$TMP_CONF"
+            echo "MODE=ALL" >> "$TMP_CONF"
+        fi
+
+        [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" >> "$TMP_CONF" || echo "GROUP_ALERT_FIX=1" >> "$TMP_CONF"
+        [ "$ALERT_UNTHROTTLE_VIB" = "false" ] && echo "UNTHROTTLE_VIB=0" >> "$TMP_CONF" || echo "UNTHROTTLE_VIB=1" >> "$TMP_CONF"
+
+        chmod 0644 "$TMP_CONF" 2>/dev/null || true
+        chown system:system "$TMP_CONF" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
+        mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null || true
+
+        printf '{"status":"ok","group_alert_fix":%s,"unthrottle_vib":%s}\n' "$ALERT_GROUP_FIX" "$ALERT_UNTHROTTLE_VIB"
         ;;
 
     set_prestart)

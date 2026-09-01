@@ -35,8 +35,33 @@ public class FcmWakeFilter {
     private static volatile long sLastModified = -1;
     private static volatile int sCurrentMode = MODE_ALL;
     private static volatile Set<String> sPackageFilterSet = Collections.emptySet();
+    private static volatile boolean sGroupAlertFixEnabled = true;
+    private static volatile boolean sUnthrottleVibEnabled = true;
     private static volatile long sLastCheckTimestamp = 0;
     private static final long CONFIG_CHECK_INTERVAL_MS = 5000;
+
+    /**
+     * Hooked in NotificationAttentionHelper.shouldMuteNotificationLocked(...)
+     * Resolves the result of Notification.suppressAlertingDueToGrouping().
+     * If sGroupAlertFixEnabled is true, bypasses group muting (returns false).
+     * If sGroupAlertFixEnabled is false, preserves stock Android suppression logic.
+     */
+    public static boolean shouldSuppressGrouping(boolean stockSuppress) {
+        checkConfig();
+        if (sGroupAlertFixEnabled) {
+            return false; // Do not mute grouped notifications
+        }
+        return stockSuppress;
+    }
+
+    /**
+     * Hooked at the head of VibRateLimiter.shouldRateLimitVib(...) on MIUI / HyperOS.
+     * Returns true if the 15-second vibration throttle should be bypassed (always allowed to vibrate).
+     */
+    public static boolean isVibThrottleBypassEnabled() {
+        checkConfig();
+        return sUnthrottleVibEnabled;
+    }
 
     /**
      * Hooked at the head of GreezeManagerService.isRestrictBackgroundAction(...) on MIUI 14.
@@ -251,6 +276,8 @@ public class FcmWakeFilter {
 
             Set<String> newFilterSet = new HashSet<String>();
             int mode = MODE_ALL;
+            boolean groupAlertFix = true;
+            boolean unthrottleVib = true;
 
             BufferedReader reader = null;
             try {
@@ -267,6 +294,14 @@ public class FcmWakeFilter {
                         mode = MODE_BLACKLIST;
                     } else if (line.equalsIgnoreCase("MODE=ALL")) {
                         mode = MODE_ALL;
+                    } else if (line.equalsIgnoreCase("GROUP_ALERT_FIX=0") || line.equalsIgnoreCase("GROUP_ALERT_FIX=FALSE")) {
+                        groupAlertFix = false;
+                    } else if (line.equalsIgnoreCase("GROUP_ALERT_FIX=1") || line.equalsIgnoreCase("GROUP_ALERT_FIX=TRUE")) {
+                        groupAlertFix = true;
+                    } else if (line.equalsIgnoreCase("UNTHROTTLE_VIB=0") || line.equalsIgnoreCase("UNTHROTTLE_VIB=FALSE") || line.equalsIgnoreCase("UNTHROTTLE_VIBRATION=0")) {
+                        unthrottleVib = false;
+                    } else if (line.equalsIgnoreCase("UNTHROTTLE_VIB=1") || line.equalsIgnoreCase("UNTHROTTLE_VIB=TRUE") || line.equalsIgnoreCase("UNTHROTTLE_VIBRATION=1")) {
+                        unthrottleVib = true;
                     } else if (!line.contains("=")) {
                         newFilterSet.add(line);
                         newFilterSet.add(line.toLowerCase());
@@ -283,11 +318,15 @@ public class FcmWakeFilter {
 
             sPackageFilterSet = Collections.unmodifiableSet(newFilterSet);
             sCurrentMode = mode;
+            sGroupAlertFixEnabled = groupAlertFix;
+            sUnthrottleVibEnabled = unthrottleVib;
             sLastModified = modified;
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
             sLastModified = -1; // Force retry on next attempt
             sCurrentMode = MODE_ALL;
+            sGroupAlertFixEnabled = true;
+            sUnthrottleVibEnabled = true;
         }
     }
 }

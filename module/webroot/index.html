@@ -927,6 +927,28 @@
                     <span class="slider green"></span>
                 </label>
             </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.group_alert">Grouped Notification Alerts</div>
+                    <div class="sound-hint" data-i18n="sound.feat.group_alert.hint">Bypasses AOSP group muting so email/thread notifications always sound & vibrate</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchGroupAlertFix" onchange="toggleAlertFix('group_alert_fix', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.unthrottle_vib">Unthrottle Vibration (15s Bypass)</div>
+                    <div class="sound-hint" data-i18n="sound.feat.unthrottle_vib.hint">Bypasses MIUI 15s throttle so rapid notifications always vibrate</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchUnthrottleVib" onchange="toggleAlertFix('unthrottle_vib', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
         </div>
 
         <div class="action-row" style="margin-top: 10px;">
@@ -1349,6 +1371,38 @@
     }
 
     /* =========================================================================
+     * Group Alert & Vibration Throttle Runtime Controls
+     * ====================================================================== */
+    let alertFixConfig = {
+        group_alert_fix: true,
+        unthrottle_vib: true
+    };
+
+    function updateAlertFixUI(config) {
+        if (config) {
+            alertFixConfig = Object.assign(alertFixConfig, config);
+        }
+        const swGroup = document.getElementById('switchGroupAlertFix');
+        const swVib = document.getElementById('switchUnthrottleVib');
+        if (swGroup) swGroup.checked = !!alertFixConfig.group_alert_fix;
+        if (swVib) swVib.checked = !!alertFixConfig.unthrottle_vib;
+    }
+
+    async function toggleAlertFix(feature, isEnabled) {
+        try {
+            alertFixConfig[feature] = isEnabled;
+            const res = await execAction('set_alert_fix', alertFixConfig);
+            if (res && res.success && res.data) {
+                updateAlertFixUI(res.data);
+            } else {
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+        }
+    }
+
+    /* =========================================================================
      * Channel Permission Sync
      * ====================================================================== */
     let channelSyncConfig = {
@@ -1634,6 +1688,9 @@
             }
             if (data.channel_sync) {
                 updateChannelSyncUI(data.channel_sync);
+            }
+            if (data.alert_fix) {
+                updateAlertFixUI(data.alert_fix);
             }
             filterApps();
             checkDraftChanges();
