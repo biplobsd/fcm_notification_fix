@@ -1358,6 +1358,8 @@
         sync_lockscreen: true,
         sync_float: true
     };
+    let channelSyncSaveInProgress = false;
+    let channelSyncSavePending = false;
 
     function updateChannelSyncUI(config) {
         if (config) {
@@ -1400,28 +1402,47 @@
     }
 
     async function updateChannelSyncConfig() {
-        const swBoot = document.getElementById('switchSyncBoot');
-        const swSound = document.getElementById('switchSyncSound');
-        const swVib = document.getElementById('switchSyncVib');
-        const swLock = document.getElementById('switchSyncLock');
-        const swFloat = document.getElementById('switchSyncFloat');
+        channelSyncSavePending = true;
+        if (channelSyncSaveInProgress) return;
 
-        const newConfig = {
-            auto_sync_boot: swBoot ? swBoot.checked : true,
-            sync_sound: swSound ? swSound.checked : true,
-            sync_vibration: swVib ? swVib.checked : true,
-            sync_lockscreen: swLock ? swLock.checked : true,
-            sync_float: swFloat ? swFloat.checked : true
-        };
-
+        channelSyncSaveInProgress = true;
         try {
-            const res = await execAction('save_channel_sync_config', newConfig);
-            if (res && res.success && res.data) {
-                updateChannelSyncUI(res.data);
-                showToast(t('sync.toast.saved'));
+            while (channelSyncSavePending) {
+                channelSyncSavePending = false;
+
+                const swBoot = document.getElementById('switchSyncBoot');
+                const swSound = document.getElementById('switchSyncSound');
+                const swVib = document.getElementById('switchSyncVib');
+                const swLock = document.getElementById('switchSyncLock');
+                const swFloat = document.getElementById('switchSyncFloat');
+                const newConfig = {
+                    auto_sync_boot: swBoot ? swBoot.checked : channelSyncConfig.auto_sync_boot,
+                    sync_sound: swSound ? swSound.checked : channelSyncConfig.sync_sound,
+                    sync_vibration: swVib ? swVib.checked : channelSyncConfig.sync_vibration,
+                    sync_lockscreen: swLock ? swLock.checked : channelSyncConfig.sync_lockscreen,
+                    sync_float: swFloat ? swFloat.checked : channelSyncConfig.sync_float
+                };
+
+                const res = await execAction('save_channel_sync_config', newConfig);
+                if (!res || !res.success) {
+                    channelSyncSavePending = false;
+                    updateChannelSyncUI(channelSyncConfig);
+                    showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                    return;
+                }
+
+                channelSyncConfig = Object.assign(channelSyncConfig, res.data || newConfig);
+                if (!channelSyncSavePending) {
+                    updateChannelSyncUI(channelSyncConfig);
+                    showToast(t('sync.toast.saved'));
+                }
             }
         } catch (e) {
+            channelSyncSavePending = false;
+            updateChannelSyncUI(channelSyncConfig);
             showToast(t('alert.saveError') + e.message);
+        } finally {
+            channelSyncSaveInProgress = false;
         }
     }
 
