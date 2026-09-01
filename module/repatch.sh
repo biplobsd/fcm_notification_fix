@@ -72,9 +72,10 @@ clear_stale_running() {
             log "cleared stale running flag (process $LOCK_PID no longer alive)"
             return 0
         fi
+        return 0
     fi
 
-    # 2. Fallback to timestamp check in case of PID reuse or unreadable PID
+    # 2. Fallback to timestamp check when the lock has no verifiable PID
     NOW="$(date +%s 2>/dev/null || echo 0)"
     TS="$(date -r "$FLAG_RUNNING" +%s 2>/dev/null || stat -c %Y "$FLAG_RUNNING" 2>/dev/null || echo 0)"
     if [ "$NOW" -gt 0 ] && [ "$TS" -gt 0 ] && [ "$((NOW - TS))" -gt "$STALE_RUN_SECONDS" ]; then
@@ -177,7 +178,7 @@ cmd_run() {
             [ "$RUN_PID" = "$$" ] && rm -f "$FLAG_RUNNING"
         fi
     }
-    trap 'cleanup_on_exit' INT TERM HUP
+    trap 'cleanup_on_exit; exit 1' INT TERM HUP
 
     CUR="$(current_fp)"
     PATCHER_JAR="$MODDIR/tools/patcher.jar"
