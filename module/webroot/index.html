@@ -930,22 +930,22 @@
 
             <div class="sound-row">
                 <div class="sound-info">
-                    <div class="sound-name" data-i18n="sound.feat.group_alert">Grouped Notification Alerts</div>
+                    <div class="sound-name" id="labelGroupAlertFix" data-i18n="sound.feat.group_alert">Grouped Notification Alerts</div>
                     <div class="sound-hint" data-i18n="sound.feat.group_alert.hint">Bypasses AOSP group muting so email/thread notifications always sound & vibrate</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchGroupAlertFix" onchange="toggleAlertFix('group_alert_fix', this.checked)">
+                    <input type="checkbox" id="switchGroupAlertFix" aria-labelledby="labelGroupAlertFix" onchange="toggleAlertFix('group_alert_fix', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
 
             <div class="sound-row">
                 <div class="sound-info">
-                    <div class="sound-name" data-i18n="sound.feat.unthrottle_vib">Unthrottle Vibration (15s Bypass)</div>
+                    <div class="sound-name" id="labelUnthrottleVib" data-i18n="sound.feat.unthrottle_vib">Unthrottle Vibration (15s Bypass)</div>
                     <div class="sound-hint" data-i18n="sound.feat.unthrottle_vib.hint">Bypasses MIUI 15s throttle so rapid notifications always vibrate</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchUnthrottleVib" onchange="toggleAlertFix('unthrottle_vib', this.checked)">
+                    <input type="checkbox" id="switchUnthrottleVib" aria-labelledby="labelUnthrottleVib" onchange="toggleAlertFix('unthrottle_vib', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -1377,6 +1377,8 @@
         group_alert_fix: true,
         unthrottle_vib: true
     };
+    let alertFixSaveInProgress = false;
+    let alertFixSavePending = false;
 
     function updateAlertFixUI(config) {
         if (config) {
@@ -1389,16 +1391,33 @@
     }
 
     async function toggleAlertFix(feature, isEnabled) {
+        alertFixConfig[feature] = isEnabled;
+        alertFixSavePending = true;
+        if (alertFixSaveInProgress) return;
+
+        alertFixSaveInProgress = true;
         try {
-            alertFixConfig[feature] = isEnabled;
-            const res = await execAction('set_alert_fix', alertFixConfig);
-            if (res && res.success && res.data) {
-                updateAlertFixUI(res.data);
-            } else {
-                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+            while (alertFixSavePending) {
+                alertFixSavePending = false;
+                const requestedConfig = Object.assign({}, alertFixConfig);
+                const res = await execAction('set_alert_fix', requestedConfig);
+
+                if (!res || !res.success) {
+                    if (!alertFixSavePending) {
+                        showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                    }
+                    continue;
+                }
+
+                if (!alertFixSavePending) {
+                    updateAlertFixUI(res.data || requestedConfig);
+                }
             }
         } catch (e) {
+            alertFixSavePending = false;
             showToast(t('alert.saveError') + e.message);
+        } finally {
+            alertFixSaveInProgress = false;
         }
     }
 

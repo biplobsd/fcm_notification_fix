@@ -1,5 +1,6 @@
 package com.hyperos.fcm.patcher.hyperos.os3.android16.cn;
 
+import com.android.tools.smali.dexlib2.AccessFlags;
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
@@ -188,7 +189,7 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                         for (Method m : cd.getMethods()) {
                             if (m.getName().equals("shouldRateLimitVib") && m.getImplementation() != null) {
                                 System.out.println("    -> Injecting FcmWakeFilter.isVibThrottleBypassEnabled hook into VibRateLimiter.shouldRateLimitVib");
-                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                MutableMethodImplementation mut = prepareImplementationWithScratchLocal(m);
 
                                 Label continueLabel = mut.newLabelForIndex(0);
                                 ImmutableMethodReference isVibBypassRef = new ImmutableMethodReference(
@@ -286,5 +287,49 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             e.printStackTrace();
             return result;
         }
+    }
+
+    private static MutableMethodImplementation prepareImplementationWithScratchLocal(Method method) {
+        int parameterRegisters = DexUtils.paramRegCount(method);
+        int registerCount = method.getImplementation().getRegisterCount();
+        if (registerCount < parameterRegisters) {
+            throw new IllegalArgumentException("Invalid register frame for " + method.getName()
+                + ": registers_size=" + registerCount + ", ins_size=" + parameterRegisters);
+        }
+        if (registerCount > parameterRegisters) {
+            return new MutableMethodImplementation(method.getImplementation());
+        }
+
+        ImmutableMethodImplementation expanded = new ImmutableMethodImplementation(
+            registerCount + 1,
+            method.getImplementation().getInstructions(),
+            method.getImplementation().getTryBlocks(),
+            method.getImplementation().getDebugItems());
+        MutableMethodImplementation mut = new MutableMethodImplementation(expanded);
+
+        // Adding one register shifts the parameter frame up by one. Copy it back
+        // before stock code runs, leaving v0 available to the injected hook.
+        int destinationRegister = 0;
+        int sourceRegister = 1;
+        int insertionIndex = 0;
+        if (!AccessFlags.STATIC.isSet(method.getAccessFlags())) {
+            mut.addInstruction(insertionIndex++, new BuilderInstruction32x(
+                Opcode.MOVE_OBJECT_16, destinationRegister++, sourceRegister++));
+        }
+        for (CharSequence parameterType : method.getParameterTypes()) {
+            String type = parameterType.toString();
+            if (type.equals("J") || type.equals("D")) {
+                mut.addInstruction(insertionIndex++, new BuilderInstruction32x(
+                    Opcode.MOVE_WIDE_16, destinationRegister, sourceRegister));
+                destinationRegister += 2;
+                sourceRegister += 2;
+            } else {
+                Opcode moveOpcode = (type.startsWith("L") || type.startsWith("["))
+                    ? Opcode.MOVE_OBJECT_16 : Opcode.MOVE_16;
+                mut.addInstruction(insertionIndex++, new BuilderInstruction32x(
+                    moveOpcode, destinationRegister++, sourceRegister++));
+            }
+        }
+        return mut;
     }
 }

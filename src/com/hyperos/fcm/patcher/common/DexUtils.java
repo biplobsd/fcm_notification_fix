@@ -1,5 +1,6 @@
 package com.hyperos.fcm.patcher.common;
 
+import com.android.tools.smali.dexlib2.AccessFlags;
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
@@ -77,7 +78,7 @@ public class DexUtils {
     }
 
     public static int paramRegCount(Method m) {
-        int count = 1; // p0 is this
+        int count = AccessFlags.STATIC.isSet(m.getAccessFlags()) ? 0 : 1; // p0 exists only for instance methods
         for (CharSequence pt : m.getParameterTypes()) {
             String s = pt.toString();
             count += (s.equals("J") || s.equals("D")) ? 2 : 1;
