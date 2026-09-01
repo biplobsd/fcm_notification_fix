@@ -934,6 +934,84 @@
             <button class="btn" id="btnRestoreSound" onclick="restoreSoundFix()" data-i18n="sound.btn.restore" style="display: none;">↺ Restore Defaults</button>
         </div>
     </div>
+
+    <!-- Channel Permission Sync Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span data-i18n="sync.title">Channel Permission Sync</span>
+            </div>
+            <span id="syncBadge" class="status-pill status-running" data-i18n="sync.badge.auto">AUTO-SYNC ON</span>
+        </div>
+
+        <div class="mode-desc" data-i18n="sync.desc" style="margin-bottom: 8px;">
+            Auto-grant notification permissions to target apps according to your active FCM Wake Mode.
+        </div>
+
+        <div class="sound-list" id="channelSyncList">
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.boot">Auto-Sync on Boot</div>
+                    <div class="sound-hint" data-i18n="sync.feat.boot.hint">Automatically grant permissions on startup</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncBoot" onchange="updateChannelSyncConfig()">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.sound">Sound Alerts</div>
+                    <div class="sound-hint" data-i18n="sync.feat.sound.hint">Allow audible ringtone for target channels</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncSound" onchange="updateChannelSyncConfig()">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.vibration">Vibration</div>
+                    <div class="sound-hint" data-i18n="sync.feat.vibration.hint">Allow haptic vibration for target channels</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncVib" onchange="updateChannelSyncConfig()">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.lockscreen">Lockscreen Display</div>
+                    <div class="sound-hint" data-i18n="sync.feat.lockscreen.hint">Show notifications & wake screen on keyguard</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncLock" onchange="updateChannelSyncConfig()">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.float">Floating Banners (Heads-Up)</div>
+                    <div class="sound-hint" data-i18n="sync.feat.float.hint">Display pop-up banners over running apps</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncFloat" onchange="updateChannelSyncConfig()">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-recommend" id="btnRunSync" onclick="triggerChannelSync()" data-i18n="sync.btn.run">⚡ Sync Channels Now</button>
+        </div>
+    </div>
 </div>
 
 <!-- Floating Save Bar -->
@@ -1047,6 +1125,7 @@
         applyI18n();
         updateModeUI();
         updateSoundFixUI();
+        updateChannelSyncUI();
         if (installedApps.length) filterApps(); else loadStatus();
         renderRomStatus();
     }
@@ -1269,6 +1348,112 @@
         }
     }
 
+    /* =========================================================================
+     * Channel Permission Sync
+     * ====================================================================== */
+    let channelSyncConfig = {
+        auto_sync_boot: true,
+        sync_sound: true,
+        sync_vibration: true,
+        sync_lockscreen: true,
+        sync_float: true
+    };
+
+    function updateChannelSyncUI(config) {
+        if (config) {
+            channelSyncConfig = Object.assign(channelSyncConfig, config);
+        }
+
+        const swBoot = document.getElementById('switchSyncBoot');
+        const swSound = document.getElementById('switchSyncSound');
+        const swVib = document.getElementById('switchSyncVib');
+        const swLock = document.getElementById('switchSyncLock');
+        const swFloat = document.getElementById('switchSyncFloat');
+        const badge = document.getElementById('syncBadge');
+
+        if (swBoot) swBoot.checked = !!channelSyncConfig.auto_sync_boot;
+        if (swSound) swSound.checked = !!channelSyncConfig.sync_sound;
+        if (swVib) swVib.checked = !!channelSyncConfig.sync_vibration;
+        if (swLock) swLock.checked = !!channelSyncConfig.sync_lockscreen;
+        if (swFloat) swFloat.checked = !!channelSyncConfig.sync_float;
+
+        if (badge) {
+            if (channelSyncConfig.auto_sync_boot) {
+                badge.className = 'status-pill status-running';
+                badge.textContent = t('sync.badge.auto');
+            } else {
+                badge.className = 'status-pill status-stopped';
+                badge.textContent = t('sync.badge.manual');
+            }
+        }
+    }
+
+    async function loadChannelSyncConfig() {
+        try {
+            const res = await execAction('get_channel_sync_config');
+            if (res && res.success && res.data) {
+                updateChannelSyncUI(res.data);
+            }
+        } catch (e) {
+            console.warn('Failed to load channel sync config:', e);
+        }
+    }
+
+    async function updateChannelSyncConfig() {
+        const swBoot = document.getElementById('switchSyncBoot');
+        const swSound = document.getElementById('switchSyncSound');
+        const swVib = document.getElementById('switchSyncVib');
+        const swLock = document.getElementById('switchSyncLock');
+        const swFloat = document.getElementById('switchSyncFloat');
+
+        const newConfig = {
+            auto_sync_boot: swBoot ? swBoot.checked : true,
+            sync_sound: swSound ? swSound.checked : true,
+            sync_vibration: swVib ? swVib.checked : true,
+            sync_lockscreen: swLock ? swLock.checked : true,
+            sync_float: swFloat ? swFloat.checked : true
+        };
+
+        try {
+            const res = await execAction('save_channel_sync_config', newConfig);
+            if (res && res.success && res.data) {
+                updateChannelSyncUI(res.data);
+                showToast(t('sync.toast.saved'));
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+        }
+    }
+
+    async function triggerChannelSync() {
+        const btn = document.getElementById('btnRunSync');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '⏳ ' + t('sync.toast.started');
+        }
+        try {
+            const res = await execAction('run_channel_sync');
+            if (res && res.success) {
+                const total = (res.data && res.data.total !== undefined) ? res.data.total : 0;
+                const synced = (res.data && res.data.synced !== undefined) ? res.data.synced : 0;
+                if (synced > 0) {
+                    showToast(t('sync.toast.synced_new', { n: synced, total: total }));
+                } else {
+                    showToast(t('sync.toast.all_up_to_date', { total: total }));
+                }
+            } else {
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Error'));
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = t('sync.btn.run');
+            }
+        }
+    }
+
     // KernelSU / APatch / Magisk Execution Bridge
     let cbCounter = 0;
     async function execAction(action, payload) {
@@ -1425,6 +1610,9 @@
             updateModeUI();
             if (data.sound_active !== undefined) {
                 updateSoundFixUI(data.sound_active, data.sound_backup, data.features);
+            }
+            if (data.channel_sync) {
+                updateChannelSyncUI(data.channel_sync);
             }
             filterApps();
             checkDraftChanges();
@@ -1867,9 +2055,16 @@
 
     function showToast(msg) {
         const toast = document.getElementById('toast');
-        toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2200);
+        if (toast) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2200);
+        }
+        try {
+            if (window.ksu && typeof window.ksu.toast === 'function') {
+                window.ksu.toast(msg);
+            }
+        } catch (e) {}
     }
 
     // Initialize: dictionaries first, so nothing renders in raw keys
@@ -1878,6 +2073,7 @@
         loadStatus();
         refreshRomStatus();
         loadSoundFixStatus();
+        loadChannelSyncConfig();
     });
 </script>
 

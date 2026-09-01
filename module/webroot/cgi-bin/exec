@@ -51,9 +51,13 @@ read_sound_settings() {
     V_RNM_SEQ_TIME=$(settings get system random_note_mode_sequence_time_interval_ms 2>/dev/null | tr -d '\r\n')
     V_RNM_SEQ_NUM=$(settings get system random_note_mode_sequence_sound_number 2>/dev/null | tr -d '\r\n')
     V_NOTIF_COOL_EN=$(settings get system notification_cooldown_enabled 2>/dev/null | tr -d '\r\n')
+    [ -z "$V_NOTIF_COOL_EN" ] || [ "$V_NOTIF_COOL_EN" = "null" ] && V_NOTIF_COOL_EN=$(settings get global notification_cooldown_enabled 2>/dev/null | tr -d '\r\n')
     V_NOTIF_COOL_ALL=$(settings get system notification_cooldown_all 2>/dev/null | tr -d '\r\n')
+    [ -z "$V_NOTIF_COOL_ALL" ] || [ "$V_NOTIF_COOL_ALL" = "null" ] && V_NOTIF_COOL_ALL=$(settings get global notification_cooldown_all 2>/dev/null | tr -d '\r\n')
     V_NOTIF_COOL_VIB=$(settings get system notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
-    V_MUTE_OFF_BODY=$(settings get system obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
+    [ -z "$V_NOTIF_COOL_VIB" ] || [ "$V_NOTIF_COOL_VIB" = "null" ] && V_NOTIF_COOL_VIB=$(settings get global notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
+    V_MUTE_OFF_BODY=$(settings get global obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
+    [ -z "$V_MUTE_OFF_BODY" ] || [ "$V_MUTE_OFF_BODY" = "null" ] && V_MUTE_OFF_BODY=$(settings get system obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
     V_IN_CALL=$(settings get secure in_call_notification_enabled 2>/dev/null | tr -d '\r\n')
 }
 
@@ -64,7 +68,7 @@ compute_sound_features() {
     [ "$V_RNM_MUTE" = "0" ] && [ "$V_RNM_SEQ_TIME" = "0" ] && [ "$V_RNM_SEQ_NUM" = "100" ] && FEAT_MIUI=true
 
     FEAT_A15=false
-    [ "$V_NOTIF_COOL_EN" = "0" ] && [ "$V_NOTIF_COOL_ALL" = "0" ] && [ "$V_NOTIF_COOL_VIB" = "1" ] && FEAT_A15=true
+    [ "$V_NOTIF_COOL_EN" = "0" ] && [ "$V_NOTIF_COOL_ALL" = "0" ] && [ "$V_NOTIF_COOL_VIB" = "0" ] && FEAT_A15=true
 
     FEAT_OFFBODY=false
     [ "$V_MUTE_OFF_BODY" = "0" ] && FEAT_OFFBODY=true
@@ -160,6 +164,148 @@ restore_setting() {
     return 0
 }
 
+CHANNEL_SYNC_CONF="$DATA_DIR/fcm_channel_sync.json"
+
+read_channel_sync_config() {
+    SYNC_BOOT="true"
+    SYNC_SOUND="true"
+    SYNC_VIB="true"
+    SYNC_LOCK="true"
+    SYNC_FLOAT="true"
+
+    if [ -f "$CHANNEL_SYNC_CONF" ]; then
+        _b=$(grep -o '"auto_sync_boot":[^,}]*' "$CHANNEL_SYNC_CONF" 2>/dev/null | cut -d: -f2 | tr -d ' "\r\n')
+        [ "$_b" = "false" ] && SYNC_BOOT="false"
+        _s=$(grep -o '"sync_sound":[^,}]*' "$CHANNEL_SYNC_CONF" 2>/dev/null | cut -d: -f2 | tr -d ' "\r\n')
+        [ "$_s" = "false" ] && SYNC_SOUND="false"
+        _v=$(grep -o '"sync_vibration":[^,}]*' "$CHANNEL_SYNC_CONF" 2>/dev/null | cut -d: -f2 | tr -d ' "\r\n')
+        [ "$_v" = "false" ] && SYNC_VIB="false"
+        _l=$(grep -o '"sync_lockscreen":[^,}]*' "$CHANNEL_SYNC_CONF" 2>/dev/null | cut -d: -f2 | tr -d ' "\r\n')
+        [ "$_l" = "false" ] && SYNC_LOCK="false"
+        _f=$(grep -o '"sync_float":[^,}]*' "$CHANNEL_SYNC_CONF" 2>/dev/null | cut -d: -f2 | tr -d ' "\r\n')
+        [ "$_f" = "false" ] && SYNC_FLOAT="false"
+    fi
+}
+
+get_target_sync_packages() {
+    _mode="ALL"
+    _cfg_pkgs=""
+    if [ -f "$CONF_FILE" ]; then
+        _mode=$(grep "^MODE=" "$CONF_FILE" 2>/dev/null | head -n1 | cut -d= -f2 | tr -d '\r\n ')
+        [ -z "$_mode" ] && _mode="ALL"
+        _cfg_pkgs=$(grep -v "^#" "$CONF_FILE" 2>/dev/null | grep -v "^MODE=" | grep -v "^$" | tr -d '\r' | grep -E '^[a-zA-Z0-9._-]+$')
+    fi
+
+    case "$_mode" in
+        WHITELIST)
+            echo "$_cfg_pkgs"
+            echo "com.google.android.gms"
+            ;;
+        BLACKLIST)
+            _user_pkgs=$(pm list packages -3 2>/dev/null | sed 's/^package://' | tr -d '\r')
+            if [ -n "$_cfg_pkgs" ]; then
+                for _p in $_user_pkgs; do
+                    if ! echo "$_cfg_pkgs" | grep -qx "$_p"; then
+                        echo "$_p"
+                    fi
+                done
+            else
+                echo "$_user_pkgs"
+            fi
+            echo "com.google.android.gms"
+            ;;
+        ALL|*)
+            pm list packages -3 2>/dev/null | sed 's/^package://' | tr -d '\r'
+            echo "com.google.android.gms"
+            ;;
+    esac
+}
+
+sync_notification_channels() {
+    read_channel_sync_config
+
+    _TARGET_PKGS=$(get_target_sync_packages | tr '\n' ' ')
+    _XML="/data/user_de/0/com.android.systemui/shared_prefs/app_notification.xml"
+    _STATS_FILE="$DATA_DIR/fcm_sync_stats.tmp.$$"
+
+    dumpsys notification --noredact 2>/dev/null | awk -v xml="$_XML" -v upkgs="$_TARGET_PKGS" -v stats="$_STATS_FILE" '
+      BEGIN {
+        total_ch = 0;
+        new_ch = 0;
+        split(upkgs, uarr, " ");
+        for (i in uarr) if (uarr[i] != "") allowed[uarr[i]] = 1;
+        if (xml != "") {
+          while ((getline line < xml) > 0) {
+            if (match(line, /name="([^"]+)"/)) {
+              n = substr(line, RSTART+6, RLENGTH-7);
+              existing[n] = 1;
+            }
+          }
+          close(xml);
+        }
+      }
+      /^ *AppSettings: / {
+        sub(/^ *AppSettings: /, "");
+        split($0, a, " ");
+        pkg = a[1];
+        if ((pkg in allowed) && !(pkg "_sound" in existing)) {
+          print pkg "\t_app_";
+          existing[pkg "_sound"] = 1;
+          new_ch++;
+        }
+      }
+      /^ *NotificationChannel\{mId=/ {
+        match($0, /mId=([^,]+)/);
+        id = substr($0, RSTART+4, RLENGTH-4);
+        gsub(/\047/, "", id);
+        if ((pkg in allowed) && id != "") {
+          total_ch++;
+          ch_s_key = pkg "_" id "_sound";
+          if (!(ch_s_key in existing)) {
+            print pkg "\t" id;
+            existing[ch_s_key] = 1;
+            new_ch++;
+          }
+        }
+      }
+      END {
+        if (stats != "") {
+          print total_ch "\t" new_ch > stats;
+          close(stats);
+        }
+      }
+    ' | while IFS=$'\t' read -r pkg ch; do
+      if [ "$ch" = "_app_" ]; then
+        (
+          [ "$SYNC_SOUND" = "true" ] && content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra canSound:b:true
+          [ "$SYNC_VIB" = "true" ] && content call --uri content://statusbar.notification --method setVibrate --extra package:s:"$pkg" --extra canVibrate:b:true
+          [ "$SYNC_LOCK" = "true" ] && content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra canShowOnKeyguard:b:true
+        ) >/dev/null 2>&1 &
+      elif [ -n "$ch" ]; then
+        escaped_ch="${ch//:/\\:}"
+        (
+          [ "$SYNC_SOUND" = "true" ] && content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canSound:b:true
+          [ "$SYNC_VIB" = "true" ] && content call --uri content://statusbar.notification --method setVibrate --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canVibrate:b:true
+          [ "$SYNC_LOCK" = "true" ] && content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canShowOnKeyguard:b:true
+          [ "$SYNC_FLOAT" = "true" ] && content call --uri content://statusbar.notification --method setFloat --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canShowFloat:b:true
+        ) >/dev/null 2>&1 &
+      fi
+      while [ "$(jobs -p 2>/dev/null | wc -l)" -ge 8 ]; do
+        wait -n 2>/dev/null || sleep 0.05
+      done
+    done
+    wait
+
+    _TOTAL_CH=0
+    _NEW_CH=0
+    if [ -f "$_STATS_FILE" ]; then
+      read -r _TOTAL_CH _NEW_CH < "$_STATS_FILE"
+      rm -f "$_STATS_FILE" 2>/dev/null || true
+    fi
+    [ -z "$_TOTAL_CH" ] && _TOTAL_CH=0
+    [ -z "$_NEW_CH" ] && _NEW_CH=0
+}
+
 # Ensure config file exists with proper permissions
 if [ ! -f "$CONF_FILE" ]; then
     cat <<'EOF' > "$CONF_FILE"
@@ -196,9 +342,10 @@ case "$ACTION" in
         [ -z "$USER_PKGS" ] && USER_PKGS="[]"
 
         compute_sound_features
+        read_channel_sync_config
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s}}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT"
         ;;
 
     stopped)
@@ -388,18 +535,26 @@ case "$ACTION" in
             android15_cooldown)
                 if [ "$VAL" = "true" ]; then
                     put_setting system notification_cooldown_enabled 0 || ERR=1
+                    put_setting global notification_cooldown_enabled 0 || ERR=1
                     put_setting system notification_cooldown_all 0 || ERR=1
-                    put_setting system notification_cooldown_vibrate_unlocked 1 || ERR=1
+                    put_setting global notification_cooldown_all 0 || ERR=1
+                    put_setting system notification_cooldown_vibrate_unlocked 0 || ERR=1
+                    put_setting global notification_cooldown_vibrate_unlocked 0 || ERR=1
                 else
                     restore_setting system notification_cooldown_enabled "$(get_b_val cooldown_en)" || ERR=1
+                    restore_setting global notification_cooldown_enabled "$(get_b_val cooldown_en)" || ERR=1
                     restore_setting system notification_cooldown_all "$(get_b_val cooldown_all)" || ERR=1
+                    restore_setting global notification_cooldown_all "$(get_b_val cooldown_all)" || ERR=1
                     restore_setting system notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)" || ERR=1
+                    restore_setting global notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)" || ERR=1
                 fi
                 ;;
             offbody_mute)
                 if [ "$VAL" = "true" ]; then
+                    put_setting global obtain_mute_when_off_body 0 || ERR=1
                     put_setting system obtain_mute_when_off_body 0 || ERR=1
                 else
+                    restore_setting global obtain_mute_when_off_body "$(get_b_val mute_off_body)" || ERR=1
                     restore_setting system obtain_mute_when_off_body "$(get_b_val mute_off_body)" || ERR=1
                 fi
                 ;;
@@ -432,12 +587,17 @@ case "$ACTION" in
         put_setting system random_note_mode_sequence_time_interval_ms 0 || ERR=1
         put_setting system random_note_mode_sequence_sound_number 100 || ERR=1
         put_setting system notification_cooldown_enabled 0 || ERR=1
+        put_setting global notification_cooldown_enabled 0 || ERR=1
         put_setting system notification_cooldown_all 0 || ERR=1
-        put_setting system notification_cooldown_vibrate_unlocked 1 || ERR=1
+        put_setting global notification_cooldown_all 0 || ERR=1
+        put_setting system notification_cooldown_vibrate_unlocked 0 || ERR=1
+        put_setting global notification_cooldown_vibrate_unlocked 0 || ERR=1
+        put_setting global obtain_mute_when_off_body 0 || ERR=1
         put_setting system obtain_mute_when_off_body 0 || ERR=1
         put_setting secure in_call_notification_enabled 1 || ERR=1
 
         sync_sound_state
+        ( sync_notification_channels ) >/dev/null 2>&1 &
 
         if [ "$ERR" -ne 0 ]; then
             printf '{"status":"error","message":"Failed to apply all sound anti-mute settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s}}\n' \
@@ -449,6 +609,56 @@ case "$ACTION" in
             "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL"
         ;;
 
+    boot_sync)
+        read_channel_sync_config
+        if [ "$SYNC_BOOT" = "true" ]; then
+            sync_notification_channels
+            printf '{"status":"ok","message":"Boot channel sync completed","total":%d,"synced":%d}\n' "$_TOTAL_CH" "$_NEW_CH"
+        else
+            printf '{"status":"skipped","message":"Boot channel sync disabled by user"}\n'
+        fi
+        ;;
+
+    sync_channels|run_channel_sync)
+        sync_notification_channels
+        printf '{"status":"ok","message":"Channels synced successfully","total":%d,"synced":%d}\n' "$_TOTAL_CH" "$_NEW_CH"
+        ;;
+
+    get_channel_sync_config)
+        read_channel_sync_config
+        printf '{"status":"ok","auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s}\n' \
+            "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT"
+        ;;
+
+    save_channel_sync_config)
+        if [ -n "$2" ]; then
+            BODY="$2"
+        else
+            BODY="$(cat 2>/dev/null)"
+        fi
+        _boot=$(echo "$BODY" | grep -o '"auto_sync_boot":[^,}]*' | cut -d: -f2 | tr -d ' "')
+        [ "$_boot" = "false" ] || _boot="true"
+        _sound=$(echo "$BODY" | grep -o '"sync_sound":[^,}]*' | cut -d: -f2 | tr -d ' "')
+        [ "$_sound" = "false" ] || _sound="true"
+        _vib=$(echo "$BODY" | grep -o '"sync_vibration":[^,}]*' | cut -d: -f2 | tr -d ' "')
+        [ "$_vib" = "false" ] || _vib="true"
+        _lock=$(echo "$BODY" | grep -o '"sync_lockscreen":[^,}]*' | cut -d: -f2 | tr -d ' "')
+        [ "$_lock" = "false" ] || _lock="true"
+        _float=$(echo "$BODY" | grep -o '"sync_float":[^,}]*' | cut -d: -f2 | tr -d ' "')
+        [ "$_float" = "false" ] || _float="true"
+
+        TMP_SYNC="$DATA_DIR/fcm_channel_sync.json.tmp.$$"
+        printf '{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s}\n' \
+            "$_boot" "$_sound" "$_vib" "$_lock" "$_float" > "$TMP_SYNC"
+        chmod 0644 "$TMP_SYNC" 2>/dev/null || true
+        chown system:system "$TMP_SYNC" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$TMP_SYNC" 2>/dev/null || true
+        mv -f "$TMP_SYNC" "$CHANNEL_SYNC_CONF" 2>/dev/null || true
+
+        printf '{"status":"ok","auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s}\n' \
+            "$_boot" "$_sound" "$_vib" "$_lock" "$_float"
+        ;;
+
     restore_sound_fix)
         ERR=0
         if [ -f "$SOUND_BACKUP_FILE" ]; then
@@ -456,8 +666,12 @@ case "$ACTION" in
             restore_setting system random_note_mode_sequence_time_interval_ms "$(get_b_val rnm_seq_time)" || ERR=1
             restore_setting system random_note_mode_sequence_sound_number "$(get_b_val rnm_seq_num)" || ERR=1
             restore_setting system notification_cooldown_enabled "$(get_b_val cooldown_en)" || ERR=1
+            restore_setting global notification_cooldown_enabled "$(get_b_val cooldown_en)" || ERR=1
             restore_setting system notification_cooldown_all "$(get_b_val cooldown_all)" || ERR=1
+            restore_setting global notification_cooldown_all "$(get_b_val cooldown_all)" || ERR=1
             restore_setting system notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)" || ERR=1
+            restore_setting global notification_cooldown_vibrate_unlocked "$(get_b_val cooldown_vib)" || ERR=1
+            restore_setting global obtain_mute_when_off_body "$(get_b_val mute_off_body)" || ERR=1
             restore_setting system obtain_mute_when_off_body "$(get_b_val mute_off_body)" || ERR=1
             restore_setting secure in_call_notification_enabled "$(get_b_val in_call)" || ERR=1
         else
@@ -465,8 +679,12 @@ case "$ACTION" in
             restore_setting system random_note_mode_sequence_time_interval_ms "" || ERR=1
             restore_setting system random_note_mode_sequence_sound_number "" || ERR=1
             restore_setting system notification_cooldown_enabled "" || ERR=1
+            restore_setting global notification_cooldown_enabled "" || ERR=1
             restore_setting system notification_cooldown_all "" || ERR=1
+            restore_setting global notification_cooldown_all "" || ERR=1
             restore_setting system notification_cooldown_vibrate_unlocked "" || ERR=1
+            restore_setting global notification_cooldown_vibrate_unlocked "" || ERR=1
+            restore_setting global obtain_mute_when_off_body "" || ERR=1
             restore_setting system obtain_mute_when_off_body "" || ERR=1
             restore_setting secure in_call_notification_enabled "" || ERR=1
         fi
