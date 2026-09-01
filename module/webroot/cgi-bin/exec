@@ -4,10 +4,10 @@
 # ==============================================================================
 
 DATA_DIR="/data/system"
+CONF_FILE="/data/system/fcm_wake.conf"
 if [ ! -d "$DATA_DIR" ] || [ ! -w "$DATA_DIR" ]; then
     DATA_DIR="${TMPDIR:-/tmp}"
 fi
-CONF_FILE="$DATA_DIR/fcm_wake.conf"
 SOUND_BACKUP_FILE="$DATA_DIR/fcm_sound_backup.json"
 SOUND_STATE_FILE="$DATA_DIR/fcm_sound_state.json"
 SOUND_LOCK_FILE="$DATA_DIR/fcm_sound.lock"
@@ -23,17 +23,17 @@ acquire_sound_lock() {
         if ( set -C; echo "$$" > "$SOUND_LOCK_FILE" ) 2>/dev/null; then
             return 0
         fi
+        _retries=$((_retries - 1))
         _lock_pid=$(cat "$SOUND_LOCK_FILE" 2>/dev/null | tr -cd '0-9')
         if [ -n "$_lock_pid" ]; then
             if ! kill -0 "$_lock_pid" 2>/dev/null; then
-                rm -f "$SOUND_LOCK_FILE" 2>/dev/null
+                rm -f "$SOUND_LOCK_FILE" 2>/dev/null || return 1
                 continue
             fi
         else
-            rm -f "$SOUND_LOCK_FILE" 2>/dev/null
+            rm -f "$SOUND_LOCK_FILE" 2>/dev/null || return 1
             continue
         fi
-        _retries=$((_retries - 1))
         sleep 0.05 2>/dev/null || sleep 1
     done
     return 1
@@ -226,7 +226,7 @@ case "$ACTION" in
         PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
 
         # Write to atomic temp file first
-        TMP_CONF="$DATA_DIR/fcm_wake.conf.tmp.$$"
+        TMP_CONF="$CONF_FILE.tmp.$$"
         {
             echo "# HyperOS FCM Dynamic Wake Filter Configuration"
             echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
@@ -356,6 +356,14 @@ case "$ACTION" in
             miui_cooldown|android15_cooldown|offbody_mute|in_call) ;;
             *)
                 echo '{"status":"error","message":"Unknown or missing sound feature"}'
+                exit 0
+                ;;
+        esac
+
+        case "$VAL" in
+            true|false) ;;
+            *)
+                echo '{"status":"error","message":"Invalid or missing enabled value"}'
                 exit 0
                 ;;
         esac
