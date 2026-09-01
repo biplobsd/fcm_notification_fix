@@ -11,6 +11,7 @@ CONF_FILE="$DATA_DIR/fcm_wake.conf"
 SOUND_BACKUP_FILE="$DATA_DIR/fcm_sound_backup.json"
 SOUND_STATE_FILE="$DATA_DIR/fcm_sound_state.json"
 SOUND_LOCK_FILE="$DATA_DIR/fcm_sound.lock"
+SYNCED_CACHE_FILE="$DATA_DIR/fcm_synced_channels.txt"
 
 # Resolve module directory
 MODDIR="${0%/*}/../.."
@@ -60,18 +61,43 @@ read_alert_fix_config() {
 }
 
 read_sound_settings() {
-    V_RNM_MUTE=$(settings get system random_note_mode_mute_time_interval_ms 2>/dev/null | tr -d '\r\n')
-    V_RNM_SEQ_TIME=$(settings get system random_note_mode_sequence_time_interval_ms 2>/dev/null | tr -d '\r\n')
-    V_RNM_SEQ_NUM=$(settings get system random_note_mode_sequence_sound_number 2>/dev/null | tr -d '\r\n')
-    V_NOTIF_COOL_EN=$(settings get system notification_cooldown_enabled 2>/dev/null | tr -d '\r\n')
-    [ -z "$V_NOTIF_COOL_EN" ] || [ "$V_NOTIF_COOL_EN" = "null" ] && V_NOTIF_COOL_EN=$(settings get global notification_cooldown_enabled 2>/dev/null | tr -d '\r\n')
-    V_NOTIF_COOL_ALL=$(settings get system notification_cooldown_all 2>/dev/null | tr -d '\r\n')
-    [ -z "$V_NOTIF_COOL_ALL" ] || [ "$V_NOTIF_COOL_ALL" = "null" ] && V_NOTIF_COOL_ALL=$(settings get global notification_cooldown_all 2>/dev/null | tr -d '\r\n')
-    V_NOTIF_COOL_VIB=$(settings get system notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
-    [ -z "$V_NOTIF_COOL_VIB" ] || [ "$V_NOTIF_COOL_VIB" = "null" ] && V_NOTIF_COOL_VIB=$(settings get global notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
-    V_MUTE_OFF_BODY=$(settings get global obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
-    [ -z "$V_MUTE_OFF_BODY" ] || [ "$V_MUTE_OFF_BODY" = "null" ] && V_MUTE_OFF_BODY=$(settings get system obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
-    V_IN_CALL=$(settings get secure in_call_notification_enabled 2>/dev/null | tr -d '\r\n')
+    _SYS=$(settings list system 2>/dev/null)
+    _GLOB=$(settings list global 2>/dev/null)
+    _SEC=$(settings list secure 2>/dev/null)
+
+    if [ -z "$_SYS" ] && [ -z "$_GLOB" ]; then
+        V_RNM_MUTE=$(settings get system random_note_mode_mute_time_interval_ms 2>/dev/null | tr -d '\r\n')
+        V_RNM_SEQ_TIME=$(settings get system random_note_mode_sequence_time_interval_ms 2>/dev/null | tr -d '\r\n')
+        V_RNM_SEQ_NUM=$(settings get system random_note_mode_sequence_sound_number 2>/dev/null | tr -d '\r\n')
+        V_NOTIF_COOL_EN=$(settings get system notification_cooldown_enabled 2>/dev/null | tr -d '\r\n')
+        [ -z "$V_NOTIF_COOL_EN" ] || [ "$V_NOTIF_COOL_EN" = "null" ] && V_NOTIF_COOL_EN=$(settings get global notification_cooldown_enabled 2>/dev/null | tr -d '\r\n')
+        V_NOTIF_COOL_ALL=$(settings get system notification_cooldown_all 2>/dev/null | tr -d '\r\n')
+        [ -z "$V_NOTIF_COOL_ALL" ] || [ "$V_NOTIF_COOL_ALL" = "null" ] && V_NOTIF_COOL_ALL=$(settings get global notification_cooldown_all 2>/dev/null | tr -d '\r\n')
+        V_NOTIF_COOL_VIB=$(settings get system notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
+        [ -z "$V_NOTIF_COOL_VIB" ] || [ "$V_NOTIF_COOL_VIB" = "null" ] && V_NOTIF_COOL_VIB=$(settings get global notification_cooldown_vibrate_unlocked 2>/dev/null | tr -d '\r\n')
+        V_MUTE_OFF_BODY=$(settings get global obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
+        [ -z "$V_MUTE_OFF_BODY" ] || [ "$V_MUTE_OFF_BODY" = "null" ] && V_MUTE_OFF_BODY=$(settings get system obtain_mute_when_off_body 2>/dev/null | tr -d '\r\n')
+        V_IN_CALL=$(settings get secure in_call_notification_enabled 2>/dev/null | tr -d '\r\n')
+        return
+    fi
+
+    V_RNM_MUTE=$(echo "$_SYS" | grep "^random_note_mode_mute_time_interval_ms=" | head -n1 | cut -d= -f2- | tr -d '\r')
+    V_RNM_SEQ_TIME=$(echo "$_SYS" | grep "^random_note_mode_sequence_time_interval_ms=" | head -n1 | cut -d= -f2- | tr -d '\r')
+    V_RNM_SEQ_NUM=$(echo "$_SYS" | grep "^random_note_mode_sequence_sound_number=" | head -n1 | cut -d= -f2- | tr -d '\r')
+
+    V_NOTIF_COOL_EN=$(echo "$_SYS" | grep "^notification_cooldown_enabled=" | head -n1 | cut -d= -f2- | tr -d '\r')
+    [ -z "$V_NOTIF_COOL_EN" ] || [ "$V_NOTIF_COOL_EN" = "null" ] && V_NOTIF_COOL_EN=$(echo "$_GLOB" | grep "^notification_cooldown_enabled=" | head -n1 | cut -d= -f2- | tr -d '\r')
+
+    V_NOTIF_COOL_ALL=$(echo "$_SYS" | grep "^notification_cooldown_all=" | head -n1 | cut -d= -f2- | tr -d '\r')
+    [ -z "$V_NOTIF_COOL_ALL" ] || [ "$V_NOTIF_COOL_ALL" = "null" ] && V_NOTIF_COOL_ALL=$(echo "$_GLOB" | grep "^notification_cooldown_all=" | head -n1 | cut -d= -f2- | tr -d '\r')
+
+    V_NOTIF_COOL_VIB=$(echo "$_SYS" | grep "^notification_cooldown_vibrate_unlocked=" | head -n1 | cut -d= -f2- | tr -d '\r')
+    [ -z "$V_NOTIF_COOL_VIB" ] || [ "$V_NOTIF_COOL_VIB" = "null" ] && V_NOTIF_COOL_VIB=$(echo "$_GLOB" | grep "^notification_cooldown_vibrate_unlocked=" | head -n1 | cut -d= -f2- | tr -d '\r')
+
+    V_MUTE_OFF_BODY=$(echo "$_GLOB" | grep "^obtain_mute_when_off_body=" | head -n1 | cut -d= -f2- | tr -d '\r')
+    [ -z "$V_MUTE_OFF_BODY" ] || [ "$V_MUTE_OFF_BODY" = "null" ] && V_MUTE_OFF_BODY=$(echo "$_SYS" | grep "^obtain_mute_when_off_body=" | head -n1 | cut -d= -f2- | tr -d '\r')
+
+    V_IN_CALL=$(echo "$_SEC" | grep "^in_call_notification_enabled=" | head -n1 | cut -d= -f2- | tr -d '\r')
 }
 
 compute_sound_features() {
@@ -239,9 +265,13 @@ sync_notification_channels() {
 
     _TARGET_PKGS=$(get_target_sync_packages | tr '\n' ' ')
     _XML="/data/user_de/0/com.android.systemui/shared_prefs/app_notification.xml"
-    _STATS_FILE="$DATA_DIR/fcm_sync_stats.tmp.$$"
+    [ -f "$_XML" ] || _XML="/data/user/0/com.android.systemui/shared_prefs/app_notification.xml"
+    [ -f "$_XML" ] || _XML=""
 
-    dumpsys notification --noredact 2>/dev/null | awk -v xml="$_XML" -v upkgs="$_TARGET_PKGS" -v stats="$_STATS_FILE" '
+    _STATS_FILE="$DATA_DIR/fcm_sync_stats.tmp.$$"
+    _SYNC_CACHE="$SYNCED_CACHE_FILE"
+
+    dumpsys notification --noredact 2>/dev/null | awk -v xml="$_XML" -v cache="$_SYNC_CACHE" -v upkgs="$_TARGET_PKGS" -v stats="$_STATS_FILE" '
       BEGIN {
         total_ch = 0;
         new_ch = 0;
@@ -252,19 +282,31 @@ sync_notification_channels() {
             if (match(line, /name="([^"]+)"/)) {
               n = substr(line, RSTART+6, RLENGTH-7);
               existing[n] = 1;
+              sub(/_(canSound|sound|canVibrate|vibrate|canShowOnKeyguard|showOnKeyguard|canShowFloat|float)$/, "", n);
+              existing[n] = 1;
             }
           }
           close(xml);
+        }
+        if (cache != "") {
+          while ((getline line < cache) > 0) {
+            gsub(/[\r\n]/, "", line);
+            if (line != "") existing[line] = 1;
+          }
+          close(cache);
         }
       }
       /^ *AppSettings: / {
         sub(/^ *AppSettings: /, "");
         split($0, a, " ");
         pkg = a[1];
-        if ((pkg in allowed) && !(pkg "_sound" in existing)) {
-          print pkg "\t_app_";
-          existing[pkg "_sound"] = 1;
-          new_ch++;
+        if ((pkg in allowed)) {
+          if (!(pkg in existing) && !(pkg "_sound" in existing) && !(pkg "_canSound" in existing)) {
+            print pkg "\t_app_";
+            existing[pkg] = 1;
+            existing[pkg "_sound"] = 1;
+            new_ch++;
+          }
         }
       }
       /^ *NotificationChannel\{mId=/ {
@@ -273,10 +315,12 @@ sync_notification_channels() {
         gsub(/\047/, "", id);
         if ((pkg in allowed) && id != "") {
           total_ch++;
-          ch_s_key = pkg "_" id "_sound";
-          if (!(ch_s_key in existing)) {
+          k1 = pkg ":" id;
+          k2 = pkg "_" id;
+          if (!(k1 in existing) && !(k2 in existing) && !(k1 "_sound" in existing) && !(k2 "_sound" in existing) && !(k1 "_canSound" in existing)) {
             print pkg "\t" id;
-            existing[ch_s_key] = 1;
+            existing[k1] = 1;
+            existing[k2] = 1;
             new_ch++;
           }
         }
@@ -290,24 +334,30 @@ sync_notification_channels() {
     ' | while IFS=$'\t' read -r pkg ch; do
       if [ "$ch" = "_app_" ]; then
         (
-          [ "$SYNC_SOUND" = "true" ] && content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra canSound:b:true
-          [ "$SYNC_VIB" = "true" ] && content call --uri content://statusbar.notification --method setVibrate --extra package:s:"$pkg" --extra canVibrate:b:true
-          [ "$SYNC_LOCK" = "true" ] && content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra canShowOnKeyguard:b:true
-        ) >/dev/null 2>&1 &
+          nice -n 15 content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra canSound:b:true 2>/dev/null
+          [ "$SYNC_VIB" = "true" ] && nice -n 15 content call --uri content://statusbar.notification --method setVibrate --extra package:s:"$pkg" --extra canVibrate:b:true 2>/dev/null
+          [ "$SYNC_LOCK" = "true" ] && nice -n 15 content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra canShowOnKeyguard:b:true 2>/dev/null
+          echo "$pkg" >> "$SYNCED_CACHE_FILE" 2>/dev/null || true
+        ) &
       elif [ -n "$ch" ]; then
         escaped_ch="${ch//:/\\:}"
         (
-          [ "$SYNC_SOUND" = "true" ] && content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canSound:b:true
-          [ "$SYNC_VIB" = "true" ] && content call --uri content://statusbar.notification --method setVibrate --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canVibrate:b:true
-          [ "$SYNC_LOCK" = "true" ] && content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canShowOnKeyguard:b:true
-          [ "$SYNC_FLOAT" = "true" ] && content call --uri content://statusbar.notification --method setFloat --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canShowFloat:b:true
-        ) >/dev/null 2>&1 &
+          nice -n 15 content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canSound:b:true 2>/dev/null
+          [ "$SYNC_VIB" = "true" ] && nice -n 15 content call --uri content://statusbar.notification --method setVibrate --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canVibrate:b:true 2>/dev/null
+          [ "$SYNC_LOCK" = "true" ] && nice -n 15 content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canShowOnKeyguard:b:true 2>/dev/null
+          [ "$SYNC_FLOAT" = "true" ] && nice -n 15 content call --uri content://statusbar.notification --method setFloat --extra package:s:"$pkg" --extra "channel_id:s:$escaped_ch" --extra canShowFloat:b:true 2>/dev/null
+          echo "${pkg}:${ch}" >> "$SYNCED_CACHE_FILE" 2>/dev/null || true
+        ) &
       fi
-      while [ "$(jobs -p 2>/dev/null | wc -l)" -ge 8 ]; do
-        wait -n 2>/dev/null || sleep 0.05
+      _job_count=$(jobs -p 2>/dev/null | wc -l)
+      while [ "$_job_count" -ge 3 ]; do
+        sleep 0.05
+        _job_count=$(jobs -p 2>/dev/null | wc -l)
       done
     done
     wait
+
+    [ -f "$SYNCED_CACHE_FILE" ] && chmod 0644 "$SYNCED_CACHE_FILE" 2>/dev/null || true
 
     _TOTAL_CH=0
     _NEW_CH=0

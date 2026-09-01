@@ -1073,27 +1073,40 @@
         return res.json();
     }
 
-    // Dictionaries are cached, so a later fetch failure (or a WebView that
-    // blocks the request) keeps the last known translation instead of falling
-    // back to raw keys.
+    // Dictionaries are cached in memory and localStorage so UI is translated instantly (0ms)
     async function loadDict(code) {
-        if (DICT[code]) return DICT[code];
+        if (!code) return null;
+        if (!DICT[code]) {
+            const cached = restore('fcm_lang_' + code);
+            if (cached) {
+                try {
+                    DICT[code] = JSON.parse(cached);
+                } catch (e) {}
+            }
+        }
         try {
             const data = await loadJson('lang/' + code + '.json');
             DICT[code] = data;
             store('fcm_lang_' + code, JSON.stringify(data));
             return data;
         } catch (e) {
-            const cached = restore('fcm_lang_' + code);
-            if (cached) {
-                try {
-                    DICT[code] = JSON.parse(cached);
-                    return DICT[code];
-                } catch (e2) { /* corrupt cache, ignore */ }
-            }
+            if (DICT[code]) return DICT[code];
             console.warn('i18n: cannot load ' + code, e);
             return null;
         }
+    }
+
+    function initCachedI18n() {
+        LANG = detectLang();
+        ['en', LANG].forEach(code => {
+            if (!code || DICT[code]) return;
+            const cached = restore('fcm_lang_' + code);
+            if (cached) {
+                try { DICT[code] = JSON.parse(cached); } catch (e) {}
+            }
+        });
+        renderLangOptions();
+        applyI18n();
     }
 
     function t(key, vars) {
@@ -1175,6 +1188,7 @@
         const res = await execAction('repatch_status');
         if (res.data && res.data.state) {
             romState = res.data;
+            saveStateCache({ rom_state: romState });
         } else {
             romState = null;
         }
@@ -1250,8 +1264,10 @@
         in_call: false
     };
     let soundFixHasBackup = false;
+    let soundFixActive = false;
 
     function updateSoundFixUI(active, hasBackup, features) {
+        if (active !== undefined) soundFixActive = !!active;
         if (hasBackup !== undefined) soundFixHasBackup = !!hasBackup;
         if (features) {
             soundFeatures = Object.assign(soundFeatures, features);
@@ -1301,6 +1317,7 @@
             const res = await execAction('get_sound_fix_status');
             if (res && res.success && res.data) {
                 updateSoundFixUI(res.data.active, res.data.has_backup, res.data.features);
+                saveStateCache();
             }
         } catch (e) {
             console.warn('Failed to load sound fix status:', e);
@@ -1312,13 +1329,14 @@
             const res = await execAction('set_sound_feature', { feature: featureName, enabled: isEnabled });
             if (res && res.success && res.data) {
                 updateSoundFixUI(res.data.active, res.data.has_backup ?? true, res.data.features);
+                saveStateCache();
             } else {
                 showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
-                loadSoundFixStatus();
+                loadStatus();
             }
         } catch (e) {
             showToast(t('alert.saveError') + e.message);
-            loadSoundFixStatus();
+            loadStatus();
         }
     }
 
@@ -1331,16 +1349,17 @@
                 showToast(t('sound.toast.applied'));
                 if (res.data) {
                     updateSoundFixUI(res.data.active, true, res.data.features);
+                    saveStateCache();
                 } else {
-                    loadSoundFixStatus();
+                    loadStatus();
                 }
             } else {
                 showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
-                loadSoundFixStatus();
+                loadStatus();
             }
         } catch (e) {
             showToast(t('alert.saveError') + e.message);
-            loadSoundFixStatus();
+            loadStatus();
         } finally {
             if (btn) btn.disabled = false;
         }
@@ -1355,16 +1374,17 @@
                 showToast(t('sound.toast.restored'));
                 if (res.data) {
                     updateSoundFixUI(res.data.active, res.data.has_backup ?? false, res.data.features);
+                    saveStateCache();
                 } else {
-                    loadSoundFixStatus();
+                    loadStatus();
                 }
             } else {
                 showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
-                loadSoundFixStatus();
+                loadStatus();
             }
         } catch (e) {
             showToast(t('alert.saveError') + e.message);
-            loadSoundFixStatus();
+            loadStatus();
         } finally {
             if (btn) btn.disabled = false;
         }
@@ -1411,6 +1431,7 @@
 
                 if (!alertFixSavePending) {
                     updateAlertFixUI(res.data || requestedConfig);
+                    saveStateCache();
                 }
             }
         } catch (e) {
@@ -1468,6 +1489,7 @@
             const res = await execAction('get_channel_sync_config');
             if (res && res.success && res.data) {
                 updateChannelSyncUI(res.data);
+                saveStateCache();
             }
         } catch (e) {
             console.warn('Failed to load channel sync config:', e);
@@ -1507,6 +1529,7 @@
                 channelSyncConfig = Object.assign(channelSyncConfig, res.data || newConfig);
                 if (!channelSyncSavePending) {
                     updateChannelSyncUI(channelSyncConfig);
+                    saveStateCache();
                     showToast(t('sync.toast.saved'));
                 }
             }
@@ -1680,6 +1703,75 @@
         return isDirty;
     }
 
+    // Persistent State Cache (Instant 0ms UI Hydration)
+    const CACHE_KEY = 'fcm_ui_cache_v2';
+
+    function saveStateCache(extra) {
+        try {
+            const state = {
+                mode: savedMode,
+                packages: Array.from(savedApps),
+                installed: installedApps,
+                sound_active: soundFixActive,
+                sound_backup: soundFixHasBackup,
+                features: soundFeatures,
+                channel_sync: channelSyncConfig,
+                alert_fix: alertFixConfig,
+                rom_state: romState,
+                ts: Date.now()
+            };
+            if (extra) Object.assign(state, extra);
+            store(CACHE_KEY, JSON.stringify(state));
+        } catch (e) {}
+    }
+
+    function hydrateFromCache() {
+        try {
+            const raw = restore(CACHE_KEY);
+            if (!raw) return;
+            const cache = JSON.parse(raw);
+            if (cache.mode) {
+                savedMode = cache.mode;
+                currentMode = cache.mode;
+            }
+            if (Array.isArray(cache.packages)) {
+                savedApps = new Set(cache.packages);
+                selectedApps = new Set(cache.packages);
+            }
+            if (Array.isArray(cache.installed) && cache.installed.length) {
+                installedApps = cache.installed;
+            }
+            if (cache.features) {
+                soundFeatures = Object.assign(soundFeatures, cache.features);
+            }
+            if (cache.sound_backup !== undefined) {
+                soundFixHasBackup = !!cache.sound_backup;
+            }
+            if (cache.sound_active !== undefined) {
+                soundFixActive = !!cache.sound_active;
+            }
+            if (cache.channel_sync) {
+                channelSyncConfig = Object.assign(channelSyncConfig, cache.channel_sync);
+            }
+            if (cache.alert_fix) {
+                alertFixConfig = Object.assign(alertFixConfig, cache.alert_fix);
+            }
+            if (cache.rom_state) {
+                romState = cache.rom_state;
+            }
+
+            updateModeUI();
+            updateSoundFixUI(soundFixActive, soundFixHasBackup, soundFeatures);
+            updateChannelSyncUI(channelSyncConfig);
+            updateAlertFixUI(alertFixConfig);
+            renderRomStatus();
+            filterApps();
+            checkDraftChanges();
+        } catch (e) {
+            console.warn('Failed to hydrate state from cache:', e);
+        }
+    }
+
     // Lazy Rendering & Virtualization State
     let filteredApps = [];
     let renderedCount = 0;
@@ -1703,6 +1795,7 @@
 
             updateModeUI();
             if (data.sound_active !== undefined) {
+                soundFixActive = !!data.sound_active;
                 updateSoundFixUI(data.sound_active, data.sound_backup, data.features);
             }
             if (data.channel_sync) {
@@ -1713,13 +1806,16 @@
             }
             filterApps();
             checkDraftChanges();
+            saveStateCache();
 
             // Background fetch for stopped state
             loadStoppedStatusAsync();
         } catch (e) {
             console.error('Failed to load status:', e);
-            document.getElementById('appList').innerHTML = 
-                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">${t('bridge.fail')}<br><small>${e.message}</small></div>`;
+            if (!installedApps.length) {
+                document.getElementById('appList').innerHTML = 
+                    `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">${t('bridge.fail')}<br><small>${e.message}</small></div>`;
+            }
         }
     }
 
@@ -2141,6 +2237,7 @@
                 savedMode = currentMode;
                 savedApps = new Set(selectedApps);
                 checkDraftChanges();
+                saveStateCache();
                 showToast(t('toast.saved'));
             } else {
                 alert(t('alert.saveError') + ((res.data && res.data.message) || res.stderr || ''));
@@ -2151,26 +2248,38 @@
     }
 
     function showToast(msg) {
-        const toast = document.getElementById('toast');
-        if (toast) {
-            toast.textContent = msg;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2200);
-        }
+        let shownKsu = false;
         try {
             if (window.ksu && typeof window.ksu.toast === 'function') {
                 window.ksu.toast(msg);
+                shownKsu = true;
             }
         } catch (e) {}
+
+        // Only show webui floating toast if KernelSU native toast is not available
+        if (!shownKsu) {
+            const toast = document.getElementById('toast');
+            if (toast) {
+                toast.textContent = msg;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2200);
+            }
+        }
     }
 
-    // Initialize: dictionaries first, so nothing renders in raw keys
+    // 1. Instant hydration from localStorage before any async network requests (0ms)
+    initCachedI18n();
+    hydrateFromCache();
+
+    // 2. Initialize dictionaries and refresh live status asynchronously
     initI18n().finally(() => {
+        applyI18n();
         updateModeUI();
+        updateSoundFixUI();
+        updateChannelSyncUI();
+        renderRomStatus();
         loadStatus();
         refreshRomStatus();
-        loadSoundFixStatus();
-        loadChannelSyncConfig();
     });
 </script>
 
