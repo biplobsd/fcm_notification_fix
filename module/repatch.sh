@@ -312,12 +312,14 @@ cmd_run() {
     STATE_OK=1
     echo "$CUR" > "$MODDIR/rom.fingerprint" 2>/dev/null || STATE_OK=0
     [ -f "$MODDIR/rom.fingerprint" ] && [ "$(cat "$MODDIR/rom.fingerprint" 2>/dev/null)" = "$CUR" ] || STATE_OK=0
-    rm -f "$FLAG_PENDING" 2>/dev/null || STATE_OK=0
-    [ -f "$FLAG_PENDING" ] && STATE_OK=0
     touch "$FLAG_REBOOT" 2>/dev/null || STATE_OK=0
     [ -f "$FLAG_REBOOT" ] || STATE_OK=0
     touch "$SKIP_MOUNT" 2>/dev/null || STATE_OK=0
     [ -f "$SKIP_MOUNT" ] || STATE_OK=0
+    if [ "$STATE_OK" -eq 1 ]; then
+        rm -f "$FLAG_PENDING" 2>/dev/null || STATE_OK=0
+        [ -f "$FLAG_PENDING" ] && STATE_OK=0
+    fi
 
     if [ "$STATE_OK" -ne 1 ]; then
         log "re-patch FAILED: failed to persist completion state"

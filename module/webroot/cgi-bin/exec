@@ -104,6 +104,28 @@ case "$ACTION" in
         # Serialize the revision check and atomic replacement so concurrent
         # requests cannot both compare against the same stored configuration.
         CONF_LOCK="${CONF_FILE}.lock"
+        CONF_LOCK_OWNER="$CONF_LOCK/pid"
+        CONF_LOCK_STALE_SECONDS=1800
+
+        # Recover locks abandoned by a dead CGI process. If the owner cannot be
+        # verified, retain the lock until its age proves that it is stale.
+        if [ -d "$CONF_LOCK" ]; then
+            LOCK_PID=$(cat "$CONF_LOCK_OWNER" 2>/dev/null | tr -cd '0-9')
+            LOCK_NOW=$(date +%s 2>/dev/null || echo 0)
+            LOCK_TS=$(date -r "$CONF_LOCK" +%s 2>/dev/null || stat -c %Y "$CONF_LOCK" 2>/dev/null || echo 0)
+            LOCK_STALE=0
+            if [ -n "$LOCK_PID" ] && ! kill -0 "$LOCK_PID" 2>/dev/null; then
+                LOCK_STALE=1
+            elif [ "$LOCK_NOW" -gt 0 ] && [ "$LOCK_TS" -gt 0 ] && \
+                 [ "$((LOCK_NOW - LOCK_TS))" -gt "$CONF_LOCK_STALE_SECONDS" ]; then
+                LOCK_STALE=1
+            fi
+            if [ "$LOCK_STALE" -eq 1 ]; then
+                rm -f "$CONF_LOCK_OWNER" 2>/dev/null
+                rmdir "$CONF_LOCK" 2>/dev/null
+            fi
+        fi
+
         LOCK_ATTEMPTS=0
         while ! mkdir "$CONF_LOCK" 2>/dev/null; do
             LOCK_ATTEMPTS=$((LOCK_ATTEMPTS + 1))
@@ -114,7 +136,14 @@ case "$ACTION" in
             fi
             sleep 0.05
         done
-        trap 'rm -f "$TMP_CONF" 2>/dev/null; rmdir "$CONF_LOCK" 2>/dev/null' 0
+        if ! echo "$$" > "$CONF_LOCK_OWNER" 2>/dev/null; then
+            rm -f "$CONF_LOCK_OWNER" 2>/dev/null
+            rmdir "$CONF_LOCK" 2>/dev/null
+            rm -f "$TMP_CONF" 2>/dev/null
+            echo '{"status":"error","message":"Configuration save is busy"}'
+            exit 0
+        fi
+        trap 'rm -f "$TMP_CONF" "$CONF_LOCK_OWNER" 2>/dev/null; rmdir "$CONF_LOCK" 2>/dev/null' 0
         trap 'exit 1' 1 2 15
 
         CURRENT_REVISION=$(sed -n 's/^# Revision: \([0-9][0-9]*\)$/\1/p' "$CONF_FILE" 2>/dev/null | head -n1)
@@ -128,6 +157,7 @@ case "$ACTION" in
             echo '{"status":"error","message":"Failed to save configuration"}'
             exit 1
         fi
+        rm -f "$CONF_LOCK_OWNER" 2>/dev/null
         rmdir "$CONF_LOCK" 2>/dev/null
         trap - 0 1 2 15
         chmod 0644 "$CONF_FILE" 2>/dev/null || true
