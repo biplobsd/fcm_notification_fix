@@ -28,9 +28,12 @@ case "$ACTION" in
     status|load_status|get_status)
         MODE="ALL"
         PACKAGES=""
+        REVISION="0"
         if [ -f "$CONF_FILE" ]; then
             MODE_LINE=$(grep "^MODE=" "$CONF_FILE" | head -n1 | cut -d= -f2 | tr -d '\r\n ')
             [ -n "$MODE_LINE" ] && MODE="$MODE_LINE"
+            REVISION_LINE=$(sed -n 's/^# Revision: \([0-9][0-9]*\)$/\1/p' "$CONF_FILE" | head -n1)
+            [ -n "$REVISION_LINE" ] && REVISION="$REVISION_LINE"
             
             # Read non-comment, non-empty, non-mode lines as JSON array
             PACKAGES=$(grep -v "^#" "$CONF_FILE" | grep -v "^MODE=" | grep -v "^$" | tr -d '\r' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
@@ -45,8 +48,8 @@ case "$ACTION" in
         USER_PKGS=$(pm list packages -3 2>/dev/null | sed 's/^package://' | sort | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
         [ -z "$USER_PKGS" ] && USER_PKGS="[]"
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s"}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART"
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","revision":%s}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$REVISION"
         ;;
 
     stopped)
@@ -69,6 +72,12 @@ case "$ACTION" in
             ALL|WHITELIST|BLACKLIST) ;;
             *) NEW_MODE="ALL" ;;
         esac
+
+        NEW_REVISION=$(echo "$BODY" | sed -n 's/.*"revision":[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+        if [ -z "$NEW_REVISION" ] || [ "${#NEW_REVISION}" -gt 15 ]; then
+            echo '{"status":"error","message":"Valid configuration revision required"}'
+            exit 0
+        fi
         
         # Extract and sanitize package list (only valid package names)
         PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
@@ -79,6 +88,7 @@ case "$ACTION" in
         {
             echo "# HyperOS FCM Dynamic Wake Filter Configuration"
             echo "# Modes: MODE=ALL | MODE=WHITELIST | MODE=BLACKLIST"
+            echo "# Revision: $NEW_REVISION"
             echo "MODE=$NEW_MODE"
             if [ -n "$PKGS" ]; then
                 echo "$PKGS"
@@ -89,11 +99,35 @@ case "$ACTION" in
         chown system:system "$TMP_CONF" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
 
+        # Serialize the revision check and atomic replacement so concurrent
+        # requests cannot both compare against the same stored configuration.
+        CONF_LOCK="${CONF_FILE}.lock"
+        LOCK_ATTEMPTS=0
+        while ! mkdir "$CONF_LOCK" 2>/dev/null; do
+            LOCK_ATTEMPTS=$((LOCK_ATTEMPTS + 1))
+            if [ "$LOCK_ATTEMPTS" -ge 100 ]; then
+                rm -f "$TMP_CONF" 2>/dev/null
+                echo '{"status":"error","message":"Configuration save is busy"}'
+                exit 0
+            fi
+            sleep 0.05
+        done
+        trap 'rm -f "$TMP_CONF" 2>/dev/null; rmdir "$CONF_LOCK" 2>/dev/null' 0
+        trap 'exit 1' 1 2 15
+
+        CURRENT_REVISION=$(sed -n 's/^# Revision: \([0-9][0-9]*\)$/\1/p' "$CONF_FILE" 2>/dev/null | head -n1)
+        [ -n "$CURRENT_REVISION" ] || CURRENT_REVISION=0
+        if [ "$NEW_REVISION" -lt "$CURRENT_REVISION" ]; then
+            echo '{"status":"error","message":"A newer configuration has already been saved"}'
+            exit 0
+        fi
+
         if ! mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null; then
-            rm -f "$TMP_CONF" 2>/dev/null
             echo '{"status":"error","message":"Failed to save configuration"}'
             exit 1
         fi
+        rmdir "$CONF_LOCK" 2>/dev/null
+        trap - 0 1 2 15
         chmod 0644 "$CONF_FILE" 2>/dev/null || true
         chown system:system "$CONF_FILE" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true

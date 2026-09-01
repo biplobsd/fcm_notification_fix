@@ -1169,6 +1169,7 @@
             }
 
             const data = res.data;
+            latestSaveId = Math.max(latestSaveId, Number(data.revision) || 0);
             savedMode = (data.mode || 'ALL').toUpperCase();
             currentMode = savedMode;
             savedApps = new Set(data.packages || []);
@@ -1603,7 +1604,8 @@
         try {
             const payload = {
                 mode: submittedMode,
-                packages: Array.from(submittedApps)
+                packages: Array.from(submittedApps),
+                revision: thisSaveId
             };
             const res = await execAction('save_config', payload);
             if (res.success) {
@@ -1613,11 +1615,13 @@
                     checkDraftChanges();
                     showToast(t('toast.saved'));
                 }
-            } else {
+            } else if (thisSaveId === latestSaveId) {
                 alert(t('alert.saveError') + ((res.data && res.data.message) || res.stderr || ''));
             }
         } catch (e) {
-            alert(t('alert.saveFail') + e.message);
+            if (thisSaveId === latestSaveId) {
+                alert(t('alert.saveFail') + e.message);
+            }
         }
     }
 
