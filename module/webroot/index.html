@@ -1425,6 +1425,7 @@
                 if (!res || !res.success) {
                     if (!alertFixSavePending) {
                         showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                        await loadStatus();
                     }
                     continue;
                 }

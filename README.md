@@ -8,7 +8,7 @@
 [![Platform](https://img.shields.io/badge/Platform-HyperOS%20(CN)-orange.svg)](https://www.mi.com/hyperos)
 [![Android](https://img.shields.io/badge/Android-16%2B-green.svg)](https://developer.android.com)
 [![Root Support](https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-blue.svg)](https://kernelsu.org)
-[![Overhead](https://img.shields.io/badge/Overhead-0%25%20CPU%20%7C%200%20Daemons-brightgreen.svg)]()
+![Overhead](https://img.shields.io/badge/Overhead-0%25%20CPU%20%7C%200%20Daemons-brightgreen.svg)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A **zero-PC, dynamic on-device surgical bytecode patcher** and **KernelSU WebUI controller** for Xiaomi HyperOS China ROMs that permanently resolves Google Play Services (GMS) and Firebase Cloud Messaging (FCM) push notification delays, missed messages, and app wake-up issues.
@@ -17,7 +17,7 @@ A **zero-PC, dynamic on-device surgical bytecode patcher** and **KernelSU WebUI 
 
 ## ⚡ Features & Highlights
 
-- 🚀 **Zero-PC On-Device Patching**: Patches live `services.jar` and `miui-services.jar` on the fly via Dalvik/ART runtime—100% compatible with any HyperOS version and OTA updates.
+- 🚀 **Zero-PC On-Device Patching**: Patches live `services.jar` and `miui-services.jar` on the fly via Dalvik/ART runtime—compatible with HyperOS 3+ / Android 16+ and OTA updates.
 - 🛡️ **Safe & Bootloop-Proof**: Transactional all-or-nothing patch engine with guaranteed 4-byte DEX alignment.
 - 🔋 **Zero Battery Drain & 0 Daemons**: Retains kernel cgroup freezer (`greezer`) for inactive apps; no background daemons running.
 - 🎛️ **KernelSU / APatch / Magisk WebUI**:

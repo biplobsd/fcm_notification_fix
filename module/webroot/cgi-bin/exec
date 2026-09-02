@@ -331,7 +331,8 @@ sync_notification_channels() {
           close(stats);
         }
       }
-    ' | while IFS=$'\t' read -r pkg ch; do
+    ' | {
+    while IFS=$'\t' read -r pkg ch; do
       if [ "$ch" = "_app_" ]; then
         (
           nice -n 15 content call --uri content://statusbar.notification --method setSound --extra package:s:"$pkg" --extra canSound:b:true 2>/dev/null
@@ -356,6 +357,7 @@ sync_notification_channels() {
       done
     done
     wait
+    }
 
     [ -f "$SYNCED_CACHE_FILE" ] && chmod 0644 "$SYNCED_CACHE_FILE" 2>/dev/null || true
 
