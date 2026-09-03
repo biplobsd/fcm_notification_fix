@@ -9,6 +9,14 @@
       "track_latest": true
     },
     {
+      "codename": "onyx",
+      "device": "Redmi Turbo 4 Pro",
+      "version": "OS3.0.305.0.WOLCNXM.C11",
+      "sdk": 36,
+      "region": "cn",
+      "track_latest": true
+    },
+    {
       "codename": "goku",
       "device": "Xiaomi MIX Fold 4",
       "version": "OS3.0.307.0.WNVCNXM",
