@@ -949,6 +949,17 @@
                     <span class="slider green"></span>
                 </label>
             </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" id="labelAntiMuteUpdate" data-i18n="sound.feat.anti_mute_update">Anti-Mute on App Update</div>
+                    <div class="sound-hint" data-i18n="sound.feat.anti_mute_update.hint">Prevents apps from canceling alerts on rapid background updates</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchAntiMuteUpdate" aria-labelledby="labelAntiMuteUpdate" onchange="toggleAlertFix('anti_mute_update', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
         </div>
 
         <div class="action-row" style="margin-top: 10px;">
@@ -980,7 +991,7 @@
                     <div class="sound-hint" data-i18n="sync.feat.boot.hint">Automatically grant permissions on startup</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchSyncBoot" onchange="updateChannelSyncConfig()">
+                    <input type="checkbox" id="switchSyncBoot" onchange="updateChannelSyncConfig('auto_sync_boot', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -991,7 +1002,7 @@
                     <div class="sound-hint" data-i18n="sync.feat.sound.hint">Allow audible ringtone for target channels</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchSyncSound" onchange="updateChannelSyncConfig()">
+                    <input type="checkbox" id="switchSyncSound" onchange="updateChannelSyncConfig('sync_sound', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -1002,7 +1013,7 @@
                     <div class="sound-hint" data-i18n="sync.feat.vibration.hint">Allow haptic vibration for target channels</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchSyncVib" onchange="updateChannelSyncConfig()">
+                    <input type="checkbox" id="switchSyncVib" onchange="updateChannelSyncConfig('sync_vibration', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -1013,7 +1024,7 @@
                     <div class="sound-hint" data-i18n="sync.feat.lockscreen.hint">Show notifications & wake screen on keyguard</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchSyncLock" onchange="updateChannelSyncConfig()">
+                    <input type="checkbox" id="switchSyncLock" onchange="updateChannelSyncConfig('sync_lockscreen', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -1024,7 +1035,7 @@
                     <div class="sound-hint" data-i18n="sync.feat.float.hint">Display pop-up banners over running apps</div>
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchSyncFloat" onchange="updateChannelSyncConfig()">
+                    <input type="checkbox" id="switchSyncFloat" onchange="updateChannelSyncConfig('sync_float', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -1324,12 +1335,24 @@
         }
     }
 
+    function showSwitchToast(title, isEnabled) {
+        const statusText = isEnabled ? t('toast.status.enabled') : t('toast.status.disabled');
+        showToast(`${title}: ${statusText}`);
+    }
+
     async function toggleSoundFeature(featureName, isEnabled) {
         try {
             const res = await execAction('set_sound_feature', { feature: featureName, enabled: isEnabled });
             if (res && res.success && res.data) {
                 updateSoundFixUI(res.data.active, res.data.has_backup ?? true, res.data.features);
                 saveStateCache();
+                const soundTitles = {
+                    'miui_cooldown': t('sound.feat.miui_cooldown'),
+                    'android15_cooldown': t('sound.feat.android15_cooldown'),
+                    'offbody_mute': t('sound.feat.offbody'),
+                    'in_call': t('sound.feat.incall')
+                };
+                showSwitchToast(soundTitles[featureName] || featureName, isEnabled);
             } else {
                 showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
                 loadStatus();
@@ -1395,7 +1418,8 @@
      * ====================================================================== */
     let alertFixConfig = {
         group_alert_fix: true,
-        unthrottle_vib: true
+        unthrottle_vib: true,
+        anti_mute_update: true
     };
     let alertFixSaveInProgress = false;
     let alertFixSavePending = false;
@@ -1406,8 +1430,10 @@
         }
         const swGroup = document.getElementById('switchGroupAlertFix');
         const swVib = document.getElementById('switchUnthrottleVib');
+        const swAntiMute = document.getElementById('switchAntiMuteUpdate');
         if (swGroup) swGroup.checked = !!alertFixConfig.group_alert_fix;
         if (swVib) swVib.checked = !!alertFixConfig.unthrottle_vib;
+        if (swAntiMute) swAntiMute.checked = !!alertFixConfig.anti_mute_update;
     }
 
     async function toggleAlertFix(feature, isEnabled) {
@@ -1433,6 +1459,12 @@
                 if (!alertFixSavePending) {
                     updateAlertFixUI(res.data || requestedConfig);
                     saveStateCache();
+                    const alertTitles = {
+                        'anti_mute_update': t('sound.feat.anti_mute_update'),
+                        'group_alert_fix': t('sound.feat.group_alert'),
+                        'unthrottle_vib': t('sound.feat.unthrottle_vib')
+                    };
+                    showSwitchToast(alertTitles[feature] || feature, isEnabled);
                 }
             }
         } catch (e) {
@@ -1497,7 +1529,7 @@
         }
     }
 
-    async function updateChannelSyncConfig() {
+    async function updateChannelSyncConfig(changedFeature, isEnabled) {
         channelSyncSavePending = true;
         if (channelSyncSaveInProgress) return;
 
@@ -1531,7 +1563,18 @@
                 if (!channelSyncSavePending) {
                     updateChannelSyncUI(channelSyncConfig);
                     saveStateCache();
-                    showToast(t('sync.toast.saved'));
+                    if (changedFeature) {
+                        const syncTitles = {
+                            'auto_sync_boot': t('sync.feat.boot'),
+                            'sync_sound': t('sync.feat.sound'),
+                            'sync_vibration': t('sync.feat.vibration'),
+                            'sync_lockscreen': t('sync.feat.lockscreen'),
+                            'sync_float': t('sync.feat.float')
+                        };
+                        showSwitchToast(syncTitles[changedFeature] || changedFeature, isEnabled);
+                    } else {
+                        showToast(t('sync.toast.saved'));
+                    }
                 }
             }
         } catch (e) {

@@ -50,12 +50,16 @@ release_sound_lock() {
 read_alert_fix_config() {
     ALERT_GROUP_FIX=true
     ALERT_UNTHROTTLE_VIB=true
+    ALERT_ANTI_MUTE_UPDATE=true
     if [ -f "$CONF_FILE" ]; then
         if grep -qi "^GROUP_ALERT_FIX=0" "$CONF_FILE" || grep -qi "^GROUP_ALERT_FIX=false" "$CONF_FILE"; then
             ALERT_GROUP_FIX=false
         fi
         if grep -qi "^UNTHROTTLE_VIB=0" "$CONF_FILE" || grep -qi "^UNTHROTTLE_VIB=false" "$CONF_FILE" || grep -qi "^UNTHROTTLE_VIBRATION=0" "$CONF_FILE"; then
             ALERT_UNTHROTTLE_VIB=false
+        fi
+        if grep -qi "^ANTI_MUTE_UPDATE=0" "$CONF_FILE" || grep -qi "^ANTI_MUTE_UPDATE=false" "$CONF_FILE"; then
+            ALERT_ANTI_MUTE_UPDATE=false
         fi
     fi
 }
@@ -410,8 +414,8 @@ case "$ACTION" in
         read_channel_sync_config
         read_alert_fix_config
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"unthrottle_vib":%s}}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_UNTHROTTLE_VIB"
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s,"in_call":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"unthrottle_vib":%s,"anti_mute_update":%s}}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$FEAT_INCALL" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_UNTHROTTLE_VIB" "$ALERT_ANTI_MUTE_UPDATE"
         ;;
 
     stopped)
@@ -448,6 +452,7 @@ case "$ACTION" in
             echo "MODE=$NEW_MODE"
             [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" || echo "GROUP_ALERT_FIX=1"
             [ "$ALERT_UNTHROTTLE_VIB" = "false" ] && echo "UNTHROTTLE_VIB=0" || echo "UNTHROTTLE_VIB=1"
+            [ "$ALERT_ANTI_MUTE_UPDATE" = "false" ] && echo "ANTI_MUTE_UPDATE=0" || echo "ANTI_MUTE_UPDATE=1"
             if [ -n "$PKGS" ]; then
                 echo "$PKGS"
             fi
@@ -477,6 +482,7 @@ case "$ACTION" in
         fi
         _SET_GRP=$(echo "$BODY" | grep -o '"group_alert_fix":[a-z]*' | cut -d: -f2)
         _SET_VIB=$(echo "$BODY" | grep -o '"unthrottle_vib":[a-z]*' | cut -d: -f2)
+        _SET_MUTE=$(echo "$BODY" | grep -o '"anti_mute_update":[a-z]*' | cut -d: -f2)
 
         read_alert_fix_config
 
@@ -484,10 +490,12 @@ case "$ACTION" in
         [ "$_SET_GRP" = "false" ] && ALERT_GROUP_FIX=false
         [ "$_SET_VIB" = "true" ] && ALERT_UNTHROTTLE_VIB=true
         [ "$_SET_VIB" = "false" ] && ALERT_UNTHROTTLE_VIB=false
+        [ "$_SET_MUTE" = "true" ] && ALERT_ANTI_MUTE_UPDATE=true
+        [ "$_SET_MUTE" = "false" ] && ALERT_ANTI_MUTE_UPDATE=false
 
         TMP_CONF="$CONF_FILE.tmp.$$"
         if [ -f "$CONF_FILE" ]; then
-            grep -v -i "^GROUP_ALERT_FIX=" "$CONF_FILE" | grep -v -i "^UNTHROTTLE_VIB=" | grep -v -i "^UNTHROTTLE_VIBRATION=" > "$TMP_CONF"
+            grep -v -i "^GROUP_ALERT_FIX=" "$CONF_FILE" | grep -v -i "^UNTHROTTLE_VIB=" | grep -v -i "^UNTHROTTLE_VIBRATION=" | grep -v -i "^ANTI_MUTE_UPDATE=" > "$TMP_CONF"
         else
             echo "# HyperOS FCM Dynamic Wake Filter Configuration" > "$TMP_CONF"
             echo "MODE=ALL" >> "$TMP_CONF"
@@ -495,13 +503,14 @@ case "$ACTION" in
 
         [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" >> "$TMP_CONF" || echo "GROUP_ALERT_FIX=1" >> "$TMP_CONF"
         [ "$ALERT_UNTHROTTLE_VIB" = "false" ] && echo "UNTHROTTLE_VIB=0" >> "$TMP_CONF" || echo "UNTHROTTLE_VIB=1" >> "$TMP_CONF"
+        [ "$ALERT_ANTI_MUTE_UPDATE" = "false" ] && echo "ANTI_MUTE_UPDATE=0" >> "$TMP_CONF" || echo "ANTI_MUTE_UPDATE=1" >> "$TMP_CONF"
 
         chmod 0644 "$TMP_CONF" 2>/dev/null || true
         chown system:system "$TMP_CONF" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
         mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null || true
 
-        printf '{"status":"ok","group_alert_fix":%s,"unthrottle_vib":%s}\n' "$ALERT_GROUP_FIX" "$ALERT_UNTHROTTLE_VIB"
+        printf '{"status":"ok","group_alert_fix":%s,"unthrottle_vib":%s,"anti_mute_update":%s}\n' "$ALERT_GROUP_FIX" "$ALERT_UNTHROTTLE_VIB" "$ALERT_ANTI_MUTE_UPDATE"
         ;;
 
     set_prestart)

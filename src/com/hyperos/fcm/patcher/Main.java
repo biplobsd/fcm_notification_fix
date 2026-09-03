@@ -103,6 +103,9 @@ public class Main {
             (miuiResult.v3_note.isEmpty() ? "" : "  (" + miuiResult.v3_note + ")"));
         System.out.println("  [Vector 4] AutoStart C2DM Permission Bypass:   " + (miuiResult.v4_autostart_bypass ? "PASS ✓" : "FAIL ✗") +
             (miuiResult.v4_note.isEmpty() ? "" : "  (" + miuiResult.v4_note + ")"));
+        if (v1Result.v7_anti_mute_update) {
+            System.out.println("  [Vector 7] Anti-Mute On Update Engine:        PASS ✓  (" + v1Result.v7_note + ")");
+        }
         System.out.println("-------------------------------------------------");
 
         boolean allPassed = v1Result.v1_wake_flag && miuiResult.v2_screenoff_thaw && 

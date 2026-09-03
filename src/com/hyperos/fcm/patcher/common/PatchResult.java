@@ -26,6 +26,9 @@ public class PatchResult {
     public boolean v6_unthrottle_vib = false;
     public String v6_note = "";
 
+    public boolean v7_anti_mute_update = false;
+    public String v7_note = "";
+
     public boolean isAllSuccess() {
         return (v1_wake_flag || (v2_screenoff_thaw && v3_gms_quickfreeze && v4_autostart_bypass)) && success;
     }

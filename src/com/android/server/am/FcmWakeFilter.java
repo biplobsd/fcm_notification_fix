@@ -37,6 +37,7 @@ public class FcmWakeFilter {
     private static volatile Set<String> sPackageFilterSet = Collections.emptySet();
     private static volatile boolean sGroupAlertFixEnabled = true;
     private static volatile boolean sUnthrottleVibEnabled = true;
+    private static volatile boolean sAntiMuteUpdateEnabled = true;
     private static volatile long sLastCheckTimestamp = 0;
     private static final long CONFIG_CHECK_INTERVAL_MS = 5000;
 
@@ -61,6 +62,30 @@ public class FcmWakeFilter {
     public static boolean isVibThrottleBypassEnabled() {
         checkConfig();
         return sUnthrottleVibEnabled;
+    }
+
+    /**
+     * Hooked in NotificationAttentionHelper.buzzBeepBlinkLocked(...) for sound & vibrate cancellation.
+     * Prevents rapid app updates (e.g. Telegram/WhatsApp syncing, avatar loading, silent channel switches)
+     * from aborting in-flight ringtones and vibrations during the 500ms audio focus acquisition delay.
+     *
+     * If sAntiMuteUpdateEnabled is true, returns false (skips clearSoundLocked() and clearVibrateLocked()).
+     * If sAntiMuteUpdateEnabled is false, returns stockCancel (preserves 100% stock Android behavior).
+     */
+    public static boolean shouldCancelEffectsOnUpdate(boolean stockCancel) {
+        checkConfig();
+        if (!stockCancel) {
+            return false;
+        }
+        if (sAntiMuteUpdateEnabled) {
+            return false; // Prevent update from killing in-flight alert
+        }
+        return true; // Preserve stock cancellation
+    }
+
+    public static boolean isAntiMuteUpdateEnabled() {
+        checkConfig();
+        return sAntiMuteUpdateEnabled;
     }
 
     /**
@@ -278,6 +303,7 @@ public class FcmWakeFilter {
             int mode = MODE_ALL;
             boolean groupAlertFix = true;
             boolean unthrottleVib = true;
+            boolean antiMuteUpdate = true;
 
             BufferedReader reader = null;
             try {
@@ -302,6 +328,10 @@ public class FcmWakeFilter {
                         unthrottleVib = false;
                     } else if (line.equalsIgnoreCase("UNTHROTTLE_VIB=1") || line.equalsIgnoreCase("UNTHROTTLE_VIB=TRUE") || line.equalsIgnoreCase("UNTHROTTLE_VIBRATION=1")) {
                         unthrottleVib = true;
+                    } else if (line.equalsIgnoreCase("ANTI_MUTE_UPDATE=0") || line.equalsIgnoreCase("ANTI_MUTE_UPDATE=FALSE")) {
+                        antiMuteUpdate = false;
+                    } else if (line.equalsIgnoreCase("ANTI_MUTE_UPDATE=1") || line.equalsIgnoreCase("ANTI_MUTE_UPDATE=TRUE")) {
+                        antiMuteUpdate = true;
                     } else if (!line.contains("=")) {
                         newFilterSet.add(line);
                         newFilterSet.add(line.toLowerCase());
@@ -320,6 +350,7 @@ public class FcmWakeFilter {
             sCurrentMode = mode;
             sGroupAlertFixEnabled = groupAlertFix;
             sUnthrottleVibEnabled = unthrottleVib;
+            sAntiMuteUpdateEnabled = antiMuteUpdate;
             sLastModified = modified;
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
@@ -327,6 +358,7 @@ public class FcmWakeFilter {
             sCurrentMode = MODE_ALL;
             sGroupAlertFixEnabled = true;
             sUnthrottleVibEnabled = true;
+            sAntiMuteUpdateEnabled = true;
         }
     }
 }

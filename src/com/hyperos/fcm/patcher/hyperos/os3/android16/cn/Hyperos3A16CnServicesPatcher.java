@@ -190,6 +190,75 @@ public class Hyperos3A16CnServicesPatcher {
                                     System.err.println("    -> [WARNING] suppressAlertingDueToGrouping instruction not found in shouldMuteNotificationLocked");
                                     methods.add(m);
                                 }
+                            } else if (m.getName().equals("buzzBeepBlinkLocked") && m.getImplementation() != null) {
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                List<BuilderInstruction> insns = mut.getInstructions();
+
+                                int soundMoveIdx = -1;
+                                int vibMoveIdx = -1;
+                                boolean afterSoundKey = false;
+                                boolean afterVibKey = false;
+
+                                for (int i = 0; i < insns.size(); i++) {
+                                    BuilderInstruction ins = insns.get(i);
+                                    String str = "";
+                                    if (ins instanceof com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction) {
+                                        str = ((com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction) ins).getReference().toString();
+                                    }
+                                    if (str.contains("mSoundNotificationKey")) {
+                                        afterSoundKey = true;
+                                    } else if (str.contains("mVibrateNotificationKey")) {
+                                        afterVibKey = true;
+                                    }
+
+                                    if (afterSoundKey && !afterVibKey && soundMoveIdx == -1) {
+                                        if (ins instanceof BuilderInstruction22x && ins.getOpcode() == Opcode.MOVE_FROM16) {
+                                            BuilderInstruction22x b22 = (BuilderInstruction22x) ins;
+                                            if (b22.getRegisterA() == 16) {
+                                                soundMoveIdx = i;
+                                            }
+                                        }
+                                    }
+
+                                    if (afterVibKey && vibMoveIdx == -1) {
+                                        if (ins instanceof BuilderInstruction22x && ins.getOpcode() == Opcode.MOVE_FROM16) {
+                                            BuilderInstruction22x b22 = (BuilderInstruction22x) ins;
+                                            if (b22.getRegisterA() == 17) {
+                                                vibMoveIdx = i;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (soundMoveIdx != -1 && vibMoveIdx != -1) {
+                                    System.out.println("    -> Injecting FcmWakeFilter.shouldCancelEffectsOnUpdate into buzzBeepBlinkLocked (soundIdx=" + soundMoveIdx + ", vibIdx=" + vibMoveIdx + ")");
+                                    ImmutableMethodReference wrapRef = new ImmutableMethodReference(
+                                        "Lcom/android/server/am/FcmWakeFilter;", "shouldCancelEffectsOnUpdate",
+                                        Collections.singletonList("Z"), "Z");
+
+                                    // Inject for vib first (higher index so sound index remains unchanged)
+                                    BuilderInstruction22x vibMove = (BuilderInstruction22x) insns.get(vibMoveIdx);
+                                    int srcRegVib = vibMove.getRegisterB();
+                                    mut.addInstruction(vibMoveIdx, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, srcRegVib, 0, 0, 0, 0, wrapRef));
+                                    mut.addInstruction(vibMoveIdx + 1, new BuilderInstruction11x(Opcode.MOVE_RESULT, srcRegVib));
+
+                                    // Inject for sound
+                                    BuilderInstruction22x soundMove = (BuilderInstruction22x) insns.get(soundMoveIdx);
+                                    int srcRegSound = soundMove.getRegisterB();
+                                    mut.addInstruction(soundMoveIdx, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, srcRegSound, 0, 0, 0, 0, wrapRef));
+                                    mut.addInstruction(soundMoveIdx + 1, new BuilderInstruction11x(Opcode.MOVE_RESULT, srcRegSound));
+
+                                    methods.add(new ImmutableMethod(
+                                        m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                        m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                                    result.v7_anti_mute_update = true;
+                                    result.v7_note = "NotificationAttentionHelper.buzzBeepBlinkLocked (Anti-Mute On Update)";
+                                    dexModified = true;
+                                    System.out.println("    -> [PASS] Hooked buzzBeepBlinkLocked sound & vibration abort race with FcmWakeFilter");
+                                } else {
+                                    System.err.println("    -> [WARNING] sound/vib move instructions not found in buzzBeepBlinkLocked");
+                                    methods.add(m);
+                                }
                             } else {
                                 methods.add(m);
                             }
