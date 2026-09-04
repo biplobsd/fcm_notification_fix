@@ -72,9 +72,9 @@ jobs:
           path: .deps/bin
           key: patcher-tools-${{ runner.os }}-${{ hashFiles('tests/fetch_rom_jars.py') }}
 
-      - name: Cache Single ROM Fixture
+      - name: Restore Single ROM Fixture Cache
         id: cache-fixture
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: tests/fixtures/${{ matrix.codename }}
           key: rom-fixture-${{ matrix.codename }}-${{ matrix.version }}
@@ -84,6 +84,13 @@ jobs:
         run: |
           mkdir -p tests/fixtures
           python3 tests/fetch_rom_jars.py --fetch ${{ matrix.codename }}
+
+      - name: Save Single ROM Fixture Cache (Pre-Test)
+        if: steps.cache-fixture.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tests/fixtures/${{ matrix.codename }}
+          key: rom-fixture-${{ matrix.codename }}-${{ matrix.version }}
 
       - name: Run Integration Test for Fixture
         run: |
