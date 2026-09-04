@@ -47,6 +47,9 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                 System.out.println("  -> [FOUND] Located FcmWakeFilter ClassDef for miui-services.jar injection");
             }
 
+            String carrierEntryName = DexUtils.selectCarrierDexEntry(container);
+            System.out.println("  -> [DEX-GUARD] Designated carrier entry for FcmWakeFilter: " + carrierEntryName);
+
             Map<String, byte[]> replacementDexMap = new HashMap<>();
 
             for (String entryName : entryNames) {
@@ -128,11 +131,6 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
-                        if (fcmFilterClassDef != null) {
-                            classesList.add(fcmFilterClassDef);
-                            System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside GreezeManagerService into " + entryName);
-                        }
-
                     // Vector 4: BroadcastQueueModernStubImpl.checkApplicationAutoStart -> IS_INTERNATIONAL_BUILD = 1
                     } else if (type.equals("Lcom/android/server/am/BroadcastQueueModernStubImpl;")) {
                         System.out.println("  -> Located BroadcastQueueModernStubImpl in " + entryName);
@@ -187,6 +185,13 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                     }
                 }
 
+                // Inject FcmWakeFilter into designated carrier entry to prevent 64K method table overflow
+                if (entryName.equals(carrierEntryName) && fcmFilterClassDef != null) {
+                    classesList.add(fcmFilterClassDef);
+                    dexModified = true;
+                    System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into carrier entry " + entryName);
+                }
+
                 if (dexModified) {
                     final Set<ClassDef> classesSet = new LinkedHashSet<>(classesList);
                     DexFile outDexFile = new DexFile() {
@@ -202,6 +207,23 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                     replacementDexMap.put(entryName, patchedBytes);
                     System.out.println("  -> [PASS] Patched and buffered " + entryName + " (" + patchedBytes.length + " bytes)");
                 }
+            }
+
+            // If carrierEntryName was a newly allocated DEX entry (not present in original JAR), synthesize it
+            if (fcmFilterClassDef != null && !replacementDexMap.containsKey(carrierEntryName)) {
+                final Set<ClassDef> classesSet = Collections.singleton(fcmFilterClassDef);
+                DexFile outDexFile = new DexFile() {
+                    @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
+                    @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
+                };
+
+                File tempDex = new File(workDir, "patched_hyperos3_a16_cn_miui_" + carrierEntryName);
+                DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
+                byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
+                tempDex.delete();
+
+                replacementDexMap.put(carrierEntryName, patchedBytes);
+                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into newly allocated carrier entry " + carrierEntryName);
             }
 
             if (!result.v2_screenoff_thaw) {

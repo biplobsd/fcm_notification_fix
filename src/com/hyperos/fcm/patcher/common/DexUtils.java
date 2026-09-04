@@ -8,6 +8,7 @@ import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
 
 import java.io.File;
+import java.util.List;
 
 /**
  * Common DEX scanning and inspection utilities.
@@ -84,4 +85,68 @@ public class DexUtils {
         }
         return count;
     }
+
+    public static final int MAX_SAFE_METHOD_COUNT = 65000;
+
+    /**
+     * Selects the most optimal carrier DEX entry for injecting auxiliary classes (e.g. FcmWakeFilter).
+     * Prevents 16-bit method/type reference table overflow (64K limit).
+     *
+     * 1. Evaluates all existing DEX entries and identifies the one with the maximum headroom (lowest method count).
+     * 2. If the best entry has <= MAX_SAFE_METHOD_COUNT (65,000), it is selected as the carrier.
+     * 3. If all existing DEX entries are near capacity (> 65,000 methods), allocates a new DEX entry name
+     *    (e.g., classes2.dex or classes3.dex).
+     */
+    public static String selectCarrierDexEntry(MultiDexContainer<? extends DexBackedDexFile> container) {
+        List<String> entryNames;
+        try {
+            entryNames = container.getDexEntryNames();
+        } catch (Exception e) {
+            return "classes.dex";
+        }
+        if (entryNames == null || entryNames.isEmpty()) {
+            return "classes.dex";
+        }
+
+        String bestEntry = null;
+        int minMethods = Integer.MAX_VALUE;
+        int maxDexIndex = 1;
+
+        for (String entryName : entryNames) {
+            if (!entryName.endsWith(".dex")) continue;
+
+            int dexIndex = 1;
+            if (entryName.equals("classes.dex")) {
+                dexIndex = 1;
+            } else if (entryName.startsWith("classes") && entryName.endsWith(".dex")) {
+                try {
+                    String numStr = entryName.substring(7, entryName.length() - 4);
+                    dexIndex = Integer.parseInt(numStr);
+                } catch (NumberFormatException ignored) {}
+            }
+            if (dexIndex > maxDexIndex) {
+                maxDexIndex = dexIndex;
+            }
+
+            try {
+                MultiDexContainer.DexEntry<? extends DexBackedDexFile> entry = container.getEntry(entryName);
+                if (entry != null) {
+                    DexBackedDexFile df = entry.getDexFile();
+                    int methodCount = df.getMethodSection().size();
+                    if (methodCount < minMethods) {
+                        minMethods = methodCount;
+                        bestEntry = entryName;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (bestEntry != null && minMethods <= MAX_SAFE_METHOD_COUNT) {
+            return bestEntry;
+        }
+
+        int nextIndex = maxDexIndex + 1;
+        return nextIndex == 1 ? "classes.dex" : ("classes" + nextIndex + ".dex");
+    }
 }
+

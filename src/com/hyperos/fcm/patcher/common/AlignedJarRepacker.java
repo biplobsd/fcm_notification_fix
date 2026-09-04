@@ -3,7 +3,9 @@ package com.hyperos.fcm.patcher.common;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -53,6 +55,7 @@ public class AlignedJarRepacker {
 
             Enumeration<? extends ZipEntry> entries = srcZip.entries();
             byte[] buffer = new byte[65536];
+            Set<String> writtenReplacements = new HashSet<>();
 
             while (entries.hasMoreElements()) {
                 ZipEntry srcEntry = entries.nextElement();
@@ -62,6 +65,7 @@ public class AlignedJarRepacker {
                 if (dexBytes != null) {
                     // 1. Modified DEX replacement
                     writeAlignedStoredEntry(zos, cos, entryName, dexBytes);
+                    writtenReplacements.add(entryName);
                 } else if (entryName.endsWith(".dex")) {
                     // 2. Unmodified secondary DEX - read original bytes and write as aligned STORED
                     byte[] originalDexBytes;
@@ -93,6 +97,13 @@ public class AlignedJarRepacker {
                         }
                     }
                     zos.closeEntry();
+                }
+            }
+
+            // 4. Any newly created DEX entries (e.g. classes3.dex) not present in sourceJar
+            for (Map.Entry<String, byte[]> extraEntry : replacementDexMap.entrySet()) {
+                if (!writtenReplacements.contains(extraEntry.getKey())) {
+                    writeAlignedStoredEntry(zos, cos, extraEntry.getKey(), extraEntry.getValue());
                 }
             }
         }

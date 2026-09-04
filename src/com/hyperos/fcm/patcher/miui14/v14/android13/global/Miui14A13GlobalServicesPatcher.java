@@ -50,11 +50,7 @@ public class Miui14A13GlobalServicesPatcher {
                 System.out.println("  -> [WARNING] FcmWakeFilter ClassDef not found in patcher engine");
             }
 
-            // Carrier selection: In MIUI 14, classes.dex has only ~800 refs free, while classes2.dex has >8,000 refs free.
-            String carrierEntryName = "classes2.dex";
-            if (!entryNames.contains(carrierEntryName)) {
-                carrierEntryName = entryNames.isEmpty() ? "classes.dex" : entryNames.get(entryNames.size() - 1);
-            }
+            String carrierEntryName = DexUtils.selectCarrierDexEntry(container);
             System.out.println("  -> [DEX-GUARD] Designated carrier entry for FcmWakeFilter: " + carrierEntryName);
 
             Map<String, byte[]> replacementDexMap = new HashMap<>();
@@ -171,6 +167,23 @@ public class Miui14A13GlobalServicesPatcher {
                     replacementDexMap.put(entryName, patchedBytes);
                     System.out.println("  -> [PASS] Patched and buffered " + entryName + " (" + patchedBytes.length + " bytes)");
                 }
+            }
+
+            // If carrierEntryName was a newly allocated DEX entry (not present in original JAR), synthesize it
+            if (fcmFilterClassDef != null && !replacementDexMap.containsKey(carrierEntryName)) {
+                final Set<ClassDef> classesSet = Collections.singleton(fcmFilterClassDef);
+                DexFile outDexFile = new DexFile() {
+                    @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
+                    @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
+                };
+
+                File tempDex = new File(workDir, "patched_miui14_a13_global_services_" + carrierEntryName);
+                DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
+                byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
+                tempDex.delete();
+
+                replacementDexMap.put(carrierEntryName, patchedBytes);
+                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into newly allocated carrier entry " + carrierEntryName);
             }
 
             if (!targetFound || hookedMethodsCount == 0 || replacementDexMap.isEmpty()) {

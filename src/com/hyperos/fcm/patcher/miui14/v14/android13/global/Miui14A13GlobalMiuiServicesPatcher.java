@@ -50,6 +50,9 @@ public class Miui14A13GlobalMiuiServicesPatcher {
                 System.out.println("  -> [FOUND] Located FcmWakeFilter ClassDef for miui-services.jar injection");
             }
 
+            String carrierEntryName = DexUtils.selectCarrierDexEntry(container);
+            System.out.println("  -> [DEX-GUARD] Designated carrier entry for FcmWakeFilter: " + carrierEntryName);
+
             Map<String, byte[]> replacementDexMap = new HashMap<>();
             boolean greezeFound = false;
             boolean bqFound = false;
@@ -235,11 +238,11 @@ public class Miui14A13GlobalMiuiServicesPatcher {
                     }
                 }
 
-                // Inject FcmWakeFilter once per modified DEX container
-                if (dexModified && !filterInjectedThisEntry && fcmFilterClassDef != null) {
+                // Inject FcmWakeFilter into designated carrier entry to prevent 64K method table overflow
+                if (entryName.equals(carrierEntryName) && fcmFilterClassDef != null) {
                     classesList.add(fcmFilterClassDef);
-                    filterInjectedThisEntry = true;
-                    System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into " + entryName);
+                    dexModified = true;
+                    System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into carrier entry " + entryName);
                 }
 
                 if (dexModified) {
@@ -257,6 +260,23 @@ public class Miui14A13GlobalMiuiServicesPatcher {
                     replacementDexMap.put(entryName, patchedBytes);
                     System.out.println("  -> [PASS] Patched and buffered " + entryName + " (" + patchedBytes.length + " bytes)");
                 }
+            }
+
+            // If carrierEntryName was a newly allocated DEX entry (not present in original JAR), synthesize it
+            if (fcmFilterClassDef != null && !replacementDexMap.containsKey(carrierEntryName)) {
+                final Set<ClassDef> classesSet = Collections.singleton(fcmFilterClassDef);
+                DexFile outDexFile = new DexFile() {
+                    @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
+                    @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
+                };
+
+                File tempDex = new File(workDir, "patched_miui14_a13_global_miui_" + carrierEntryName);
+                DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
+                byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
+                tempDex.delete();
+
+                replacementDexMap.put(carrierEntryName, patchedBytes);
+                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into newly allocated carrier entry " + carrierEntryName);
             }
 
             if (!greezeFound || !result.v2_screenoff_thaw) {

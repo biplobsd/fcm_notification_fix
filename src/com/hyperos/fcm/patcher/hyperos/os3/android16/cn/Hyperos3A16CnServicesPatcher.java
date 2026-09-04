@@ -47,6 +47,9 @@ public class Hyperos3A16CnServicesPatcher {
                 System.out.println("  -> [WARNING] FcmWakeFilter ClassDef not found in patcher engine");
             }
 
+            String carrierEntryName = DexUtils.selectCarrierDexEntry(container);
+            System.out.println("  -> [DEX-GUARD] Designated carrier entry for FcmWakeFilter: " + carrierEntryName);
+
             Map<String, byte[]> replacementDexMap = new HashMap<>();
             boolean targetFound = false;
 
@@ -130,15 +133,16 @@ public class Hyperos3A16CnServicesPatcher {
                         classesList.add(new ImmutableClassDef(
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
-
-                        // Inject FcmWakeFilter into the same DEX entry if found
-                        if (fcmFilterClassDef != null) {
-                            classesList.add(fcmFilterClassDef);
-                            System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside BroadcastController into " + entryName);
-                        }
                     } else {
                         classesList.add(cd);
                     }
+                }
+
+                // Inject FcmWakeFilter into designated carrier entry to prevent 64K method table overflow
+                if (entryName.equals(carrierEntryName) && fcmFilterClassDef != null) {
+                    classesList.add(fcmFilterClassDef);
+                    dexModified = true;
+                    System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into carrier entry " + entryName);
                 }
 
                 if (dexModified) {
@@ -156,6 +160,23 @@ public class Hyperos3A16CnServicesPatcher {
                     replacementDexMap.put(entryName, patchedBytes);
                     System.out.println("  -> [PASS] Patched and buffered " + entryName + " (" + patchedBytes.length + " bytes)");
                 }
+            }
+
+            // If carrierEntryName was a newly allocated DEX entry (not present in original JAR), synthesize it
+            if (fcmFilterClassDef != null && !replacementDexMap.containsKey(carrierEntryName)) {
+                final Set<ClassDef> classesSet = Collections.singleton(fcmFilterClassDef);
+                DexFile outDexFile = new DexFile() {
+                    @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
+                    @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
+                };
+
+                File tempDex = new File(workDir, "patched_hyperos3_a16_cn_" + carrierEntryName);
+                DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
+                byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
+                tempDex.delete();
+
+                replacementDexMap.put(carrierEntryName, patchedBytes);
+                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into newly allocated carrier entry " + carrierEntryName);
             }
 
             if (!targetFound || replacementDexMap.isEmpty()) {
