@@ -1286,15 +1286,18 @@
 
         const countActive = (soundFeatures.miui_cooldown ? 1 : 0) +
                             (soundFeatures.android15_cooldown ? 1 : 0) +
-                            (soundFeatures.offbody_mute ? 1 : 0);
+                            (soundFeatures.offbody_mute ? 1 : 0) +
+                            (alertFixConfig.group_alert_fix ? 1 : 0) +
+                            (alertFixConfig.anti_mute_update ? 1 : 0) +
+                            (alertFixConfig.unthrottle_alert ? 1 : 0);
 
         if (badge) {
-            if (countActive === 3) {
+            if (countActive === 6) {
                 badge.className = 'status-pill status-running';
                 badge.textContent = t('sound.badge.active');
             } else if (countActive > 0) {
                 badge.className = 'status-pill status-running';
-                badge.textContent = t('sound.badge.custom') + ` (${countActive}/3)`;
+                badge.textContent = t('sound.badge.custom') + ` (${countActive}/6)`;
             } else {
                 badge.className = 'status-pill status-stopped';
                 badge.textContent = t('sound.badge.stock');
@@ -1302,7 +1305,7 @@
         }
 
         if (btnApply) {
-            btnApply.style.opacity = (countActive === 3) ? '0.75' : '1';
+            btnApply.style.opacity = (countActive === 6) ? '0.75' : '1';
         }
         if (btnRestore) {
             btnRestore.style.display = (countActive > 0 || soundFixHasBackup) ? 'inline-flex' : 'none';
@@ -1314,6 +1317,9 @@
             const res = await execAction('get_sound_fix_status');
             if (res && res.success && res.data) {
                 updateSoundFixUI(res.data.active, res.data.has_backup, res.data.features);
+                if (res.data.alert_fix) {
+                    updateAlertFixUI(res.data.alert_fix);
+                }
                 saveStateCache();
             }
         } catch (e) {
@@ -1356,7 +1362,16 @@
             if (res && res.success) {
                 showToast(t('sound.toast.applied'));
                 if (res.data) {
-                    updateSoundFixUI(res.data.active, true, res.data.features);
+                    updateSoundFixUI(res.data.active, true, res.data.features || {
+                        miui_cooldown: true,
+                        android15_cooldown: true,
+                        offbody_mute: true
+                    });
+                    updateAlertFixUI(res.data.alert_fix || {
+                        group_alert_fix: true,
+                        anti_mute_update: true,
+                        unthrottle_alert: true
+                    });
                     saveStateCache();
                 } else {
                     loadStatus();
@@ -1381,7 +1396,16 @@
             if (res && res.success) {
                 showToast(t('sound.toast.restored'));
                 if (res.data) {
-                    updateSoundFixUI(res.data.active, res.data.has_backup ?? false, res.data.features);
+                    updateSoundFixUI(res.data.active, res.data.has_backup ?? false, res.data.features || {
+                        miui_cooldown: false,
+                        android15_cooldown: false,
+                        offbody_mute: false
+                    });
+                    updateAlertFixUI(res.data.alert_fix || {
+                        group_alert_fix: true,
+                        anti_mute_update: true,
+                        unthrottle_alert: false
+                    });
                     saveStateCache();
                 } else {
                     loadStatus();
@@ -1419,6 +1443,7 @@
         if (swGroup) swGroup.checked = !!alertFixConfig.group_alert_fix;
         if (swAntiMute) swAntiMute.checked = !!alertFixConfig.anti_mute_update;
         if (swUnthrottleAlert) swUnthrottleAlert.checked = !!alertFixConfig.unthrottle_alert;
+        updateSoundFixUI();
     }
 
     async function toggleAlertFix(feature, isEnabled) {

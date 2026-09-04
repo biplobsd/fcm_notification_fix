@@ -65,6 +65,25 @@ read_alert_fix_config() {
     fi
 }
 
+write_alert_fix_config() {
+    TMP_CONF="$CONF_FILE.tmp.$$"
+    if [ -f "$CONF_FILE" ]; then
+        grep -v -i "^GROUP_ALERT_FIX=" "$CONF_FILE" | grep -v -i "^ANTI_MUTE_UPDATE=" | grep -v -i "^PROMOTE_HIGH_PRIORITY=" | grep -v -i "^PROMOTE_PRIORITY=" | grep -v -i "^UNTHROTTLE_ALERT=" > "$TMP_CONF"
+    else
+        echo "# HyperOS FCM Dynamic Wake Filter Configuration" > "$TMP_CONF"
+        echo "MODE=ALL" >> "$TMP_CONF"
+    fi
+
+    [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" >> "$TMP_CONF" || echo "GROUP_ALERT_FIX=1" >> "$TMP_CONF"
+    [ "$ALERT_ANTI_MUTE_UPDATE" = "false" ] && echo "ANTI_MUTE_UPDATE=0" >> "$TMP_CONF" || echo "ANTI_MUTE_UPDATE=1" >> "$TMP_CONF"
+    [ "$ALERT_UNTHROTTLE_ALERT" = "true" ] && echo "UNTHROTTLE_ALERT=1" >> "$TMP_CONF" || echo "UNTHROTTLE_ALERT=0" >> "$TMP_CONF"
+
+    chmod 0644 "$TMP_CONF" 2>/dev/null || true
+    chown system:system "$TMP_CONF" 2>/dev/null || true
+    chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
+    mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null || return 1
+}
+
 read_sound_settings() {
     _SYS=$(settings list system 2>/dev/null)
     _GLOB=$(settings list global 2>/dev/null)
@@ -488,22 +507,7 @@ case "$ACTION" in
         [ "$_SET_UALT" = "true" ]  && ALERT_UNTHROTTLE_ALERT=true
         [ "$_SET_UALT" = "false" ] && ALERT_UNTHROTTLE_ALERT=false
 
-        TMP_CONF="$CONF_FILE.tmp.$$"
-        if [ -f "$CONF_FILE" ]; then
-            grep -v -i "^GROUP_ALERT_FIX=" "$CONF_FILE" | grep -v -i "^ANTI_MUTE_UPDATE=" | grep -v -i "^PROMOTE_HIGH_PRIORITY=" | grep -v -i "^PROMOTE_PRIORITY=" | grep -v -i "^UNTHROTTLE_ALERT=" > "$TMP_CONF"
-        else
-            echo "# HyperOS FCM Dynamic Wake Filter Configuration" > "$TMP_CONF"
-            echo "MODE=ALL" >> "$TMP_CONF"
-        fi
-
-        [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" >> "$TMP_CONF" || echo "GROUP_ALERT_FIX=1" >> "$TMP_CONF"
-        [ "$ALERT_ANTI_MUTE_UPDATE" = "false" ] && echo "ANTI_MUTE_UPDATE=0" >> "$TMP_CONF" || echo "ANTI_MUTE_UPDATE=1" >> "$TMP_CONF"
-        [ "$ALERT_UNTHROTTLE_ALERT" = "true" ] && echo "UNTHROTTLE_ALERT=1" >> "$TMP_CONF" || echo "UNTHROTTLE_ALERT=0" >> "$TMP_CONF"
-
-        chmod 0644 "$TMP_CONF" 2>/dev/null || true
-        chown system:system "$TMP_CONF" 2>/dev/null || true
-        chcon u:object_r:system_data_file:s0 "$TMP_CONF" 2>/dev/null || true
-        mv -f "$TMP_CONF" "$CONF_FILE" 2>/dev/null || true
+        write_alert_fix_config || true
 
         printf '{"status":"ok","group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s}\n' "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT"
         ;;
@@ -594,9 +598,10 @@ case "$ACTION" in
 
     sound_status|get_sound_fix_status)
         compute_sound_features
+        read_alert_fix_config
 
-        printf '{"status":"ok","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"settings":{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s"}}\n' \
-            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY"
+        printf '{"status":"ok","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s},"settings":{"rnm_mute":"%s","rnm_seq_time":"%s","rnm_seq_num":"%s","cooldown_en":"%s","cooldown_all":"%s","cooldown_vib":"%s","mute_off_body":"%s"}}\n' \
+            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT" "$V_RNM_MUTE" "$V_RNM_SEQ_TIME" "$V_RNM_SEQ_NUM" "$V_NOTIF_COOL_EN" "$V_NOTIF_COOL_ALL" "$V_NOTIF_COOL_VIB" "$V_MUTE_OFF_BODY"
         ;;
 
     set_sound_feature)
@@ -697,17 +702,22 @@ case "$ACTION" in
         put_setting global obtain_mute_when_off_body 0 || ERR=1
         put_setting system obtain_mute_when_off_body 0 || ERR=1
 
+        ALERT_GROUP_FIX=true
+        ALERT_ANTI_MUTE_UPDATE=true
+        ALERT_UNTHROTTLE_ALERT=true
+        write_alert_fix_config || ERR=1
+
         sync_sound_state
         ( sync_notification_channels ) >/dev/null 2>&1 &
 
         if [ "$ERR" -ne 0 ]; then
-            printf '{"status":"error","message":"Failed to apply all sound anti-mute settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s}}\n' \
-                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY"
+            printf '{"status":"error","message":"Failed to apply all sound anti-mute settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s}}\n' \
+                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT"
             exit 1
         fi
 
-        printf '{"status":"ok","message":"Sound anti-mute applied successfully","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s}}\n' \
-            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY"
+        printf '{"status":"ok","message":"Sound anti-mute applied successfully","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s}}\n' \
+            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT"
         ;;
 
     boot_sync)
@@ -788,16 +798,21 @@ case "$ACTION" in
             restore_setting system obtain_mute_when_off_body "" || ERR=1
         fi
 
+        ALERT_GROUP_FIX=true
+        ALERT_ANTI_MUTE_UPDATE=true
+        ALERT_UNTHROTTLE_ALERT=false
+        write_alert_fix_config || ERR=1
+
         sync_sound_state
 
         if [ "$ERR" -ne 0 ]; then
-            printf '{"status":"error","message":"Failed to restore some stock sound settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s}}\n' \
-                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY"
+            printf '{"status":"error","message":"Failed to restore some stock sound settings","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s}}\n' \
+                "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT"
             exit 1
         fi
 
-        printf '{"status":"ok","message":"Stock sound settings restored successfully","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s}}\n' \
-            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY"
+        printf '{"status":"ok","message":"Stock sound settings restored successfully","active":%s,"has_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s}}\n' \
+            "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT"
         ;;
 
     *)
