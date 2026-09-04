@@ -149,8 +149,7 @@ echo "  -> Created: $FINAL_ZIP ($ZIP_SIZE)"
 
 # 7. Generate SHA256 Checksum
 if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$OUT_DIR" && sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256")
-    echo "  -> SHA256: $(cat "$FINAL_ZIP.sha256" | awk '{print $1}')"
+    echo "  -> SHA256: $(sha256sum "$FINAL_ZIP" | awk '{print $1}')"
 fi
 
 echo "================================================="

@@ -157,58 +157,16 @@ if [ -n "$GMS_UID" ]; then
 fi
 
 # ==============================================================================
-# 3. Auto-Grant Lockscreen Visibility to New App Notification Channels
+# 3. Notification Channel Permission Synchronization
 # ==============================================================================
 # In HyperOS China ROM, unconfigured 3rd-party app channels default to "Don't show"
-# on keyguard due to CN whitelist fallback. We automatically grant lockscreen
-# visibility to newly registered channels while strictly preserving user customizations:
-# if an app/channel already has an entry (whether true or false), it is untouched.
+# on keyguard and have sound/vibration silenced due to CN whitelist fallback.
+# We delegate startup synchronization directly to the backend exec handler.
 sync_notification_channels() {
-  XML="/data/user_de/0/com.android.systemui/shared_prefs/app_notification.xml"
-  # Keep stock SELinux context so platform_app can commit/rename SharedPreferences without AVC denial
-
-  dumpsys notification --noredact 2>/dev/null | awk -v xml="$XML" '
-    BEGIN {
-      if (xml != "") {
-        while ((getline line < xml) > 0) {
-          if (match(line, /name="([^"]+)"/)) {
-            n = substr(line, RSTART+6, RLENGTH-7);
-            existing[n] = 1;
-          }
-        }
-        close(xml);
-      }
-    }
-    /^ *AppSettings: / {
-      sub(/^ *AppSettings: /, "");
-      split($0, a, " ");
-      pkg = a[1];
-      pkg_key = pkg "_keyguard";
-      if (pkg != "" && !(pkg_key in existing)) {
-        print pkg "\t";
-        existing[pkg_key] = 1;
-      }
-    }
-    /^ *NotificationChannel\{mId=/ {
-      match($0, /mId=([^,]+)/);
-      id = substr($0, RSTART+4, RLENGTH-4);
-      gsub(/\047/, "", id);
-      if (pkg != "" && id != "") {
-        ch_key = pkg "_" id "_keyguard";
-        if (!(ch_key in existing)) {
-          print pkg "\t" id;
-          existing[ch_key] = 1;
-        }
-      }
-    }
-  ' | while IFS=$'\t' read -r pkg ch; do
-    if [ -z "$ch" ]; then
-      content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
-    else
-      # Backslash-escape colons in channel ID to satisfy content CLI key:type:val parser
-      content call --uri content://statusbar.notification --method setShowOnKeyguard --extra package:s:"$pkg" --extra "channel_id:s:${ch//:/\\:}" --extra canShowOnKeyguard:b:true >/dev/null 2>&1
+    sleep 5
+    if [ -f "$MODDIR/webroot/cgi-bin/exec" ]; then
+        sh "$MODDIR/webroot/cgi-bin/exec" boot_sync >/dev/null 2>&1
     fi
-  done
 }
 
 # ==============================================================================
@@ -230,3 +188,6 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 
 # Run sync asynchronously on boot completion
 sync_notification_channels &
+
+
+

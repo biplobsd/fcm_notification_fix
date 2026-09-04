@@ -460,8 +460,56 @@
             background-color: var(--accent-rose);
         }
 
+        input:checked + .slider.green {
+            background-color: var(--accent-green);
+        }
+
         input:checked + .slider:before {
             transform: translateX(16px);
+        }
+
+        /* Sound Anti-Mute Row Styles */
+        .sound-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 6px 0 8px 0;
+        }
+
+        .sound-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 8px 10px;
+            transition: border-color 0.15s ease, background-color 0.15s ease;
+        }
+
+        .sound-row:hover {
+            border-color: rgba(255, 255, 255, 0.14);
+            background: rgba(0, 0, 0, 0.38);
+        }
+
+        .sound-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding-right: 8px;
+            min-width: 0;
+        }
+
+        .sound-name {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .sound-hint {
+            font-size: 0.67rem;
+            color: var(--text-sub);
+            line-height: 1.25;
         }
 
         /* Floating Save Bar */
@@ -818,6 +866,175 @@
             <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.75rem;" data-i18n="list.loading">Loading applications...</div>
         </div>
     </div>
+
+    <!-- Notification Sound Anti-Mute Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+                <span data-i18n="sound.title">Sound Anti-Mute</span>
+            </div>
+            <span id="soundBadge" class="status-pill status-stopped" data-i18n="sound.badge.stock">STOCK DEFAULT</span>
+        </div>
+
+        <div class="mode-desc" data-i18n="sound.desc" style="margin-bottom: 8px;">
+            Prevent HyperOS from auto-silencing or throttling notification sound alerts.
+        </div>
+
+        <div class="sound-list" id="soundList">
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.miui_cooldown">MIUI 10s Burst Mute</div>
+                    <div class="sound-hint" data-i18n="sound.feat.miui_cooldown.hint">Disables 10s muting for successive notification bursts</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchMiuiCooldown" onchange="toggleSoundFeature('miui_cooldown', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.android15_cooldown">Android 15 Cooldown</div>
+                    <div class="sound-hint" data-i18n="sound.feat.android15_cooldown.hint">Disables politeness and avalanche volume reduction</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchA15Cooldown" onchange="toggleSoundFeature('android15_cooldown', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sound.feat.offbody">Off-Body Sensor Mute</div>
+                    <div class="sound-hint" data-i18n="sound.feat.offbody.hint">Prevents muting when phone is on table or in pocket</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchOffbody" onchange="toggleSoundFeature('offbody_mute', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" id="labelGroupAlertFix" data-i18n="sound.feat.group_alert">Grouped Notification Alerts</div>
+                    <div class="sound-hint" data-i18n="sound.feat.group_alert.hint">Bypasses AOSP group muting so email/thread notifications always sound & vibrate</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchGroupAlertFix" aria-labelledby="labelGroupAlertFix" onchange="toggleAlertFix('group_alert_fix', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" id="labelAntiMuteUpdate" data-i18n="sound.feat.anti_mute_update">Anti-Mute on App Update</div>
+                    <div class="sound-hint" data-i18n="sound.feat.anti_mute_update.hint">Prevents apps from canceling alerts on rapid background updates</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchAntiMuteUpdate" aria-labelledby="labelAntiMuteUpdate" onchange="toggleAlertFix('anti_mute_update', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" id="labelUnthrottleAlert" data-i18n="sound.feat.unthrottle_alert">Unthrottle Audio Alert Rate Limit</div>
+                    <div class="sound-hint" data-i18n="sound.feat.unthrottle_alert.hint">Prevents Android from muting consecutive notification chimes ("Muting recently noisy") when multiple messages arrive in rapid succession</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchUnthrottleAlert" aria-labelledby="labelUnthrottleAlert" onchange="toggleAlertFix('unthrottle_alert', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-recommend" id="btnApplySound" onclick="applySoundFix()" data-i18n="sound.btn.apply">⚡ Eliminate Sound Silencing</button>
+            <button class="btn" id="btnRestoreSound" onclick="restoreSoundFix()" data-i18n="sound.btn.restore" style="display: none;">↺ Restore Defaults</button>
+        </div>
+    </div>
+
+    <!-- Channel Permission Sync Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span data-i18n="sync.title">Channel Permission Sync</span>
+            </div>
+            <span id="syncBadge" class="status-pill status-running" data-i18n="sync.badge.auto">AUTO-SYNC ON</span>
+        </div>
+
+        <div class="mode-desc" data-i18n="sync.desc" style="margin-bottom: 8px;">
+            Auto-grant notification permissions to target apps according to your active FCM Wake Mode.
+        </div>
+
+        <div class="sound-list" id="channelSyncList">
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.boot">Auto-Sync on Boot</div>
+                    <div class="sound-hint" data-i18n="sync.feat.boot.hint">Automatically grant permissions on startup</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncBoot" onchange="updateChannelSyncConfig('auto_sync_boot', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.sound">Sound Alerts</div>
+                    <div class="sound-hint" data-i18n="sync.feat.sound.hint">Allow audible ringtone for target channels</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncSound" onchange="updateChannelSyncConfig('sync_sound', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.vibration">Vibration</div>
+                    <div class="sound-hint" data-i18n="sync.feat.vibration.hint">Allow haptic vibration for target channels</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncVib" onchange="updateChannelSyncConfig('sync_vibration', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.lockscreen">Lockscreen Display</div>
+                    <div class="sound-hint" data-i18n="sync.feat.lockscreen.hint">Show notifications & wake screen on keyguard</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncLock" onchange="updateChannelSyncConfig('sync_lockscreen', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="sync.feat.float">Floating Banners (Heads-Up)</div>
+                    <div class="sound-hint" data-i18n="sync.feat.float.hint">Display pop-up banners over running apps</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchSyncFloat" onchange="updateChannelSyncConfig('sync_float', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-recommend" id="btnRunSync" onclick="triggerChannelSync()" data-i18n="sync.btn.run">⚡ Sync Channels Now</button>
+        </div>
+    </div>
 </div>
 
 <!-- Floating Save Bar -->
@@ -857,27 +1074,40 @@
         return res.json();
     }
 
-    // Dictionaries are cached, so a later fetch failure (or a WebView that
-    // blocks the request) keeps the last known translation instead of falling
-    // back to raw keys.
+    // Dictionaries are cached in memory and localStorage so UI is translated instantly (0ms)
     async function loadDict(code) {
-        if (DICT[code]) return DICT[code];
+        if (!code) return null;
+        if (!DICT[code]) {
+            const cached = restore('fcm_lang_' + code);
+            if (cached) {
+                try {
+                    DICT[code] = JSON.parse(cached);
+                } catch (e) {}
+            }
+        }
         try {
             const data = await loadJson('lang/' + code + '.json');
             DICT[code] = data;
             store('fcm_lang_' + code, JSON.stringify(data));
             return data;
         } catch (e) {
-            const cached = restore('fcm_lang_' + code);
-            if (cached) {
-                try {
-                    DICT[code] = JSON.parse(cached);
-                    return DICT[code];
-                } catch (e2) { /* corrupt cache, ignore */ }
-            }
+            if (DICT[code]) return DICT[code];
             console.warn('i18n: cannot load ' + code, e);
             return null;
         }
+    }
+
+    function initCachedI18n() {
+        LANG = detectLang();
+        ['en', LANG].forEach(code => {
+            if (!code || DICT[code]) return;
+            const cached = restore('fcm_lang_' + code);
+            if (cached) {
+                try { DICT[code] = JSON.parse(cached); } catch (e) {}
+            }
+        });
+        renderLangOptions();
+        applyI18n();
     }
 
     function t(key, vars) {
@@ -930,6 +1160,8 @@
         await loadDict(code);
         applyI18n();
         updateModeUI();
+        updateSoundFixUI();
+        updateChannelSyncUI();
         if (installedApps.length) filterApps(); else loadStatus();
         renderRomStatus();
     }
@@ -957,6 +1189,7 @@
         const res = await execAction('repatch_status');
         if (res.data && res.data.state) {
             romState = res.data;
+            saveStateCache({ rom_state: romState });
         } else {
             romState = null;
         }
@@ -1020,6 +1253,376 @@
         }
         btn.disabled = false;
         refreshRomStatus();
+    }
+
+    /* =========================================================================
+     * Notification Sound Anti-Mute & Backup Controller
+     * ====================================================================== */
+    let soundFeatures = {
+        miui_cooldown: false,
+        android15_cooldown: false,
+        offbody_mute: false
+    };
+    let soundFixHasBackup = false;
+    let soundFixActive = false;
+
+    function updateSoundFixUI(active, hasBackup, features) {
+        if (active !== undefined) soundFixActive = !!active;
+        if (hasBackup !== undefined) soundFixHasBackup = !!hasBackup;
+        if (features) {
+            soundFeatures = Object.assign(soundFeatures, features);
+        }
+
+        const swMiui = document.getElementById('switchMiuiCooldown');
+        const swA15 = document.getElementById('switchA15Cooldown');
+        const swOffbody = document.getElementById('switchOffbody');
+        const badge = document.getElementById('soundBadge');
+        const btnApply = document.getElementById('btnApplySound');
+        const btnRestore = document.getElementById('btnRestoreSound');
+
+        if (swMiui) swMiui.checked = !!soundFeatures.miui_cooldown;
+        if (swA15) swA15.checked = !!soundFeatures.android15_cooldown;
+        if (swOffbody) swOffbody.checked = !!soundFeatures.offbody_mute;
+
+        const countActive = (soundFeatures.miui_cooldown ? 1 : 0) +
+                            (soundFeatures.android15_cooldown ? 1 : 0) +
+                            (soundFeatures.offbody_mute ? 1 : 0) +
+                            (alertFixConfig.group_alert_fix ? 1 : 0) +
+                            (alertFixConfig.anti_mute_update ? 1 : 0) +
+                            (alertFixConfig.unthrottle_alert ? 1 : 0);
+
+        if (badge) {
+            if (countActive === 6) {
+                badge.className = 'status-pill status-running';
+                badge.textContent = t('sound.badge.active');
+            } else if (countActive > 0) {
+                badge.className = 'status-pill status-running';
+                badge.textContent = t('sound.badge.custom') + ` (${countActive}/6)`;
+            } else {
+                badge.className = 'status-pill status-stopped';
+                badge.textContent = t('sound.badge.stock');
+            }
+        }
+
+        if (btnApply) {
+            btnApply.style.opacity = (countActive === 6) ? '0.75' : '1';
+        }
+        if (btnRestore) {
+            btnRestore.style.display = (countActive > 0 || soundFixHasBackup) ? 'inline-flex' : 'none';
+        }
+    }
+
+    async function loadSoundFixStatus() {
+        try {
+            const res = await execAction('get_sound_fix_status');
+            if (res && res.success && res.data) {
+                updateSoundFixUI(res.data.active, res.data.has_backup, res.data.features);
+                if (res.data.alert_fix) {
+                    updateAlertFixUI(res.data.alert_fix);
+                }
+                saveStateCache();
+            }
+        } catch (e) {
+            console.warn('Failed to load sound fix status:', e);
+        }
+    }
+
+    function showSwitchToast(title, isEnabled) {
+        const statusText = isEnabled ? t('toast.status.enabled') : t('toast.status.disabled');
+        showToast(`${title}: ${statusText}`);
+    }
+
+    async function toggleSoundFeature(featureName, isEnabled) {
+        try {
+            const res = await execAction('set_sound_feature', { feature: featureName, enabled: isEnabled });
+            if (res && res.success && res.data) {
+                updateSoundFixUI(res.data.active, res.data.has_backup ?? true, res.data.features);
+                saveStateCache();
+                const soundTitles = {
+                    'miui_cooldown': t('sound.feat.miui_cooldown'),
+                    'android15_cooldown': t('sound.feat.android15_cooldown'),
+                    'offbody_mute': t('sound.feat.offbody')
+                };
+                showSwitchToast(soundTitles[featureName] || featureName, isEnabled);
+            } else {
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                loadStatus();
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+            loadStatus();
+        }
+    }
+
+    async function applySoundFix() {
+        const btn = document.getElementById('btnApplySound');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await execAction('apply_sound_fix');
+            if (res && res.success) {
+                showToast(t('sound.toast.applied'));
+                if (res.data) {
+                    updateSoundFixUI(res.data.active, true, res.data.features || {
+                        miui_cooldown: true,
+                        android15_cooldown: true,
+                        offbody_mute: true
+                    });
+                    updateAlertFixUI(res.data.alert_fix || {
+                        group_alert_fix: true,
+                        anti_mute_update: true,
+                        unthrottle_alert: true
+                    });
+                    saveStateCache();
+                } else {
+                    loadStatus();
+                }
+            } else {
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                loadStatus();
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+            loadStatus();
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function restoreSoundFix() {
+        const btn = document.getElementById('btnRestoreSound');
+        if (btn) btn.disabled = true;
+        try {
+            const res = await execAction('restore_sound_fix');
+            if (res && res.success) {
+                showToast(t('sound.toast.restored'));
+                if (res.data) {
+                    updateSoundFixUI(res.data.active, res.data.has_backup ?? false, res.data.features || {
+                        miui_cooldown: false,
+                        android15_cooldown: false,
+                        offbody_mute: false
+                    });
+                    updateAlertFixUI(res.data.alert_fix || {
+                        group_alert_fix: true,
+                        anti_mute_update: true,
+                        unthrottle_alert: false
+                    });
+                    saveStateCache();
+                } else {
+                    loadStatus();
+                }
+            } else {
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                loadStatus();
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+            loadStatus();
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    /* =========================================================================
+     * Group Alert & Vibration Throttle Runtime Controls
+     * ====================================================================== */
+    let alertFixConfig = {
+        group_alert_fix: true,
+        anti_mute_update: true,
+        unthrottle_alert: false
+    };
+    let alertFixSaveInProgress = false;
+    let alertFixSavePending = false;
+
+    function updateAlertFixUI(config) {
+        if (config) {
+            alertFixConfig = Object.assign(alertFixConfig, config);
+        }
+        const swGroup = document.getElementById('switchGroupAlertFix');
+        const swAntiMute = document.getElementById('switchAntiMuteUpdate');
+        const swUnthrottleAlert = document.getElementById('switchUnthrottleAlert');
+        if (swGroup) swGroup.checked = !!alertFixConfig.group_alert_fix;
+        if (swAntiMute) swAntiMute.checked = !!alertFixConfig.anti_mute_update;
+        if (swUnthrottleAlert) swUnthrottleAlert.checked = !!alertFixConfig.unthrottle_alert;
+        updateSoundFixUI();
+    }
+
+    async function toggleAlertFix(feature, isEnabled) {
+        alertFixConfig[feature] = isEnabled;
+        alertFixSavePending = true;
+        if (alertFixSaveInProgress) return;
+
+        alertFixSaveInProgress = true;
+        try {
+            while (alertFixSavePending) {
+                alertFixSavePending = false;
+                const requestedConfig = Object.assign({}, alertFixConfig);
+                const res = await execAction('set_alert_fix', requestedConfig);
+
+                if (!res || !res.success) {
+                    if (!alertFixSavePending) {
+                        showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                        await loadStatus();
+                    }
+                    continue;
+                }
+
+                if (!alertFixSavePending) {
+                    updateAlertFixUI(res.data || requestedConfig);
+                    saveStateCache();
+                    const alertTitles = {
+                        'anti_mute_update': t('sound.feat.anti_mute_update'),
+                        'group_alert_fix': t('sound.feat.group_alert'),
+                        'unthrottle_alert': t('sound.feat.unthrottle_alert')
+                    };
+                    showSwitchToast(alertTitles[feature] || feature, isEnabled);
+                }
+            }
+        } catch (e) {
+            alertFixSavePending = false;
+            showToast(t('alert.saveError') + e.message);
+        } finally {
+            alertFixSaveInProgress = false;
+        }
+    }
+
+    /* =========================================================================
+     * Channel Permission Sync
+     * ====================================================================== */
+    let channelSyncConfig = {
+        auto_sync_boot: true,
+        sync_sound: true,
+        sync_vibration: true,
+        sync_lockscreen: true,
+        sync_float: true
+    };
+    let channelSyncSaveInProgress = false;
+    let channelSyncSavePending = false;
+
+    function updateChannelSyncUI(config) {
+        if (config) {
+            channelSyncConfig = Object.assign(channelSyncConfig, config);
+        }
+
+        const swBoot = document.getElementById('switchSyncBoot');
+        const swSound = document.getElementById('switchSyncSound');
+        const swVib = document.getElementById('switchSyncVib');
+        const swLock = document.getElementById('switchSyncLock');
+        const swFloat = document.getElementById('switchSyncFloat');
+        const badge = document.getElementById('syncBadge');
+
+        if (swBoot) swBoot.checked = !!channelSyncConfig.auto_sync_boot;
+        if (swSound) swSound.checked = !!channelSyncConfig.sync_sound;
+        if (swVib) swVib.checked = !!channelSyncConfig.sync_vibration;
+        if (swLock) swLock.checked = !!channelSyncConfig.sync_lockscreen;
+        if (swFloat) swFloat.checked = !!channelSyncConfig.sync_float;
+
+        if (badge) {
+            if (channelSyncConfig.auto_sync_boot) {
+                badge.className = 'status-pill status-running';
+                badge.textContent = t('sync.badge.auto');
+            } else {
+                badge.className = 'status-pill status-stopped';
+                badge.textContent = t('sync.badge.manual');
+            }
+        }
+    }
+
+    async function loadChannelSyncConfig() {
+        try {
+            const res = await execAction('get_channel_sync_config');
+            if (res && res.success && res.data) {
+                updateChannelSyncUI(res.data);
+                saveStateCache();
+            }
+        } catch (e) {
+            console.warn('Failed to load channel sync config:', e);
+        }
+    }
+
+    async function updateChannelSyncConfig(changedFeature, isEnabled) {
+        channelSyncSavePending = true;
+        if (channelSyncSaveInProgress) return;
+
+        channelSyncSaveInProgress = true;
+        try {
+            while (channelSyncSavePending) {
+                channelSyncSavePending = false;
+
+                const swBoot = document.getElementById('switchSyncBoot');
+                const swSound = document.getElementById('switchSyncSound');
+                const swVib = document.getElementById('switchSyncVib');
+                const swLock = document.getElementById('switchSyncLock');
+                const swFloat = document.getElementById('switchSyncFloat');
+                const newConfig = {
+                    auto_sync_boot: swBoot ? swBoot.checked : channelSyncConfig.auto_sync_boot,
+                    sync_sound: swSound ? swSound.checked : channelSyncConfig.sync_sound,
+                    sync_vibration: swVib ? swVib.checked : channelSyncConfig.sync_vibration,
+                    sync_lockscreen: swLock ? swLock.checked : channelSyncConfig.sync_lockscreen,
+                    sync_float: swFloat ? swFloat.checked : channelSyncConfig.sync_float
+                };
+
+                const res = await execAction('save_channel_sync_config', newConfig);
+                if (!res || !res.success) {
+                    channelSyncSavePending = false;
+                    updateChannelSyncUI(channelSyncConfig);
+                    showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Unknown error'));
+                    return;
+                }
+
+                channelSyncConfig = Object.assign(channelSyncConfig, res.data || newConfig);
+                if (!channelSyncSavePending) {
+                    updateChannelSyncUI(channelSyncConfig);
+                    saveStateCache();
+                    if (changedFeature) {
+                        const syncTitles = {
+                            'auto_sync_boot': t('sync.feat.boot'),
+                            'sync_sound': t('sync.feat.sound'),
+                            'sync_vibration': t('sync.feat.vibration'),
+                            'sync_lockscreen': t('sync.feat.lockscreen'),
+                            'sync_float': t('sync.feat.float')
+                        };
+                        showSwitchToast(syncTitles[changedFeature] || changedFeature, isEnabled);
+                    } else {
+                        showToast(t('sync.toast.saved'));
+                    }
+                }
+            }
+        } catch (e) {
+            channelSyncSavePending = false;
+            updateChannelSyncUI(channelSyncConfig);
+            showToast(t('alert.saveError') + e.message);
+        } finally {
+            channelSyncSaveInProgress = false;
+        }
+    }
+
+    async function triggerChannelSync() {
+        const btn = document.getElementById('btnRunSync');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '⏳ ' + t('sync.toast.started');
+        }
+        try {
+            const res = await execAction('run_channel_sync');
+            if (res && res.success) {
+                const total = (res.data && res.data.total !== undefined) ? res.data.total : 0;
+                const synced = (res.data && res.data.synced !== undefined) ? res.data.synced : 0;
+                if (synced > 0) {
+                    showToast(t('sync.toast.synced_new', { n: synced, total: total }));
+                } else {
+                    showToast(t('sync.toast.all_up_to_date', { total: total }));
+                }
+            } else {
+                showToast(t('alert.saveFail') + ((res && res.data && res.data.message) || (res && res.stderr) || 'Error'));
+            }
+        } catch (e) {
+            showToast(t('alert.saveError') + e.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = t('sync.btn.run');
+            }
+        }
     }
 
     // KernelSU / APatch / Magisk Execution Bridge
@@ -1154,6 +1757,75 @@
         return isDirty;
     }
 
+    // Persistent State Cache (Instant 0ms UI Hydration)
+    const CACHE_KEY = 'fcm_ui_cache_v2';
+
+    function saveStateCache(extra) {
+        try {
+            const state = {
+                mode: savedMode,
+                packages: Array.from(savedApps),
+                installed: installedApps,
+                sound_active: soundFixActive,
+                sound_backup: soundFixHasBackup,
+                features: soundFeatures,
+                channel_sync: channelSyncConfig,
+                alert_fix: alertFixConfig,
+                rom_state: romState,
+                ts: Date.now()
+            };
+            if (extra) Object.assign(state, extra);
+            store(CACHE_KEY, JSON.stringify(state));
+        } catch (e) {}
+    }
+
+    function hydrateFromCache() {
+        try {
+            const raw = restore(CACHE_KEY);
+            if (!raw) return;
+            const cache = JSON.parse(raw);
+            if (cache.mode) {
+                savedMode = cache.mode;
+                currentMode = cache.mode;
+            }
+            if (Array.isArray(cache.packages)) {
+                savedApps = new Set(cache.packages);
+                selectedApps = new Set(cache.packages);
+            }
+            if (Array.isArray(cache.installed) && cache.installed.length) {
+                installedApps = cache.installed;
+            }
+            if (cache.features) {
+                soundFeatures = Object.assign(soundFeatures, cache.features);
+            }
+            if (cache.sound_backup !== undefined) {
+                soundFixHasBackup = !!cache.sound_backup;
+            }
+            if (cache.sound_active !== undefined) {
+                soundFixActive = !!cache.sound_active;
+            }
+            if (cache.channel_sync) {
+                channelSyncConfig = Object.assign(channelSyncConfig, cache.channel_sync);
+            }
+            if (cache.alert_fix) {
+                alertFixConfig = Object.assign(alertFixConfig, cache.alert_fix);
+            }
+            if (cache.rom_state) {
+                romState = cache.rom_state;
+            }
+
+            updateModeUI();
+            updateSoundFixUI(soundFixActive, soundFixHasBackup, soundFeatures);
+            updateChannelSyncUI(channelSyncConfig);
+            updateAlertFixUI(alertFixConfig);
+            renderRomStatus();
+            filterApps();
+            checkDraftChanges();
+        } catch (e) {
+            console.warn('Failed to hydrate state from cache:', e);
+        }
+    }
+
     // Lazy Rendering & Virtualization State
     let filteredApps = [];
     let renderedCount = 0;
@@ -1176,15 +1848,28 @@
             installedApps = (data.installed || []).sort();
 
             updateModeUI();
+            if (data.sound_active !== undefined) {
+                soundFixActive = !!data.sound_active;
+                updateSoundFixUI(data.sound_active, data.sound_backup, data.features);
+            }
+            if (data.channel_sync) {
+                updateChannelSyncUI(data.channel_sync);
+            }
+            if (data.alert_fix) {
+                updateAlertFixUI(data.alert_fix);
+            }
             filterApps();
             checkDraftChanges();
+            saveStateCache();
 
             // Background fetch for stopped state
             loadStoppedStatusAsync();
         } catch (e) {
             console.error('Failed to load status:', e);
-            document.getElementById('appList').innerHTML = 
-                `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">${t('bridge.fail')}<br><small>${e.message}</small></div>`;
+            if (!installedApps.length) {
+                document.getElementById('appList').innerHTML = 
+                    `<div style="text-align: center; color: var(--accent-rose); padding: 16px; font-size: 0.75rem;">${t('bridge.fail')}<br><small>${e.message}</small></div>`;
+            }
         }
     }
 
@@ -1606,6 +2291,7 @@
                 savedMode = currentMode;
                 savedApps = new Set(selectedApps);
                 checkDraftChanges();
+                saveStateCache();
                 showToast(t('toast.saved'));
             } else {
                 alert(t('alert.saveError') + ((res.data && res.data.message) || res.stderr || ''));
@@ -1616,15 +2302,36 @@
     }
 
     function showToast(msg) {
-        const toast = document.getElementById('toast');
-        toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2200);
+        let shownKsu = false;
+        try {
+            if (window.ksu && typeof window.ksu.toast === 'function') {
+                window.ksu.toast(msg);
+                shownKsu = true;
+            }
+        } catch (e) {}
+
+        // Only show webui floating toast if KernelSU native toast is not available
+        if (!shownKsu) {
+            const toast = document.getElementById('toast');
+            if (toast) {
+                toast.textContent = msg;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2200);
+            }
+        }
     }
 
-    // Initialize: dictionaries first, so nothing renders in raw keys
+    // 1. Instant hydration from localStorage before any async network requests (0ms)
+    initCachedI18n();
+    hydrateFromCache();
+
+    // 2. Initialize dictionaries and refresh live status asynchronously
     initI18n().finally(() => {
+        applyI18n();
         updateModeUI();
+        updateSoundFixUI();
+        updateChannelSyncUI();
+        renderRomStatus();
         loadStatus();
         refreshRomStatus();
     });

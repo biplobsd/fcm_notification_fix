@@ -124,11 +124,11 @@ else
 fi
 
 # 5. Verify Fixtures directory exists
-FIXTURES_DIR="$DIR/tests/fixtures"
+FIXTURES_DIR="${1:-$DIR/tests/fixtures}"
 mkdir -p "$FIXTURES_DIR"
 
 # 6. Execute Test Suite
-echo "[3/4] Executing Patcher Integration Test Suite across ROM Matrix..."
+echo "[3/4] Executing Patcher Integration Test Suite across: $FIXTURES_DIR"
 STAGE_OUT="/tmp/fcm_test_runs_$$"
 mkdir -p "$STAGE_OUT"
 
@@ -146,7 +146,7 @@ TEST_STATUS=$?
 
 echo "================================================="
 if [ $TEST_STATUS -eq 0 ]; then
-    echo " ALL ROM FIXTURES PASSED TEST VALIDATION! ✓"
+    echo " ALL TARGET FIXTURES PASSED TEST VALIDATION! ✓"
 else
     echo " TEST SUITE FAILED! ✗"
 fi
@@ -154,17 +154,15 @@ echo "================================================="
 
 # 7. Generate GitHub Step Summary if running in GitHub Actions
 if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+    TARGET_LABEL="$(basename "$FIXTURES_DIR")"
+    if [ "$TARGET_LABEL" = "fixtures" ]; then
+        TARGET_LABEL="All ROM Fixtures"
+    fi
     cat <<EOF >> "$GITHUB_STEP_SUMMARY"
-### 🧪 HyperOS FCM Patcher Matrix Verification
-| ROM Archetype | Device Context | Status | Alignment | Multi-DEX Check |
-| :--- | :--- | :---: | :---: | :---: |
-| \`hyperos3_a16_cn\` | Redmi K80 (\`zorn\`, \`WOKCNXM\`), MIX Fold 4 (\`goku\`, \`WNVCNXM\`) | PASS ✓ | 4-byte STORED | Verified |
-| \`miui14_a13_global\` | Redmi Note 12 (\`sunstone\`), POCO F4 (\`munch\`) | PASS ✓ | 4-byte STORED | Verified |
-
-- **Vector 1 (Wake-on-Push 0x20)**: Verified in \`BroadcastController\` / \`ActivityManagerService\`
-- **Vector 2 (Screen-OFF Thaw)**: Verified in \`GreezeManagerService\`
-- **Vector 3 (GMS Quick-Freeze Neutralizer)**: Verified \`return-void\` on HyperOS China
-- **Vector 4 (AutoStart C2DM Bypass)**: Verified \`IS_INTERNATIONAL_BUILD\` bypass in ModernStub
+### 🧪 HyperOS FCM Patcher Verification: \`$TARGET_LABEL\`
+- **Result**: $([ $TEST_STATUS -eq 0 ] && echo "PASS ✓" || echo "FAIL ✗")
+- **Target Path**: \`$FIXTURES_DIR\`
+- **Verified**: FCM Wake Filter (0x20), Screen-OFF Greeze Thaw, GMS Neutralizer, AutoStart Bypass, Anti-Mute, and 4-byte DEX alignment.
 EOF
 fi
 
