@@ -109,7 +109,11 @@ if [ -f "$OLD_MOD_DIR/stock/services.jar" ] && [ -f "$OLD_MOD_DIR/stock/miui-ser
     mkdir -p "$STOCK_DIR"
     cp -f "$OLD_MOD_DIR/stock/services.jar" "$STOCK_DIR/services.jar"
     cp -f "$OLD_MOD_DIR/stock/miui-services.jar" "$STOCK_DIR/miui-services.jar"
-    [ -f "$OLD_MOD_DIR/stock/fingerprint" ] && cp -f "$OLD_MOD_DIR/stock/fingerprint" "$STOCK_DIR/fingerprint"
+    if [ -f "$OLD_MOD_DIR/stock/fingerprint" ]; then
+        cp -f "$OLD_MOD_DIR/stock/fingerprint" "$STOCK_DIR/fingerprint"
+    elif [ -f "$OLD_MOD_DIR/rom.fingerprint" ]; then
+        cp -f "$OLD_MOD_DIR/rom.fingerprint" "$STOCK_DIR/fingerprint"
+    fi
 fi
 
 # Carry forward stock settings backup and defaults marker across updates

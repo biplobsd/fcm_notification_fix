@@ -43,14 +43,42 @@ get_rom_display_version() {
     fi
 }
 
-# Compares stored fingerprint against the current composite fingerprint. Legacy
-# incremental-only values cannot verify partition-level framework versions and
-# therefore require a fresh stock stash.
+# Compares stored fingerprint against current running fingerprint with full backward
+# compatibility. Matches if signatures are identical or if stored is in legacy single-string
+# format matching base incremental version (from v1.0 - v1.2 releases).
 is_fingerprint_match() {
-    _stored="$1"
-    _current="$2"
+    _stored="$(printf '%s' "$1" | tr -d '\r\n')"
+    _current="$(printf '%s' "$2" | tr -d '\r\n')"
     [ -z "$_stored" ] || [ -z "$_current" ] && return 1
     [ "$_stored" = "$_current" ] && return 0
+
+    # Legacy format fallback (stored has no "|" delimiter from module versions v1.0 - v1.2)
+    case "$_stored" in
+        *"|"*) ;;
+        *)
+            _inc="$(getprop ro.build.version.incremental | tr -d '\r\n')"
+            [ -n "$_inc" ] && [ "$_stored" = "$_inc" ] && return 0
+            case "$_current" in
+                *"|"*)
+                    _cur_inc="$(echo "$_current" | cut -d'|' -f4 | tr -d '\r\n')"
+                    [ -n "$_cur_inc" ] && [ "$_stored" = "$_cur_inc" ] && return 0
+                    ;;
+            esac
+            ;;
+    esac
+
+    # Backward fallback when current is single-string and stored is composite
+    case "$_current" in
+        *"|"*) ;;
+        *)
+            case "$_stored" in
+                *"|"*)
+                    _stored_inc="$(echo "$_stored" | cut -d'|' -f4 | tr -d '\r\n')"
+                    [ -n "$_stored_inc" ] && [ "$_stored_inc" = "$_current" ] && return 0
+                    ;;
+            esac
+            ;;
+    esac
 
     return 1
 }

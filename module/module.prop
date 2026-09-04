@@ -1,7 +1,7 @@
 id=fcm_notification_fix
 name=HyperOS FCM Notification Fix
-version=v1.2
-versionCode=3
+version=v1.3
+versionCode=4
 author=biplobsd
 description=On-device patcher fixing Google FCM push notifications on HyperOS.
 updateJson=https://raw.githubusercontent.com/biplobsd/fcm_notification_fix/main/update.json
