@@ -919,17 +919,6 @@
 
             <div class="sound-row">
                 <div class="sound-info">
-                    <div class="sound-name" data-i18n="sound.feat.incall">In-Call Alert Beeps</div>
-                    <div class="sound-hint" data-i18n="sound.feat.incall.hint">Allows audible notification beeps during active calls</div>
-                </div>
-                <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchIncall" onchange="toggleSoundFeature('in_call', this.checked)">
-                    <span class="slider green"></span>
-                </label>
-            </div>
-
-            <div class="sound-row">
-                <div class="sound-info">
                     <div class="sound-name" id="labelGroupAlertFix" data-i18n="sound.feat.group_alert">Grouped Notification Alerts</div>
                     <div class="sound-hint" data-i18n="sound.feat.group_alert.hint">Bypasses AOSP group muting so email/thread notifications always sound & vibrate</div>
                 </div>
@@ -939,16 +928,6 @@
                 </label>
             </div>
 
-            <div class="sound-row">
-                <div class="sound-info">
-                    <div class="sound-name" id="labelUnthrottleVib" data-i18n="sound.feat.unthrottle_vib">Unthrottle Vibration (15s Bypass)</div>
-                    <div class="sound-hint" data-i18n="sound.feat.unthrottle_vib.hint">Bypasses MIUI 15s throttle so rapid notifications always vibrate</div>
-                </div>
-                <label class="switch" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="switchUnthrottleVib" aria-labelledby="labelUnthrottleVib" onchange="toggleAlertFix('unthrottle_vib', this.checked)">
-                    <span class="slider green"></span>
-                </label>
-            </div>
 
             <div class="sound-row">
                 <div class="sound-info">
@@ -957,6 +936,17 @@
                 </div>
                 <label class="switch" onclick="event.stopPropagation()">
                     <input type="checkbox" id="switchAntiMuteUpdate" aria-labelledby="labelAntiMuteUpdate" onchange="toggleAlertFix('anti_mute_update', this.checked)">
+                    <span class="slider green"></span>
+                </label>
+            </div>
+
+            <div class="sound-row">
+                <div class="sound-info">
+                    <div class="sound-name" id="labelUnthrottleAlert" data-i18n="sound.feat.unthrottle_alert">Unthrottle Audio Alert Rate Limit</div>
+                    <div class="sound-hint" data-i18n="sound.feat.unthrottle_alert.hint">Prevents Android from muting consecutive notification chimes ("Muting recently noisy") when multiple messages arrive in rapid succession</div>
+                </div>
+                <label class="switch" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="switchUnthrottleAlert" aria-labelledby="labelUnthrottleAlert" onchange="toggleAlertFix('unthrottle_alert', this.checked)">
                     <span class="slider green"></span>
                 </label>
             </div>
@@ -1271,8 +1261,7 @@
     let soundFeatures = {
         miui_cooldown: false,
         android15_cooldown: false,
-        offbody_mute: false,
-        in_call: false
+        offbody_mute: false
     };
     let soundFixHasBackup = false;
     let soundFixActive = false;
@@ -1287,7 +1276,6 @@
         const swMiui = document.getElementById('switchMiuiCooldown');
         const swA15 = document.getElementById('switchA15Cooldown');
         const swOffbody = document.getElementById('switchOffbody');
-        const swIncall = document.getElementById('switchIncall');
         const badge = document.getElementById('soundBadge');
         const btnApply = document.getElementById('btnApplySound');
         const btnRestore = document.getElementById('btnRestoreSound');
@@ -1295,20 +1283,18 @@
         if (swMiui) swMiui.checked = !!soundFeatures.miui_cooldown;
         if (swA15) swA15.checked = !!soundFeatures.android15_cooldown;
         if (swOffbody) swOffbody.checked = !!soundFeatures.offbody_mute;
-        if (swIncall) swIncall.checked = !!soundFeatures.in_call;
 
         const countActive = (soundFeatures.miui_cooldown ? 1 : 0) +
                             (soundFeatures.android15_cooldown ? 1 : 0) +
-                            (soundFeatures.offbody_mute ? 1 : 0) +
-                            (soundFeatures.in_call ? 1 : 0);
+                            (soundFeatures.offbody_mute ? 1 : 0);
 
         if (badge) {
-            if (countActive === 4) {
+            if (countActive === 3) {
                 badge.className = 'status-pill status-running';
                 badge.textContent = t('sound.badge.active');
             } else if (countActive > 0) {
                 badge.className = 'status-pill status-running';
-                badge.textContent = t('sound.badge.custom') + ` (${countActive}/4)`;
+                badge.textContent = t('sound.badge.custom') + ` (${countActive}/3)`;
             } else {
                 badge.className = 'status-pill status-stopped';
                 badge.textContent = t('sound.badge.stock');
@@ -1316,7 +1302,7 @@
         }
 
         if (btnApply) {
-            btnApply.style.opacity = (countActive === 4) ? '0.75' : '1';
+            btnApply.style.opacity = (countActive === 3) ? '0.75' : '1';
         }
         if (btnRestore) {
             btnRestore.style.display = (countActive > 0 || soundFixHasBackup) ? 'inline-flex' : 'none';
@@ -1349,8 +1335,7 @@
                 const soundTitles = {
                     'miui_cooldown': t('sound.feat.miui_cooldown'),
                     'android15_cooldown': t('sound.feat.android15_cooldown'),
-                    'offbody_mute': t('sound.feat.offbody'),
-                    'in_call': t('sound.feat.incall')
+                    'offbody_mute': t('sound.feat.offbody')
                 };
                 showSwitchToast(soundTitles[featureName] || featureName, isEnabled);
             } else {
@@ -1418,8 +1403,8 @@
      * ====================================================================== */
     let alertFixConfig = {
         group_alert_fix: true,
-        unthrottle_vib: true,
-        anti_mute_update: true
+        anti_mute_update: true,
+        unthrottle_alert: false
     };
     let alertFixSaveInProgress = false;
     let alertFixSavePending = false;
@@ -1429,11 +1414,11 @@
             alertFixConfig = Object.assign(alertFixConfig, config);
         }
         const swGroup = document.getElementById('switchGroupAlertFix');
-        const swVib = document.getElementById('switchUnthrottleVib');
         const swAntiMute = document.getElementById('switchAntiMuteUpdate');
+        const swUnthrottleAlert = document.getElementById('switchUnthrottleAlert');
         if (swGroup) swGroup.checked = !!alertFixConfig.group_alert_fix;
-        if (swVib) swVib.checked = !!alertFixConfig.unthrottle_vib;
         if (swAntiMute) swAntiMute.checked = !!alertFixConfig.anti_mute_update;
+        if (swUnthrottleAlert) swUnthrottleAlert.checked = !!alertFixConfig.unthrottle_alert;
     }
 
     async function toggleAlertFix(feature, isEnabled) {
@@ -1462,7 +1447,7 @@
                     const alertTitles = {
                         'anti_mute_update': t('sound.feat.anti_mute_update'),
                         'group_alert_fix': t('sound.feat.group_alert'),
-                        'unthrottle_vib': t('sound.feat.unthrottle_vib')
+                        'unthrottle_alert': t('sound.feat.unthrottle_alert')
                     };
                     showSwitchToast(alertTitles[feature] || feature, isEnabled);
                 }

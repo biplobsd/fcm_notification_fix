@@ -5,18 +5,27 @@ import com.android.tools.smali.dexlib2.Opcodes;
 import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
 import com.android.tools.smali.dexlib2.builder.Label;
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22c;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22x;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.DexFile;
+import com.android.tools.smali.dexlib2.iface.Field;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction;
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
+import com.android.tools.smali.dexlib2.iface.reference.Reference;
 import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableFieldReference;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
 import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import com.android.tools.smali.dexlib2.DexFileFactory;
@@ -146,50 +155,38 @@ public class Hyperos3A16CnServicesPatcher {
                         for (Method m : cd.getMethods()) {
                             if (m.getName().equals("shouldMuteNotificationLocked") && m.getImplementation() != null) {
                                 MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
-                                int targetIdx = -1;
-                                int resReg = -1;
+                                int totalRegs = mut.getRegisterCount();
+                                int recordReg = totalRegs - 3;
+                                Label stockLabel = mut.newLabelForIndex(0);
 
-                                List<BuilderInstruction> insns = mut.getInstructions();
-                                for (int i = 0; i < insns.size(); i++) {
-                                    BuilderInstruction ins = insns.get(i);
-                                    if (ins instanceof BuilderInstruction35c) {
-                                        BuilderInstruction35c bi = (BuilderInstruction35c) ins;
-                                        if (bi.getReference() instanceof MethodReference) {
-                                            MethodReference mr = (MethodReference) bi.getReference();
-                                            if (mr.getName().equals("suppressAlertingDueToGrouping") && mr.getReturnType().equals("Z")) {
-                                                if (i + 1 < insns.size() && insns.get(i + 1) instanceof BuilderInstruction11x) {
-                                                    BuilderInstruction11x moveRes = (BuilderInstruction11x) insns.get(i + 1);
-                                                    if (moveRes.getOpcode() == Opcode.MOVE_RESULT) {
-                                                        targetIdx = i + 2;
-                                                        resReg = moveRes.getRegisterA();
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                ImmutableMethodReference getSbnRef = new ImmutableMethodReference(
+                                    "Lcom/android/server/notification/NotificationRecord;", "getSbn",
+                                    Collections.emptyList(), "Landroid/service/notification/StatusBarNotification;");
+                                ImmutableMethodReference getPkgRef = new ImmutableMethodReference(
+                                    "Landroid/service/notification/StatusBarNotification;", "getPackageName",
+                                    Collections.emptyList(), "Ljava/lang/String;");
+                                ImmutableMethodReference bypassRef = new ImmutableMethodReference(
+                                    "Lcom/android/server/am/FcmWakeFilter;", "shouldBypassAlertRateLimit",
+                                    Collections.singletonList("Ljava/lang/String;"), "Z");
 
-                                if (targetIdx != -1 && resReg != -1) {
-                                    System.out.println("    -> Injecting FcmWakeFilter.shouldSuppressGrouping hook into shouldMuteNotificationLocked (reg v" + resReg + ")");
-                                    ImmutableMethodReference wrapRef = new ImmutableMethodReference(
-                                        "Lcom/android/server/am/FcmWakeFilter;", "shouldSuppressGrouping",
-                                        Collections.singletonList("Z"), "Z");
-
-                                    mut.addInstruction(targetIdx, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, resReg, 0, 0, 0, 0, wrapRef));
-                                    mut.addInstruction(targetIdx + 1, new BuilderInstruction11x(Opcode.MOVE_RESULT, resReg));
+                                int cur = 0;
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, recordReg, 0, 0, 0, 0, getSbnRef));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getPkgRef));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, bypassRef));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, stockLabel));
+                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, 0, 0)); // return 0 (MUTE_REASON_NOT_MUTED)
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, 0));
 
                                     methods.add(new ImmutableMethod(
                                         m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
                                         m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
                                     result.v5_group_alert_fix = true;
-                                    result.v5_note = "NotificationAttentionHelper.shouldMuteNotificationLocked (Group Alert Fix)";
+                                    result.v5_note = "NotificationAttentionHelper.shouldMuteNotificationLocked (Group Alert & Cooldown Bypass)";
                                     dexModified = true;
-                                    System.out.println("    -> [PASS] Hooked Notification.suppressAlertingDueToGrouping with FcmWakeFilter");
-                                } else {
-                                    System.err.println("    -> [WARNING] suppressAlertingDueToGrouping instruction not found in shouldMuteNotificationLocked");
-                                    methods.add(m);
-                                }
+                                    System.out.println("    -> [PASS] Injected shouldBypassAlertRateLimit preamble into shouldMuteNotificationLocked");
                             } else if (m.getName().equals("buzzBeepBlinkLocked") && m.getImplementation() != null) {
                                 MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
                                 List<BuilderInstruction> insns = mut.getInstructions();
@@ -212,20 +209,16 @@ public class Hyperos3A16CnServicesPatcher {
                                     }
 
                                     if (afterSoundKey && !afterVibKey && soundMoveIdx == -1) {
-                                        if (ins instanceof BuilderInstruction22x && ins.getOpcode() == Opcode.MOVE_FROM16) {
-                                            BuilderInstruction22x b22 = (BuilderInstruction22x) ins;
-                                            if (b22.getRegisterA() == 16) {
-                                                soundMoveIdx = i;
-                                            }
+                                        if (ins instanceof TwoRegisterInstruction &&
+                                            (ins.getOpcode() == Opcode.MOVE_FROM16 || ins.getOpcode() == Opcode.MOVE || ins.getOpcode() == Opcode.MOVE_16)) {
+                                            soundMoveIdx = i;
                                         }
                                     }
 
                                     if (afterVibKey && vibMoveIdx == -1) {
-                                        if (ins instanceof BuilderInstruction22x && ins.getOpcode() == Opcode.MOVE_FROM16) {
-                                            BuilderInstruction22x b22 = (BuilderInstruction22x) ins;
-                                            if (b22.getRegisterA() == 17) {
-                                                vibMoveIdx = i;
-                                            }
+                                        if (ins instanceof TwoRegisterInstruction &&
+                                            (ins.getOpcode() == Opcode.MOVE_FROM16 || ins.getOpcode() == Opcode.MOVE || ins.getOpcode() == Opcode.MOVE_16)) {
+                                            vibMoveIdx = i;
                                         }
                                     }
                                 }
@@ -237,13 +230,13 @@ public class Hyperos3A16CnServicesPatcher {
                                         Collections.singletonList("Z"), "Z");
 
                                     // Inject for vib first (higher index so sound index remains unchanged)
-                                    BuilderInstruction22x vibMove = (BuilderInstruction22x) insns.get(vibMoveIdx);
+                                    TwoRegisterInstruction vibMove = (TwoRegisterInstruction) insns.get(vibMoveIdx);
                                     int srcRegVib = vibMove.getRegisterB();
                                     mut.addInstruction(vibMoveIdx, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, srcRegVib, 0, 0, 0, 0, wrapRef));
                                     mut.addInstruction(vibMoveIdx + 1, new BuilderInstruction11x(Opcode.MOVE_RESULT, srcRegVib));
 
                                     // Inject for sound
-                                    BuilderInstruction22x soundMove = (BuilderInstruction22x) insns.get(soundMoveIdx);
+                                    TwoRegisterInstruction soundMove = (TwoRegisterInstruction) insns.get(soundMoveIdx);
                                     int srcRegSound = soundMove.getRegisterB();
                                     mut.addInstruction(soundMoveIdx, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, srcRegSound, 0, 0, 0, 0, wrapRef));
                                     mut.addInstruction(soundMoveIdx + 1, new BuilderInstruction11x(Opcode.MOVE_RESULT, srcRegSound));
@@ -257,6 +250,74 @@ public class Hyperos3A16CnServicesPatcher {
                                     System.out.println("    -> [PASS] Hooked buzzBeepBlinkLocked sound & vibration abort race with FcmWakeFilter");
                                 } else {
                                     System.err.println("    -> [WARNING] sound/vib move instructions not found in buzzBeepBlinkLocked");
+                                    methods.add(m);
+                                }
+                            } else if (m.getName().equals("playSound") && m.getImplementation() != null) {
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                List<BuilderInstruction> insns = mut.getInstructions();
+
+                                int checkPlayIdx = -1;
+                                int deniedIdx = -1;
+                                for (int i = 0; i < insns.size(); i++) {
+                                    BuilderInstruction ins = insns.get(i);
+                                    if (ins instanceof ReferenceInstruction) {
+                                        String ref = ((ReferenceInstruction) ins).getReference().toString();
+                                        if (ref.contains("NotifAttentionHelper")) {
+                                            checkPlayIdx = i + 1; // if-nez v3
+                                        } else if (ref.contains("isDeniedPlaySound")) {
+                                            deniedIdx = i + 2; // if-eqz v0
+                                        }
+                                    }
+                                }
+
+                                if (checkPlayIdx != -1 && deniedIdx != -1) {
+                                    int recordReg = mut.getRegisterCount() - 2;
+                                    int shouldPlayReg = ((OneRegisterInstruction) insns.get(checkPlayIdx)).getRegisterA();
+                                    int deniedReg = ((OneRegisterInstruction) insns.get(deniedIdx)).getRegisterA();
+
+                                    ImmutableMethodReference getSbnRef = new ImmutableMethodReference(
+                                        "Lcom/android/server/notification/NotificationRecord;", "getSbn",
+                                        Collections.emptyList(), "Landroid/service/notification/StatusBarNotification;");
+                                    ImmutableMethodReference getPkgRef = new ImmutableMethodReference(
+                                        "Landroid/service/notification/StatusBarNotification;", "getPackageName",
+                                        Collections.emptyList(), "Ljava/lang/String;");
+                                    ImmutableMethodReference bypassRef = new ImmutableMethodReference(
+                                        "Lcom/android/server/am/FcmWakeFilter;", "shouldBypassAlertRateLimit",
+                                        Collections.singletonList("Ljava/lang/String;"), "Z");
+
+                                    // 1. Hook deniedIdx first (so checkPlayIdx doesn't shift)
+                                    Label contDenied = mut.newLabelForIndex(deniedIdx);
+                                    int cur = deniedIdx;
+                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, recordReg, 0, 0, 0, 0, getSbnRef));
+                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getPkgRef));
+                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, bypassRef));
+                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, contDenied));
+                                    mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, deniedReg, 0)); // deniedReg = 0 (false = not denied)
+
+                                    // 2. Hook checkPlayIdx
+                                    Label contPlay = mut.newLabelForIndex(checkPlayIdx);
+                                    cur = checkPlayIdx;
+                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, recordReg, 0, 0, 0, 0, getSbnRef));
+                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getPkgRef));
+                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, bypassRef));
+                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, contPlay));
+                                    mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, shouldPlayReg, 1)); // shouldPlayReg = 1 (true = should play)
+
+                                    methods.add(new ImmutableMethod(
+                                        m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                        m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                                    result.v14_playsound_unthrottle = true;
+                                    result.v14_note = "NotificationAttentionHelper.playSound (Focus & isDenied Gate Bypass)";
+                                    dexModified = true;
+                                    System.out.println("    -> [PASS] Hooked NotificationAttentionHelper.playSound with unthrottled focus and denied bypass");
+                                } else {
+                                    System.err.println("    -> [WARNING] target instructions not found in playSound");
                                     methods.add(m);
                                 }
                             } else {

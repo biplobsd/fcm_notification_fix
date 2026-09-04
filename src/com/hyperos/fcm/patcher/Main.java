@@ -106,6 +106,15 @@ public class Main {
         if (v1Result.v7_anti_mute_update) {
             System.out.println("  [Vector 7] Anti-Mute On Update Engine:        PASS ✓  (" + v1Result.v7_note + ")");
         }
+        if (miuiResult.v8_policy_intl) {
+            System.out.println("  [Vector 8] International Policy Mode:         PASS ✓  (" + miuiResult.v8_note + ")");
+        }
+        if (miuiResult.v9_aurogon_filter) {
+            System.out.println("  [Vector 9] Aurogon GMS Freeze Shield:         PASS ✓  (" + miuiResult.v9_note + ")");
+        }
+        if (v1Result.v14_playsound_unthrottle) {
+            System.out.println("  [Vector 14] Unthrottled PlaySound Bypass:      PASS ✓  (" + v1Result.v14_note + ")");
+        }
         System.out.println("-------------------------------------------------");
 
         boolean allPassed = v1Result.v1_wake_flag && miuiResult.v2_screenoff_thaw && 

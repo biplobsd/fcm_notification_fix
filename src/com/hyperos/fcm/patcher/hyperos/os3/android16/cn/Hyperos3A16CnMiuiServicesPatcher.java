@@ -12,12 +12,16 @@ import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.DexFile;
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
+import com.android.tools.smali.dexlib2.iface.reference.Reference;
 import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
 import com.android.tools.smali.dexlib2.immutable.instruction.*;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableStringReference;
 import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.hyperos.fcm.patcher.common.AlignedJarRepacker;
@@ -121,6 +125,20 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                                 } else {
                                     methods.add(m);
                                 }
+                            } else if (m.getName().equals("isGmsApp") && m.getReturnType().equals("Z")) {
+                                int stubRegs = DexUtils.paramRegCount(m);
+                                System.out.println("    -> Rewriting isGmsApp("
+                                    + String.join("", m.getParameterTypes()) + ")Z to return false (GMS screen-off thaw, "
+                                    + stubRegs + " regs)");
+                                List<com.android.tools.smali.dexlib2.immutable.instruction.ImmutableInstruction> insns = Arrays.asList(
+                                    new ImmutableInstruction11n(Opcode.CONST_4, 0, 0),
+                                    new ImmutableInstruction11x(Opcode.RETURN, 0)
+                                );
+                                ImmutableMethodImplementation newImpl = new ImmutableMethodImplementation(stubRegs, insns, null, null);
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), newImpl));
+                                dexModified = true;
                             } else {
                                 methods.add(m);
                             }
@@ -133,6 +151,78 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             classesList.add(fcmFilterClassDef);
                             System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside GreezeManagerService into " + entryName);
                         }
+
+                    // Vector 8: PolicyManager (Force International policy, GMS permanently important)
+                    } else if (type.equals("Lcom/miui/server/greeze/PolicyManager;")) {
+                        System.out.println("  -> Located PolicyManager in " + entryName);
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("<clinit>") && m.getImplementation() != null) {
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                for (int i = 0; i < mut.getInstructions().size(); i++) {
+                                    BuilderInstruction ins = mut.getInstructions().get(i);
+                                    if (ins.getOpcode() == Opcode.SPUT_BOOLEAN) {
+                                        Reference ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof FieldReference && ((FieldReference) ref).getName().equals("CN_MODEL")) {
+                                            int reg = ((OneRegisterInstruction) ins).getRegisterA();
+                                            System.out.println("    -> Patching PolicyManager.CN_MODEL to false (reg " + reg + ")");
+                                            if (i > 0 && mut.getInstructions().get(i - 1).getOpcode() == Opcode.MOVE_RESULT) {
+                                                mut.replaceInstruction(i - 1, new BuilderInstruction11n(Opcode.CONST_4, reg, 0));
+                                            } else {
+                                                mut.addInstruction(i, new BuilderInstruction11n(Opcode.CONST_4, reg, 0));
+                                            }
+                                            result.v8_policy_intl = true;
+                                            result.v8_note = "PolicyManager.CN_MODEL -> false (International Policy)";
+                                            dexModified = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                    // Vector 9: AurogonFilterManager (Signal CANNOT_FREEZE for GMS)
+                    } else if (type.equals("Lcom/miui/server/greeze/AurogonFilterManager;")) {
+                        System.out.println("  -> Located AurogonFilterManager in " + entryName);
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("filter") && m.getReturnType().equals("Z") && m.getImplementation() != null) {
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                int totalRegs = mut.getRegisterCount();
+                                // p0: this, p1: uid (I), p2: packageName (String), p3: policy (I)
+                                int p2 = totalRegs - 2;
+                                Label cont = mut.newLabelForIndex(0);
+                                int cur = 0;
+                                mut.addInstruction(cur++, new BuilderInstruction21c(Opcode.CONST_STRING, 0, new ImmutableStringReference("com.google.android.gms")));
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, 0, p2, 0, 0, 0,
+                                    new ImmutableMethodReference("Ljava/lang/String;", "equals", Collections.singletonList("Ljava/lang/Object;"), "Z")));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, cont));
+                                // false = CANNOT_FREEZE in PolicyMaker
+                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, 0));
+                                System.out.println("    -> Injected GMS freeze shield into AurogonFilterManager.filter");
+                                result.v9_aurogon_filter = true;
+                                result.v9_note = "AurogonFilterManager.filter: GMS returns false (CANNOT_FREEZE)";
+                                dexModified = true;
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
                     // Vector 4: BroadcastQueueModernStubImpl.checkApplicationAutoStart -> IS_INTERNATIONAL_BUILD = 1
                     } else if (type.equals("Lcom/android/server/am/BroadcastQueueModernStubImpl;")) {
@@ -183,60 +273,6 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
-                    } else if (type.equals("Lcom/android/server/notification/VibRateLimiter;")) {
-                        System.out.println("  -> Located VibRateLimiter in " + entryName);
-                        List<Method> methods = new ArrayList<>();
-                        for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("shouldRateLimitVib") && m.getImplementation() != null) {
-                                System.out.println("    -> Injecting FcmWakeFilter.isVibThrottleBypassEnabled hook into VibRateLimiter.shouldRateLimitVib");
-                                MutableMethodImplementation mut = prepareImplementationWithScratchLocal(m);
-
-                                Label continueLabel = mut.newLabelForIndex(0);
-                                ImmutableMethodReference isVibBypassRef = new ImmutableMethodReference(
-                                    "Lcom/android/server/am/FcmWakeFilter;", "isVibThrottleBypassEnabled",
-                                    Collections.emptyList(), "Z");
-
-                                int cur = 0;
-                                // 1. invoke-static {}, FcmWakeFilter->isVibThrottleBypassEnabled()Z
-                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 0, 0, 0, 0, 0, 0, isVibBypassRef));
-                                // 2. move-result v0
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
-                                // 3. if-eqz v0, :continueLabel
-                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, continueLabel));
-                                // 4. const/4 v0, 0
-                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
-                                // 5. return v0
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, 0));
-
-                                methods.add(new ImmutableMethod(
-                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
-                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
-                                result.v6_unthrottle_vib = true;
-                                result.v6_note = "VibRateLimiter.shouldRateLimitVib (Vibration Unthrottling)";
-                                dexModified = true;
-                                System.out.println("    -> [PASS] Dynamic Vibration Unthrottler check injected into VibRateLimiter.shouldRateLimitVib");
-                            } else {
-                                methods.add(m);
-                            }
-                        }
-                        classesList.add(new ImmutableClassDef(
-                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
-                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
-
-                        if (fcmFilterClassDef != null) {
-                            boolean alreadyPresent = false;
-                            for (ClassDef c : classesList) {
-                                if (c.getType().equals("Lcom/android/server/am/FcmWakeFilter;")) {
-                                    alreadyPresent = true;
-                                    break;
-                                }
-                            }
-                            if (!alreadyPresent) {
-                                classesList.add(fcmFilterClassDef);
-                                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef alongside VibRateLimiter into " + entryName);
-                            }
-                        }
-
                     } else {
                         classesList.add(cd);
                     }
@@ -278,7 +314,7 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             AlignedJarRepacker.repackJar(sourceJar, replacementDexMap, destJar);
 
             result.success = true;
-            result.details = "Vectors 2, 3, 4 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
+            result.details = "Vectors 2, 3, 4, 8, 9 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
             return result;
 
         } catch (Exception e) {
@@ -287,49 +323,5 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             e.printStackTrace();
             return result;
         }
-    }
-
-    private static MutableMethodImplementation prepareImplementationWithScratchLocal(Method method) {
-        int parameterRegisters = DexUtils.paramRegCount(method);
-        int registerCount = method.getImplementation().getRegisterCount();
-        if (registerCount < parameterRegisters) {
-            throw new IllegalArgumentException("Invalid register frame for " + method.getName()
-                + ": registers_size=" + registerCount + ", ins_size=" + parameterRegisters);
-        }
-        if (registerCount > parameterRegisters) {
-            return new MutableMethodImplementation(method.getImplementation());
-        }
-
-        ImmutableMethodImplementation expanded = new ImmutableMethodImplementation(
-            registerCount + 1,
-            method.getImplementation().getInstructions(),
-            method.getImplementation().getTryBlocks(),
-            method.getImplementation().getDebugItems());
-        MutableMethodImplementation mut = new MutableMethodImplementation(expanded);
-
-        // Adding one register shifts the parameter frame up by one. Copy it back
-        // before stock code runs, leaving v0 available to the injected hook.
-        int destinationRegister = 0;
-        int sourceRegister = 1;
-        int insertionIndex = 0;
-        if (!AccessFlags.STATIC.isSet(method.getAccessFlags())) {
-            mut.addInstruction(insertionIndex++, new BuilderInstruction32x(
-                Opcode.MOVE_OBJECT_16, destinationRegister++, sourceRegister++));
-        }
-        for (CharSequence parameterType : method.getParameterTypes()) {
-            String type = parameterType.toString();
-            if (type.equals("J") || type.equals("D")) {
-                mut.addInstruction(insertionIndex++, new BuilderInstruction32x(
-                    Opcode.MOVE_WIDE_16, destinationRegister, sourceRegister));
-                destinationRegister += 2;
-                sourceRegister += 2;
-            } else {
-                Opcode moveOpcode = (type.startsWith("L") || type.startsWith("["))
-                    ? Opcode.MOVE_OBJECT_16 : Opcode.MOVE_16;
-                mut.addInstruction(insertionIndex++, new BuilderInstruction32x(
-                    moveOpcode, destinationRegister++, sourceRegister++));
-            }
-        }
-        return mut;
     }
 }
