@@ -17,7 +17,7 @@ A **patcher** and **KernelSU WebUI controller** for Xiaomi HyperOS China ROMs th
 
 ## ⚡ Features & Highlights
 
-- 🚀 **Zero-PC On-Device Patching**: Patches live `services.jar` and `miui-services.jar` on the fly via Dalvik/ART runtime—compatible with HyperOS 3+ / Android 16+ and OTA updates.
+- 🚀 **Zero-PC On-Device Patching**: Patches live `services.jar` and `miui-services.jar` on the fly via Dalvik/ART runtime compatible with HyperOS 3+ / Android 16+ and OTA updates.
 - 🛡️ **Safe & Bootloop-Proof**: Transactional all-or-nothing patch engine with guaranteed 4-byte DEX alignment.
 - 🔋 **Zero Battery Drain & 0 Daemons**: Retains kernel cgroup freezer (`greezer`) for inactive apps; no background daemons running.
 - 🎛️ **KernelSU / APatch / Magisk WebUI**:
@@ -56,21 +56,10 @@ Many modern messaging and social apps (e.g. Telegram, WhatsApp, Discord, Slack) 
 - When apps group or bundle multiple unread messages, child notifications or summary rows are frequently routed to **secondary, silent, or internal channels** configured with `sound=null` and `vibrate=false`.
 - **The screen lights up without sound or vibration** because HyperOS wakes the display on incoming notification events, while Android suppresses sound and vibration for channels configured as silent or rate-limited.
 
-### How to Fix (WebUI Automation)
-1. Open the module's **WebUI**.
-2. Under **Sound Anti-Mute**, tap **⚡ Eliminate Sound Silencing** (activates all 6 sound and vibration protections).
-3. Under **Notification Channel Sync**, tap **🔄 Sync Notification Channels** (automatically enables sound, vibration, lock screen, and floating banner flags on app channels).
-4. Turn **Auto-Sync on Boot** **ON** to automatically maintain channel settings.
-
-<details>
-<summary><b>Manual Android Settings Fallback</b></summary>
-
-If you prefer to configure individual app categories manually:
-1. Open **Android Settings** $\rightarrow$ **Notifications & status bar** $\rightarrow$ **App notifications** $\rightarrow$ select the app (e.g. *Telegram*, *WhatsApp*).
-2. Tap **Notification categories**.
-3. Check all relevant categories (e.g. *Internal notifications*, *Silent*, *Group notifications*, *Messages*) $\rightarrow$ turn **Allow sound** and **Allow vibration** **ON**.
-4. In the app's in-app notification settings $\rightarrow$ ensure individual chats, groups, or topics are not muted.
-</details>
+> [!TIP]
+> **Manual Channel Configuration Hint**: If an app assigns certain messages or group chats to a silent channel, configure it manually:
+> - Go to **Android Settings** $\rightarrow$ **Notifications & status bar** $\rightarrow$ **App notifications** $\rightarrow$ select the app $\rightarrow$ **Notification categories**.
+> - Select the affected category (e.g. *Messages*, *Group notifications*, *Internal notifications*) and set **Allow sound** and **Allow vibration** to **ON**. Also ensure the conversation is not muted in the app's in-app settings.
 
 ---
 
