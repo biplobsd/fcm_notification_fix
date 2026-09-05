@@ -8,6 +8,106 @@
 # strategy than the install did.
 # ==============================================================================
 
+# PowerKeeper state touched by the module is stored in stock_settings.conf.
+# Each userTable backup records both row existence and the bgControl value so
+# restoration can remove rows that the module had to create.
+backup_powerkeeper_state() {
+    _pk_conf="$1"
+    [ -n "$_pk_conf" ] || return 1
+
+    if ! grep -q '^powerkeeper_gms_control=' "$_pk_conf" 2>/dev/null; then
+        _pk_gms_ctrl=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+          --where "name='gms_control'" 2>/dev/null)
+        _pk_query_status=$?
+        [ "$_pk_query_status" -eq 0 ] || return 1
+        _pk_gms_ctrl=$(printf '%s\n' "$_pk_gms_ctrl" | grep -o 'value=[a-z]*' | cut -d= -f2 | head -n1)
+        [ -z "$_pk_gms_ctrl" ] && _pk_gms_ctrl="true"
+        echo "powerkeeper_gms_control=${_pk_gms_ctrl}" >> "$_pk_conf"
+    fi
+
+    for _pk_pkg in com.google.android.gms com.android.vending; do
+        _pk_exists_key="powerkeeper_user:${_pk_pkg}:exists"
+        if grep -Fq "${_pk_exists_key}=" "$_pk_conf" 2>/dev/null; then
+            continue
+        fi
+
+        _pk_row=$(content query --uri content://com.miui.powerkeeper.configure/userTable \
+          --where "pkgName='${_pk_pkg}' AND userId=0" 2>/dev/null)
+        _pk_query_status=$?
+        [ "$_pk_query_status" -eq 0 ] || return 1
+
+        if printf '%s\n' "$_pk_row" | grep -q "pkgName=${_pk_pkg}"; then
+            _pk_bg_control=$(printf '%s\n' "$_pk_row" | grep -o 'bgControl=[^,]*' | cut -d= -f2- | head -n1 | tr -d '\r')
+            _pk_bg_control=$(printf '%s' "$_pk_bg_control" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -z "$_pk_bg_control" ] && _pk_bg_control="NULL"
+            echo "${_pk_exists_key}=1" >> "$_pk_conf"
+            echo "powerkeeper_user:${_pk_pkg}:bg_control=${_pk_bg_control}" >> "$_pk_conf"
+        else
+            echo "${_pk_exists_key}=0" >> "$_pk_conf"
+        fi
+    done
+}
+
+ensure_powerkeeper_backup() {
+    _pk_target_conf="$1"
+    [ -n "$_pk_target_conf" ] || return 1
+    _pk_tmp="${_pk_target_conf}.tmp.$$"
+    rm -f "$_pk_tmp" 2>/dev/null
+    if [ -f "$_pk_target_conf" ]; then
+        cp -f "$_pk_target_conf" "$_pk_tmp" 2>/dev/null || return 1
+    else
+        : > "$_pk_tmp" || return 1
+    fi
+
+    if ! backup_powerkeeper_state "$_pk_tmp"; then
+        rm -f "$_pk_tmp" 2>/dev/null
+        return 1
+    fi
+
+    chmod 0600 "$_pk_tmp" 2>/dev/null
+    mv -f "$_pk_tmp" "$_pk_target_conf" 2>/dev/null
+}
+
+restore_powerkeeper_state() {
+    _pk_conf="$1"
+    [ -f "$_pk_conf" ] || return 1
+
+    _pk_gms_ctrl=$(awk -F= '$1 == "powerkeeper_gms_control" { print substr($0, index($0, "=") + 1); exit }' "$_pk_conf" 2>/dev/null)
+    [ -z "$_pk_gms_ctrl" ] && _pk_gms_ctrl="true"
+    content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+      --method PUT_misc --arg gms_control --extra value:s:"$_pk_gms_ctrl" 2>/dev/null || true
+
+    for _pk_pkg in com.google.android.gms com.android.vending; do
+        _pk_existed=$(awk -F= -v key="powerkeeper_user:${_pk_pkg}:exists" \
+          '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$_pk_conf" 2>/dev/null)
+        if [ "$_pk_existed" = "0" ]; then
+            content delete --uri content://com.miui.powerkeeper.configure/userTable \
+              --where "pkgName='${_pk_pkg}' AND userId=0" 2>/dev/null || true
+        elif [ "$_pk_existed" = "1" ]; then
+            _pk_bg_control=$(awk -F= -v key="powerkeeper_user:${_pk_pkg}:bg_control" \
+              '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$_pk_conf" 2>/dev/null)
+            [ -n "$_pk_bg_control" ] || continue
+
+            _pk_row=$(content query --uri content://com.miui.powerkeeper.configure/userTable \
+              --where "pkgName='${_pk_pkg}' AND userId=0" 2>/dev/null)
+            _pk_query_status=$?
+            [ "$_pk_query_status" -eq 0 ] || continue
+            if [ "$_pk_bg_control" = "NULL" ] || [ "$_pk_bg_control" = "null" ]; then
+                _pk_binding="bgControl:n:"
+            else
+                _pk_binding="bgControl:s:${_pk_bg_control}"
+            fi
+            if printf '%s\n' "$_pk_row" | grep -q "pkgName=${_pk_pkg}"; then
+                content update --uri content://com.miui.powerkeeper.configure/userTable \
+                  --bind "$_pk_binding" --where "pkgName='${_pk_pkg}' AND userId=0" 2>/dev/null || true
+            else
+                content insert --uri content://com.miui.powerkeeper.configure/userTable \
+                  --bind pkgName:s:"$_pk_pkg" --bind userId:i:0 --bind "$_pk_binding" 2>/dev/null || true
+            fi
+        fi
+    done
+}
+
 # Returns a composite signature that uniquely identifies the OS, partition-level framework jars,
 # and carrier/XMS hotfix sub-versions (e.g. 3.0.307.0.WOKCNXM.C11).
 # Any change to system, system_ext, or OS build triggers a mismatch.

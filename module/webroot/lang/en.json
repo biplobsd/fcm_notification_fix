@@ -140,6 +140,7 @@
   "parity.granted": "ALLOWED",
   "parity.restricted": "RESTRICTED",
   "parity.not_applicable": "NOT APPLICABLE",
+  "parity.unknown": "UNKNOWN",
   "parity.toast.disarmed": "GMS Firewall disarmed ✓",
   "parity.toast.enabled": "GMS Firewall enabled",
   "parity.toast.error": "Failed to update firewall state"

@@ -18,6 +18,8 @@ if [ -z "$MODDIR" ] || [ "$MODDIR" = "." ] || [ "$MODDIR" = "$0" ] || [ ! -d "$M
     fi
 fi
 
+[ -f "$MODDIR/common.sh" ] && . "$MODDIR/common.sh"
+
 # ==============================================================================
 # 1. Unmount Active In-Memory Stealth Framework Mounts (If Live & Owned)
 # ==============================================================================
@@ -121,14 +123,12 @@ rm -rf /data/local/tmp/fcm_* 2>/dev/null
 rm -rf /data/local/tmp/fcm_patch_stage_* 2>/dev/null
 rm -rf /data/local/tmp/fcm_repatch_* 2>/dev/null
 
-# ── Restore PowerKeeper GmsObserver to stock behavior ──
-pk_ctrl="true"
-if [ -f "$MODDIR/stock_settings.conf" ]; then
-    saved_pk=$(awk -F= '$1 == "powerkeeper_gms_control" { print $2; exit }' "$MODDIR/stock_settings.conf" 2>/dev/null)
-    [ -n "$saved_pk" ] && pk_ctrl="$saved_pk"
+# ── Restore PowerKeeper GmsObserver and userTable rows to stock behavior ──
+if ! command -v restore_powerkeeper_state >/dev/null 2>&1 || \
+   ! restore_powerkeeper_state "$MODDIR/stock_settings.conf"; then
+    content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+      --method PUT_misc --arg gms_control --extra value:s:true 2>/dev/null || true
 fi
-content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
-  --method PUT_misc --arg gms_control --extra value:s:"$pk_ctrl" 2>/dev/null || true
 
 # ==============================================================================
 # 4. Stage Framework-State Restoration for the Next Completed Boot

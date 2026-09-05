@@ -492,13 +492,14 @@
         const pkCtrl = parity.powerkeeper_gms_control;
         currentPkCtrl = pkCtrl;
         const isPkDisarmed = pkCtrl === 'false';
-        const isPkNA = pkCtrl === 'global_na' || pkCtrl === 'unknown';
+        const isPkNA = pkCtrl === 'global_na';
+        const isPkUnknown = pkCtrl === 'unknown';
 
         const switchPk = document.getElementById('switchPkGms');
         const lblSwitchPk = document.getElementById('lblSwitchPkGms');
 
         if (switchPk) {
-            if (isPkNA) {
+            if (isPkNA || isPkUnknown) {
                 switchPk.checked = false;
                 switchPk.disabled = true;
                 if (lblSwitchPk) {
@@ -522,6 +523,9 @@
             } else if (isPkNA) {
                 pkBadge.className = 'status-pill status-running';
                 pkBadge.textContent = t('parity.not_applicable');
+            } else if (isPkUnknown) {
+                pkBadge.className = 'status-pill status-stopped';
+                pkBadge.textContent = t('parity.unknown');
             } else {
                 pkBadge.className = 'status-pill status-stopped';
                 pkBadge.textContent = t('parity.active');
@@ -551,8 +555,10 @@
         const spinPk = document.getElementById('spinPkGms');
         const badgePk = document.getElementById('badgePkGms');
 
-        if (currentPkCtrl === 'global_na') {
-            showToast(t('parity.not_applicable') || 'Not applicable on Global ROM');
+        if (currentPkCtrl === 'global_na' || currentPkCtrl === 'unknown') {
+            showToast(currentPkCtrl === 'global_na'
+                ? (t('parity.not_applicable') || 'Not applicable on Global ROM')
+                : (t('parity.toast.error') || 'PowerKeeper state is unavailable'));
             if (switchPk) switchPk.checked = false;
             return;
         }
@@ -581,6 +587,7 @@
                         powerkeeper_gms_control: currentPkCtrl,
                         v18_active: currentV18Active
                     });
+                    saveStateCache();
                     if (currentPkCtrl === 'false') {
                         showToast(t('parity.toast.disarmed') || 'GMS Firewall disarmed ✓');
                     } else {

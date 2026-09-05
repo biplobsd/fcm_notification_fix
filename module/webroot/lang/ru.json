@@ -140,6 +140,7 @@
   "parity.granted": "РАЗРЕШЕНО",
   "parity.restricted": "ОГРАНИЧЕНО",
   "parity.not_applicable": "НЕ ТРЕБУЕТСЯ",
+  "parity.unknown": "НЕИЗВЕСТНО",
   "parity.toast.disarmed": "Файрвол GMS отключен ✓",
   "parity.toast.enabled": "Файрвол GMS включен",
   "parity.toast.error": "Не удалось обновить статус файрвола"

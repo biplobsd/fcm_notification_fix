@@ -17,6 +17,8 @@ SYNCED_CACHE_FILE="$DATA_DIR/fcm_synced_channels.txt"
 MODDIR="${0%/*}/../.."
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules/fcm_notification_fix"
 [ -d "$MODDIR" ] || MODDIR="/data/adb/modules_update/fcm_notification_fix"
+[ -f "$MODDIR/common.sh" ] && . "$MODDIR/common.sh"
+STOCK_CONF="$MODDIR/stock_settings.conf"
 
 acquire_sound_lock() {
     _retries=30
@@ -48,12 +50,14 @@ release_sound_lock() {
 }
 
 disarm_powerkeeper_gms() {
+    command -v ensure_powerkeeper_backup >/dev/null 2>&1 || return 1
+    ensure_powerkeeper_backup "$STOCK_CONF" || return 1
     content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
       --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null
     for _p in com.google.android.gms com.android.vending; do
       content update --uri content://com.miui.powerkeeper.configure/userTable \
-        --bind bgControl:s:noRestrict --where "pkgName='${_p}'" 2>/dev/null
-      _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}'" 2>/dev/null | grep -o 'pkgName=' | head -n1)
+        --bind bgControl:s:noRestrict --where "pkgName='${_p}' AND userId=0" 2>/dev/null
+      _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}' AND userId=0" 2>/dev/null | grep -o 'pkgName=' | head -n1)
       if [ -z "$_has_entry" ]; then
         content insert --uri content://com.miui.powerkeeper.configure/userTable \
           --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null
@@ -61,6 +65,7 @@ disarm_powerkeeper_gms() {
     done
     iptables -F gms_wall 2>/dev/null
     ip6tables -F gms_wall 2>/dev/null
+    return 0
 }
 
 read_alert_fix_config() {
@@ -790,19 +795,20 @@ case "$ACTION" in
             fi
         fi
         if [ "$_target" = "false" ]; then
-            content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
-              --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null
-            (
-                for _p in com.google.android.gms com.android.vending; do
-                    content update --uri content://com.miui.powerkeeper.configure/userTable \
-                      --bind bgControl:s:noRestrict --where "pkgName='${_p}'" 2>/dev/null
-                done
-                iptables -F gms_wall 2>/dev/null
-                ip6tables -F gms_wall 2>/dev/null
-            ) >/dev/null 2>&1 &
+            if ! disarm_powerkeeper_gms; then
+                printf '{"status":"error","message":"Unable to back up PowerKeeper state"}\n'
+                exit 1
+            fi
         else
-            content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
-              --method PUT_misc --arg gms_control --extra value:s:true 2>/dev/null
+            if command -v restore_powerkeeper_state >/dev/null 2>&1 && restore_powerkeeper_state "$STOCK_CONF"; then
+                _target=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+                  --where "name='gms_control'" 2>/dev/null | grep -o 'value=[a-z]*' | cut -d= -f2 | head -n1)
+                [ -z "$_target" ] && _target="true"
+            else
+                content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+                  --method PUT_misc --arg gms_control --extra value:s:true 2>/dev/null
+                _target="true"
+            fi
         fi
         printf '{"status":"ok","powerkeeper_gms_control":"%s"}\n' "$_target"
         ;;

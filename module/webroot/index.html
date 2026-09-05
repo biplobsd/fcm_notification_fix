@@ -398,7 +398,7 @@
                 </svg>
                 <span data-i18n="parity.title">GMS Global Parity</span>
             </div>
-            <span id="parityBadge" class="status-pill status-running" data-i18n="parity.badge.active">PARITY ACTIVE</span>
+            <span id="parityBadge" class="status-pill status-stopped"><span class="skeleton skeleton-text" style="width: 55px; height: 11px;"></span></span>
         </div>
 
         <div class="mode-desc" data-i18n="parity.desc" style="margin-bottom: 8px;">
@@ -414,8 +414,8 @@
                 <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
                     <span class="status-pill status-running" id="badgePkGms"><span class="skeleton skeleton-text" style="width: 44px; height: 11px;"></span></span>
                     <div class="spinner-small" id="spinPkGms" style="display: none;"></div>
-                    <label class="switch" id="lblSwitchPkGms" onclick="event.stopPropagation()">
-                        <input type="checkbox" id="switchPkGms" onchange="onTogglePkGmsSwitch(this.checked)">
+                    <label class="switch" id="lblSwitchPkGms" style="opacity: 0.35; pointer-events: none;" onclick="event.stopPropagation()">
+                        <input type="checkbox" id="switchPkGms" disabled onchange="onTogglePkGmsSwitch(this.checked)">
                         <span class="slider green"></span>
                     </label>
                 </div>
