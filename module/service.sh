@@ -102,6 +102,12 @@ if [ ! -f "$STOCK_CONF" ]; then
         echo "gms_appop:${op}=${op_mode}" >> "$STOCK_TMP"
     done
 
+    # Backup initial PowerKeeper gms_control state
+    _gms_ctrl=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+      --where "name='gms_control'" 2>/dev/null | grep -o 'value=[a-z]*' | cut -d= -f2 | head -n1)
+    [ -z "$_gms_ctrl" ] && _gms_ctrl="true"
+    echo "powerkeeper_gms_control=${_gms_ctrl}" >> "$STOCK_TMP"
+
     chmod 0600 "$STOCK_TMP" 2>/dev/null
     mv -f "$STOCK_TMP" "$STOCK_CONF" 2>/dev/null
 fi
@@ -154,6 +160,36 @@ if [ -n "$GMS_UID" ]; then
       esac
     fi
   done
+
+  # ── Gap 1: Disarm PowerKeeper GmsObserver Netd Firewall & DNS Blocker ──────
+  # PowerKeeper's GmsObserver creates iptables CHAIN_GMS_WALL to block all GMS
+  # TCP/DNS when Google servers are unreachable. On CN ROM, defaultState=true
+  # (IS_INTERNATIONAL_BUILD=false). Setting gms_control=false completely disarms
+  # the firewall chain, DNS blocker, wakelock revocation, and alarm suppression.
+  content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+    --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null
+
+  # PowerKeeper GmsObserver.isGmsControlEnabled() explicitly inspects com.android.vending
+  # in userTable: if bgControl == "noRestrict", isGmsControlEnabled() returns false.
+  # We enforce "noRestrict" across both Play Store and Google Play Services.
+  for _p in com.google.android.gms com.android.vending; do
+    content update --uri content://com.miui.powerkeeper.configure/userTable \
+      --bind bgControl:s:noRestrict --where "pkgName='${_p}'" 2>/dev/null
+    _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}'" 2>/dev/null | grep -o 'pkgName=' | head -n1)
+    if [ -z "$_has_entry" ]; then
+      content insert --uri content://com.miui.powerkeeper.configure/userTable \
+        --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null
+    fi
+  done
+
+  # Flush any existing gms_wall iptables chains
+  iptables -F gms_wall 2>/dev/null
+  ip6tables -F gms_wall 2>/dev/null
+
+  # ── Gap 2: GMS Socket Recovery ─────────────────────────────────────────────
+  # Trigger GCM_RECONNECT broadcast to force immediate MCS socket establishment
+  am broadcast -a com.google.android.intent.action.GCM_RECONNECT \
+    -p com.google.android.gms >/dev/null 2>&1
 fi
 
 # ==============================================================================

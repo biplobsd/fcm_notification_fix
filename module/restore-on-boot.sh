@@ -69,6 +69,15 @@ if [ -n "$GMS_UID" ]; then
     cmd greezer monitor "$GMS_UID" 2>/dev/null || true
 fi
 
+# Restore PowerKeeper gms_control to stock
+pk_ctrl="true"
+if [ -f "$RESTORE_CONF" ]; then
+    saved_pk=$(awk -F= '$1 == "powerkeeper_gms_control" { print $2; exit }' "$RESTORE_CONF" 2>/dev/null)
+    [ -n "$saved_pk" ] && pk_ctrl="$saved_pk"
+fi
+content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+  --method PUT_misc --arg gms_control --extra value:s:"$pk_ctrl" 2>/dev/null || true
+
 if [ -f "$RESTORE_CONF" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%$'\r'}"

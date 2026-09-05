@@ -121,6 +121,15 @@ rm -rf /data/local/tmp/fcm_* 2>/dev/null
 rm -rf /data/local/tmp/fcm_patch_stage_* 2>/dev/null
 rm -rf /data/local/tmp/fcm_repatch_* 2>/dev/null
 
+# ── Restore PowerKeeper GmsObserver to stock behavior ──
+pk_ctrl="true"
+if [ -f "$MODDIR/stock_settings.conf" ]; then
+    saved_pk=$(awk -F= '$1 == "powerkeeper_gms_control" { print $2; exit }' "$MODDIR/stock_settings.conf" 2>/dev/null)
+    [ -n "$saved_pk" ] && pk_ctrl="$saved_pk"
+fi
+content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+  --method PUT_misc --arg gms_control --extra value:s:"$pk_ctrl" 2>/dev/null || true
+
 # ==============================================================================
 # 4. Stage Framework-State Restoration for the Next Completed Boot
 # ==============================================================================
