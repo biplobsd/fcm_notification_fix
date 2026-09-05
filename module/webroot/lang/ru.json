@@ -126,5 +126,21 @@
   "sync.toast.done": "Разрешения каналов успешно синхронизированы ✓",
   "sync.toast.synced_new": "Настроено новых каналов: {n} (всего: {total}) ✓",
   "sync.toast.all_up_to_date": "Все каналы ({total}) уже настроены и актуальны ✓",
-  "sync.toast.saved": "Настройки синхронизации сохранены ✓"
+  "sync.toast.saved": "Настройки синхронизации сохранены ✓",
+  "parity.title": "Глобальный паритет GMS",
+  "parity.badge.active": "АКТИВЕН",
+  "parity.badge.partial": "ЧАСТИЧНО",
+  "parity.desc": "Применяет сетевые и системные правила Global ROM на China ROM.",
+  "parity.feat.pk": "Файрвол PowerKeeper GMS",
+  "parity.feat.pk.hint": "Отключает блокировку iptables CHAIN_GMS_WALL и DNS",
+  "parity.feat.fsi": "Полноэкранный вызов VoIP",
+  "parity.feat.fsi.hint": "Сохраняет экран ответа на заблокированном экране",
+  "parity.disarmed": "ОТКЛЮЧЕН",
+  "parity.active": "ФАЙРВОЛ ВКЛ",
+  "parity.granted": "РАЗРЕШЕНО",
+  "parity.restricted": "ОГРАНИЧЕНО",
+  "parity.not_applicable": "НЕ ТРЕБУЕТСЯ",
+  "parity.toast.disarmed": "Файрвол GMS отключен ✓",
+  "parity.toast.enabled": "Файрвол GMS включен",
+  "parity.toast.error": "Не удалось обновить статус файрвола"
 }
