@@ -162,7 +162,7 @@ if [ -n "$GITHUB_STEP_SUMMARY" ]; then
 ### 🧪 HyperOS FCM Patcher Verification: \`$TARGET_LABEL\`
 - **Result**: $([ $TEST_STATUS -eq 0 ] && echo "PASS ✓" || echo "FAIL ✗")
 - **Target Path**: \`$FIXTURES_DIR\`
-- **Verified**: FCM Wake Filter (0x20), Screen-OFF Greeze Thaw, GMS Neutralizer, AutoStart Bypass, Anti-Mute, and 4-byte DEX alignment.
+- **Verified**: FCM Wake Filter (0x20), Screen-OFF Greeze Thaw, GMS Neutralizer, AutoStart Bypass, Anti-Mute, 4-byte DEX alignment, and Multi-DEX Linkage Referential Integrity.
 EOF
 fi
 

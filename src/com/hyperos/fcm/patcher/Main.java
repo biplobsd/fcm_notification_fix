@@ -1,6 +1,7 @@
 package com.hyperos.fcm.patcher;
 
 import com.hyperos.fcm.patcher.common.DexUtils;
+import com.hyperos.fcm.patcher.common.LinkageVerifier;
 import com.hyperos.fcm.patcher.common.PatchResult;
 import com.hyperos.fcm.patcher.common.PatcherStrategy;
 import com.hyperos.fcm.patcher.hyperos.os3.android16.cn.Hyperos3A16CnPatcherStrategy;
@@ -115,6 +116,15 @@ public class Main {
         if (v1Result.v14_playsound_unthrottle) {
             System.out.println("  [Vector 14] Unthrottled PlaySound Bypass:      PASS ✓  (" + v1Result.v14_note + ")");
         }
+        if (miuiResult.v17_running_compat) {
+            System.out.println("  [Vector 17] Running Compatibility Filter:      PASS ✓  (" + miuiResult.v17_note + ")");
+        }
+        if (miuiResult.v18_fullscreen_intent) {
+            System.out.println("  [Vector 18] FullScreenIntent VoIP Filter:      PASS ✓  (" + miuiResult.v18_note + ")");
+        }
+        if (miuiResult.v19_alarm_whitelist) {
+            System.out.println("  [Vector 19] AlarmManager Global Whitelist:     PASS ✓  (" + miuiResult.v19_note + ")");
+        }
         System.out.println("-------------------------------------------------");
 
         boolean allPassed = v1Result.v1_wake_flag && miuiResult.v2_screenoff_thaw && 
@@ -136,6 +146,20 @@ public class Main {
         if (!stagedServicesDest.exists() || stagedServicesDest.length() < 1000000 ||
             !stagedMiuiDest.exists() || stagedMiuiDest.length() < 1000000) {
             System.err.println("[!] ERROR: Output JAR files are missing or incomplete (< 1MB).");
+            if (stagedServicesDest.exists()) stagedServicesDest.delete();
+            if (stagedMiuiDest.exists()) stagedMiuiDest.delete();
+            System.exit(1);
+        }
+
+        // 6. Bytecode Linkage & Referential Integrity Verification
+        System.out.println("-------------------------------------------------");
+        System.out.println("[*] Phase 3/3: Verifying Bytecode Linkage & Referential Integrity...");
+        boolean servicesLinkageOk = LinkageVerifier.verifyJarLinkage(stagedServicesDest, "Lcom/android/server/am/FcmWakeFilter");
+        boolean miuiLinkageOk = LinkageVerifier.verifyJarLinkage(stagedMiuiDest, "Lcom/android/server/am/FcmWakeFilter");
+
+        if (!servicesLinkageOk || !miuiLinkageOk) {
+            System.err.println("[!] TRANSACTION REJECTED: Bytecode linkage failure detected.");
+            System.err.println("    Prevented bootloop by aborting commit. Cleaning up staged files.");
             if (stagedServicesDest.exists()) stagedServicesDest.delete();
             if (stagedMiuiDest.exists()) stagedMiuiDest.delete();
             System.exit(1);

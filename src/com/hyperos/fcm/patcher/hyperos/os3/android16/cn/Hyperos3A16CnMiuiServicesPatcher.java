@@ -20,6 +20,7 @@ import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
 import com.android.tools.smali.dexlib2.immutable.instruction.*;
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableFieldReference;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableStringReference;
 import com.android.tools.smali.dexlib2.writer.pool.DexPool;
@@ -47,9 +48,9 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             List<String> entryNames = container.getDexEntryNames();
             System.out.println("[HyperOS 3.0 / A16 CN miui-services.jar] Scanning Multi-DEX container (" + entryNames.size() + " DEX entries)...");
 
-            ClassDef fcmFilterClassDef = DexUtils.findClassInJarOrClasspath(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
-            if (fcmFilterClassDef != null) {
-                System.out.println("  -> [FOUND] Located FcmWakeFilter ClassDef for miui-services.jar injection");
+            List<ClassDef> fcmFilterClassDefs = DexUtils.findClassesByPrefix(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
+            if (!fcmFilterClassDefs.isEmpty()) {
+                System.out.println("  -> [FOUND] Located " + fcmFilterClassDefs.size() + " FcmWakeFilter ClassDef(s) for miui-services.jar injection");
             }
 
             String carrierEntryName = DexUtils.selectCarrierDexEntry(container);
@@ -57,7 +58,16 @@ public class Hyperos3A16CnMiuiServicesPatcher {
 
             Map<String, byte[]> replacementDexMap = new HashMap<>();
 
-            for (String entryName : entryNames) {
+            List<ClassDef> spilledClasses = new ArrayList<>();
+
+            // Ensure carrierEntryName is processed last among existing DEX entries so that any
+            // classes spilled from earlier entries are ready to be injected into carrierEntryName.
+            List<String> orderedEntryNames = new ArrayList<>(entryNames);
+            if (orderedEntryNames.remove(carrierEntryName)) {
+                orderedEntryNames.add(carrierEntryName);
+            }
+
+            for (String entryName : orderedEntryNames) {
                 MultiDexContainer.DexEntry<? extends DexBackedDexFile> dexEntry = container.getEntry(entryName);
                 if (dexEntry == null) continue;
                 DexBackedDexFile dexFile = dexEntry.getDexFile();
@@ -271,29 +281,224 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
+                    // Vector 17: ActivityManagerServiceImpl.checkRunningCompatibility (Filter-Driven Wake Path)
+                    } else if (type.equals("Lcom/android/server/am/ActivityManagerServiceImpl;")) {
+                        System.out.println("  -> Located ActivityManagerServiceImpl in " + entryName);
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            List<? extends CharSequence> params = m.getParameterTypes();
+                            if (m.getName().equals("checkRunningCompatibility") && params.size() == 4
+                                    && params.get(0).toString().equals("Landroid/content/ComponentName;")
+                                    && m.getImplementation() != null) {
+                                System.out.println("    -> Hooking checkRunningCompatibility(ComponentName,...) with FcmWakeFilter");
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                int totalRegs = mut.getRegisterCount();
+                                // p0 is this (totalRegs - 5), p1 is ComponentName (totalRegs - 4)
+                                int compReg = totalRegs - 4;
+
+                                int replaceIdx = -1;
+                                int targetReg = -1;
+                                int idx = 0;
+                                for (BuilderInstruction ins : mut.getInstructions()) {
+                                    if (ins instanceof BuilderInstruction21c) {
+                                        BuilderInstruction21c refIns = (BuilderInstruction21c) ins;
+                                        if (refIns.getReference() instanceof FieldReference) {
+                                            FieldReference fr = (FieldReference) refIns.getReference();
+                                            if (fr.getName().equals("IS_INTERNATIONAL_BUILD") && fr.getDefiningClass().contains("Build")) {
+                                                replaceIdx = idx;
+                                                targetReg = refIns.getRegisterA();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    idx++;
+                                }
+
+                                if (replaceIdx != -1) {
+                                    ImmutableMethodReference hookRef = new ImmutableMethodReference(
+                                        "Lcom/android/server/am/FcmWakeFilter;", "shouldAllowRunningCompatibility",
+                                        Collections.singletonList("Landroid/content/ComponentName;"), "Z");
+                                    mut.replaceInstruction(replaceIdx, new BuilderInstruction22x(Opcode.MOVE_OBJECT_FROM16, targetReg, compReg));
+                                    mut.addInstruction(replaceIdx + 1, new BuilderInstruction3rc(Opcode.INVOKE_STATIC_RANGE, targetReg, 1, hookRef));
+                                    mut.addInstruction(replaceIdx + 2, new BuilderInstruction11x(Opcode.MOVE_RESULT, targetReg));
+
+                                    result.v17_running_compat = true;
+                                    result.v17_note = "ActivityManagerServiceImpl.checkRunningCompatibility (Filter-Mode Hook)";
+                                    dexModified = true;
+                                    System.out.println("    -> [PASS] Hooked checkRunningCompatibility with FcmWakeFilter.shouldAllowRunningCompatibility");
+                                } else {
+                                    System.err.println("    -> [WARNING] Build.IS_INTERNATIONAL_BUILD not found in checkRunningCompatibility");
+                                }
+
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                    // Vector 18: NotificationManagerServiceImpl.checkFullScreenIntent (Filter-Driven VoIP Call Screen)
+                    } else if (type.equals("Lcom/android/server/notification/NotificationManagerServiceImpl;")) {
+                        System.out.println("  -> Located NotificationManagerServiceImpl in " + entryName);
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("checkFullScreenIntent") && m.getReturnType().equals("V") && m.getImplementation() != null) {
+                                System.out.println("    -> Hooking checkFullScreenIntent with FcmWakeFilter");
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+                                int totalRegs = mut.getRegisterCount();
+                                int pkgReg = totalRegs - 1; // Last param is String pkg
+
+                                int replaceIdx = -1;
+                                int targetReg = -1;
+                                int idx = 0;
+                                for (BuilderInstruction ins : mut.getInstructions()) {
+                                    if (ins instanceof BuilderInstruction21c) {
+                                        BuilderInstruction21c refIns = (BuilderInstruction21c) ins;
+                                        if (refIns.getReference() instanceof FieldReference) {
+                                            FieldReference fr = (FieldReference) refIns.getReference();
+                                            if (fr.getName().equals("IS_INTERNATIONAL_BUILD") && fr.getDefiningClass().contains("Build")) {
+                                                replaceIdx = idx;
+                                                targetReg = refIns.getRegisterA();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    idx++;
+                                }
+
+                                if (replaceIdx != -1) {
+                                    ImmutableMethodReference hookRef = new ImmutableMethodReference(
+                                        "Lcom/android/server/am/FcmWakeFilter;", "shouldBypassFullScreenIntent",
+                                        Collections.singletonList("Ljava/lang/String;"), "Z");
+                                    mut.replaceInstruction(replaceIdx, new BuilderInstruction22x(Opcode.MOVE_OBJECT_FROM16, targetReg, pkgReg));
+                                    mut.addInstruction(replaceIdx + 1, new BuilderInstruction3rc(Opcode.INVOKE_STATIC_RANGE, targetReg, 1, hookRef));
+                                    mut.addInstruction(replaceIdx + 2, new BuilderInstruction11x(Opcode.MOVE_RESULT, targetReg));
+
+                                    result.v18_fullscreen_intent = true;
+                                    result.v18_note = "NotificationManagerServiceImpl.checkFullScreenIntent (Filter-Mode Hook)";
+                                    dexModified = true;
+                                    System.out.println("    -> [PASS] Hooked checkFullScreenIntent with FcmWakeFilter.shouldBypassFullScreenIntent");
+                                } else {
+                                    System.err.println("    -> [WARNING] Build.IS_INTERNATIONAL_BUILD not found in checkFullScreenIntent");
+                                }
+
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
+                    // Vector 19: AlarmManagerServiceStubImpl.init (IS_INTERNATIONAL_BUILD -> const/4 1)
+                    } else if (type.equals("Lcom/android/server/alarm/AlarmManagerServiceStubImpl;")) {
+                        System.out.println("  -> Located AlarmManagerServiceStubImpl in " + entryName);
+                        List<Method> methods = new ArrayList<>();
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("init") && m.getImplementation() != null) {
+                                System.out.println("    -> Patching AlarmManagerServiceStubImpl.init for IS_INTERNATIONAL_BUILD bypass");
+                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
+
+                                int idx = 0;
+                                for (BuilderInstruction ins : mut.getInstructions()) {
+                                    if (ins instanceof BuilderInstruction21c) {
+                                        BuilderInstruction21c refIns = (BuilderInstruction21c) ins;
+                                        if (refIns.getReference() instanceof FieldReference) {
+                                            FieldReference fr = (FieldReference) refIns.getReference();
+                                            if (fr.getName().equals("IS_INTERNATIONAL_BUILD") && fr.getDefiningClass().contains("Build")) {
+                                                mut.replaceInstruction(idx, new BuilderInstruction11n(Opcode.CONST_4, refIns.getRegisterA(), 1));
+                                                result.v19_alarm_whitelist = true;
+                                                result.v19_note = "AlarmManagerServiceStubImpl.init (IS_INTERNATIONAL_BUILD -> const/4 1)";
+                                                dexModified = true;
+                                                System.out.println("    -> Replaced Build.IS_INTERNATIONAL_BUILD with const/4 1 in init");
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    idx++;
+                                }
+
+                                methods.add(new ImmutableMethod(
+                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
+                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
+                            } else {
+                                methods.add(m);
+                            }
+                        }
+                        classesList.add(new ImmutableClassDef(
+                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
+                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+
                     } else {
                         classesList.add(cd);
                     }
                 }
 
-                // Inject FcmWakeFilter into designated carrier entry to prevent 64K method table overflow
-                if (entryName.equals(carrierEntryName) && fcmFilterClassDef != null) {
-                    classesList.add(fcmFilterClassDef);
-                    dexModified = true;
-                    System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into carrier entry " + entryName);
+                // Inject FcmWakeFilter and any spilled classes into designated carrier entry to prevent 64K method table overflow
+                if (entryName.equals(carrierEntryName)) {
+                    if (!fcmFilterClassDefs.isEmpty()) {
+                        classesList.addAll(fcmFilterClassDefs);
+                        dexModified = true;
+                        System.out.println("  -> [PASS] Injected " + fcmFilterClassDefs.size() + " FcmWakeFilter ClassDef(s) into carrier entry " + entryName);
+                    }
+                    if (!spilledClasses.isEmpty()) {
+                        classesList.addAll(spilledClasses);
+                        dexModified = true;
+                        System.out.println("  -> [PASS] Injected " + spilledClasses.size() + " spilled classes into carrier entry " + entryName);
+                        spilledClasses.clear();
+                    }
                 }
 
                 if (dexModified) {
-                    final Set<ClassDef> classesSet = new LinkedHashSet<>(classesList);
-                    DexFile outDexFile = new DexFile() {
-                        @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
-                        @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
-                    };
-
                     File tempDex = new File(workDir, "patched_hyperos3_a16_cn_miui_" + entryName);
-                    DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
-                    byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
-                    tempDex.delete();
+                    byte[] patchedBytes = null;
+                    int spillAttempts = 0;
+
+                    while (true) {
+                        try {
+                            final Set<ClassDef> classesSet = new LinkedHashSet<>(classesList);
+                            DexFile outDexFile = new DexFile() {
+                                @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
+                                @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
+                            };
+
+                            DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
+                            patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
+                            tempDex.delete();
+                            break;
+                        } catch (Exception e) {
+                            String fullErr = e.toString();
+                            Throwable t = e.getCause();
+                            while (t != null) {
+                                fullErr += " " + t.toString();
+                                t = t.getCause();
+                            }
+                            if (fullErr.contains("Unsigned short value out of range") && spillAttempts < 10 && classesList.size() > 50) {
+                                spillAttempts++;
+                                System.out.println("  -> [DEX-GUARD] 64K method table limit exceeded in " + entryName + " (attempt " + spillAttempts + "). Spilling tail classes to " + carrierEntryName + "...");
+                                int spilledCount = 0;
+                                int idx = classesList.size() - 1;
+                                while (idx >= 0 && spilledCount < 30) {
+                                    ClassDef candidate = classesList.get(idx);
+                                    if (!isProtectedClass(candidate.getType())) {
+                                        classesList.remove(idx);
+                                        spilledClasses.add(candidate);
+                                        spilledCount++;
+                                    }
+                                    idx--;
+                                }
+                            } else {
+                                throw e;
+                            }
+                        }
+                    }
 
                     replacementDexMap.put(entryName, patchedBytes);
                     System.out.println("  -> [PASS] Patched and buffered " + entryName + " (" + patchedBytes.length + " bytes)");
@@ -301,8 +506,12 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             }
 
             // If carrierEntryName was a newly allocated DEX entry (not present in original JAR), synthesize it
-            if (fcmFilterClassDef != null && !replacementDexMap.containsKey(carrierEntryName)) {
-                final Set<ClassDef> classesSet = Collections.singleton(fcmFilterClassDef);
+            if (!replacementDexMap.containsKey(carrierEntryName) && (!fcmFilterClassDefs.isEmpty() || !spilledClasses.isEmpty())) {
+                final Set<ClassDef> classesSet = new LinkedHashSet<>();
+                classesSet.addAll(fcmFilterClassDefs);
+                classesSet.addAll(spilledClasses);
+                int count = spilledClasses.size();
+                spilledClasses.clear();
                 DexFile outDexFile = new DexFile() {
                     @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
                     @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
@@ -314,7 +523,45 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                 tempDex.delete();
 
                 replacementDexMap.put(carrierEntryName, patchedBytes);
-                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into newly allocated carrier entry " + carrierEntryName);
+                System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef (" + count + " spilled classes) into carrier entry " + carrierEntryName);
+            }
+
+            // If there are still spilled classes (e.g. carrier entry itself had to spill), allocate classes(N+1).dex
+            if (!spilledClasses.isEmpty()) {
+                int maxDexIndex = 1;
+                for (String existing : entryNames) {
+                    if (existing.equals("classes.dex")) {
+                        maxDexIndex = Math.max(maxDexIndex, 1);
+                    } else if (existing.startsWith("classes") && existing.endsWith(".dex")) {
+                        try {
+                            int idx = Integer.parseInt(existing.substring(7, existing.length() - 4));
+                            maxDexIndex = Math.max(maxDexIndex, idx);
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+                for (String existing : replacementDexMap.keySet()) {
+                    if (existing.startsWith("classes") && existing.endsWith(".dex")) {
+                        try {
+                            int idx = Integer.parseInt(existing.substring(7, existing.length() - 4));
+                            maxDexIndex = Math.max(maxDexIndex, idx);
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+                String overflowEntryName = "classes" + (maxDexIndex + 1) + ".dex";
+                final Set<ClassDef> classesSet = new LinkedHashSet<>(spilledClasses);
+                DexFile outDexFile = new DexFile() {
+                    @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
+                    @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }
+                };
+
+                File tempDex = new File(workDir, "patched_hyperos3_a16_cn_miui_" + overflowEntryName);
+                DexPool.writeTo(tempDex.getAbsolutePath(), outDexFile);
+                byte[] patchedBytes = java.nio.file.Files.readAllBytes(tempDex.toPath());
+                tempDex.delete();
+
+                replacementDexMap.put(overflowEntryName, patchedBytes);
+                System.out.println("  -> [PASS] Injected " + spilledClasses.size() + " spilled classes into newly allocated overflow entry " + overflowEntryName);
+                spilledClasses.clear();
             }
 
             if (!result.v2_screenoff_thaw) {
@@ -336,7 +583,7 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             AlignedJarRepacker.repackJar(sourceJar, replacementDexMap, destJar);
 
             result.success = true;
-            result.details = "Vectors 2, 3, 4, 8, 9 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
+            result.details = "Vectors 2, 3, 4, 8, 9, 17, 18, 19 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
             return result;
 
         } catch (Exception e) {
@@ -345,5 +592,17 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             e.printStackTrace();
             return result;
         }
+    }
+
+    private static boolean isProtectedClass(String type) {
+        return type.equals("Lcom/miui/server/greeze/GreezeManagerService;")
+            || type.equals("Lcom/android/server/am/BroadcastQueueModernStubImpl;")
+            || type.equals("Lcom/android/server/am/BroadcastQueueImpl;")
+            || type.equals("Lcom/android/server/notification/NotificationManagerServiceImpl;")
+            || type.equals("Lcom/android/server/am/ActivityManagerServiceImpl;")
+            || type.equals("Lcom/android/server/alarm/AlarmManagerServiceStubImpl;")
+            || type.equals("Lcom/miui/server/smartpower/PolicyManager;")
+            || type.equals("Lcom/android/server/am/AurogonFilterManager;")
+            || type.equals("Lcom/android/server/am/FcmWakeFilter;");
     }
 }
