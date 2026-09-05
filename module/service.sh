@@ -142,8 +142,9 @@ fi
 # ==============================================================================
 # 2. Google Play Services (GMS) Surgical Exemption
 # ==============================================================================
-# Dynamically resolve Google Play Services UID
-GMS_UID=$(pm list packages -U com.google.android.gms 2>/dev/null | grep -o 'uid:[0-9]*' | cut -d: -f2 | head -n1)
+# Dynamically resolve Google Play Services UID with exact package anchoring
+GMS_UID=$(pm list packages -U com.google.android.gms 2>/dev/null | grep -E '^package:com\.google\.android\.gms ' | grep -o 'uid:[0-9]*' | cut -d: -f2 | head -n1)
+[ -z "$GMS_UID" ] && GMS_UID=$(stat -c %u /data/data/com.google.android.gms 2>/dev/null)
 
 if [ -n "$GMS_UID" ]; then
   cmd greezer thuid "$GMS_UID" 86400000 2>/dev/null
