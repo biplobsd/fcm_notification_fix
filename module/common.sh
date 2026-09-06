@@ -370,7 +370,8 @@ compile_aot_cache() {
         --generate-mini-debug-info >/dev/null 2>&1; then
         # Fallback: if --stored-class-loader-context fails on legacy ART, execute inside isolated mount namespace
         if command -v unshare >/dev/null 2>&1; then
-            unshare -m sh -c "mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && '$_dex2oat' \
+            unshare -m sh -c "(command -v busybox >/dev/null 2>&1 && busybox mount --make-rprivate / 2>/dev/null) && \
+                              mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && '$_dex2oat' \
                 --instruction-set='$_arch' \
                 --dex-file='$_staged_miui' \
                 --dex-location='$_target_miui' \
@@ -452,7 +453,8 @@ compile_aot_cache() {
                         --generate-mini-debug-info >/dev/null 2>&1 || _down_status=$?
 
                     if [ "$_down_status" -ne 0 ] && command -v unshare >/dev/null 2>&1; then
-                        unshare -m sh -c "mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && \
+                        unshare -m sh -c "(command -v busybox >/dev/null 2>&1 && busybox mount --make-rprivate / 2>/dev/null) && \
+                                          mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && \
                                           mount -o bind '$_staged_miui' '$_target_miui' 2>/dev/null && \
                                           '$_dex2oat' \
                                               --instruction-set='$_arch' \
@@ -500,6 +502,7 @@ compile_aot_cache() {
                 _downstream_active=1
             fi
         done
+        IFS="$_old_ifs"
         # ── Standalone System Server Jars AOT Compilation ──
         # Services loaded dynamically as children of system_server (e.g. wifi, connectivity, bluetooth)
         # require ClassLoaderContext format PCL[];PCL[SYSTEMSERVERCLASSPATH].
@@ -535,7 +538,8 @@ compile_aot_cache() {
                         --generate-mini-debug-info >/dev/null 2>&1 || _s_status=$?
 
                     if [ "$_s_status" -ne 0 ] && command -v unshare >/dev/null 2>&1; then
-                        unshare -m sh -c "mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && \
+                        unshare -m sh -c "(command -v busybox >/dev/null 2>&1 && busybox mount --make-rprivate / 2>/dev/null) && \
+                                          mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && \
                                           mount -o bind '$_staged_miui' '$_target_miui' 2>/dev/null && \
                                           '$_dex2oat' \
                                               --instruction-set='$_arch' \
@@ -564,6 +568,7 @@ compile_aot_cache() {
             done
             IFS="$_old_ifs"
         fi
+        IFS="$_old_ifs"
 
         [ "$_downstream_compiled" -gt 0 ] && export COMPILED_DOWNSTREAM_COUNT="$_downstream_compiled"
     fi

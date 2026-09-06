@@ -253,7 +253,7 @@ optimize_gms_aot_cache() {
     fi
 
     # Extract dynamic versionCode for com.google.android.gms
-    _cur_gms_ver=$(dumpsys package com.google.android.gms 2>/dev/null | grep -m1 'versionCode=' | tr -cd '0-9')
+    _cur_gms_ver=$(dumpsys package com.google.android.gms 2>/dev/null | grep -m1 'versionCode=' | sed -E 's/.*versionCode=([0-9]+).*/\1/')
     [ -z "$_cur_gms_ver" ] && _cur_gms_ver=$(stat -c %Y /data/data/com.google.android.gms 2>/dev/null)
     [ -z "$_cur_gms_ver" ] && _cur_gms_ver="1"
 
@@ -262,8 +262,9 @@ optimize_gms_aot_cache() {
     if [ "$_cur_gms_ver" != "$_cached_gms_ver" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting background AOT speed compilation for GMS (version: $_cur_gms_ver)..." >> "$MODDIR/repatch.log"
 
-        _compile_ok=1
+        _compile_ok=0
         if command -v cmd >/dev/null 2>&1; then
+            _compile_ok=1
             cmd package compile -m speed -f com.google.android.gms >/dev/null 2>&1 || _compile_ok=0
             if pm path com.google.android.gsf >/dev/null 2>&1; then
                 cmd package compile -m speed -f com.google.android.gsf >/dev/null 2>&1 || true

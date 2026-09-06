@@ -37,6 +37,7 @@ public class FcmWakeFilter {
     // Cleared automatically whenever /data/system/fcm_wake.conf is reloaded.
     private static final ConcurrentHashMap<String, Boolean> sDecisionCache = new ConcurrentHashMap<String, Boolean>();
     private static final int MAX_DECISION_CACHE_SIZE = 256;
+    private static volatile int sGeneration = 0;
 
     private static volatile long sLastModified = -1;
     private static volatile int sCurrentMode = MODE_ALL;
@@ -294,7 +295,9 @@ public class FcmWakeFilter {
         checkConfig();
         if (sCurrentMode == MODE_ALL) return true;
 
-        Boolean cached = sDecisionCache.get(pkg);
+        int gen = sGeneration;
+        String cacheKey = gen + ":" + pkg;
+        Boolean cached = sDecisionCache.get(cacheKey);
         if (cached != null) {
             return cached.booleanValue();
         }
@@ -309,10 +312,12 @@ public class FcmWakeFilter {
             allowed = true;
         }
 
-        if (sDecisionCache.size() > MAX_DECISION_CACHE_SIZE) {
-            sDecisionCache.clear();
+        if (sGeneration == gen) {
+            if (sDecisionCache.size() > MAX_DECISION_CACHE_SIZE) {
+                sDecisionCache.clear();
+            }
+            sDecisionCache.put(cacheKey, Boolean.valueOf(allowed));
         }
-        sDecisionCache.put(pkg, Boolean.valueOf(allowed));
         return allowed;
     }
 
@@ -332,6 +337,7 @@ public class FcmWakeFilter {
                 if (sLastModified != 0) {
                     sCurrentMode = MODE_ALL;
                     sPackageFilterSet = Collections.emptySet();
+                    sGeneration++;
                     sDecisionCache.clear();
                     sLastModified = 0;
                 }
@@ -396,6 +402,7 @@ public class FcmWakeFilter {
             sAntiMuteUpdateEnabled = antiMuteUpdate;
             sUnthrottleAlertEnabled = unthrottleAlert;
             sLastModified = modified;
+            sGeneration++;
             sDecisionCache.clear();
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
@@ -404,6 +411,7 @@ public class FcmWakeFilter {
             sGroupAlertFixEnabled = true;
             sAntiMuteUpdateEnabled = true;
             sUnthrottleAlertEnabled = false;
+            sGeneration++;
             sDecisionCache.clear();
         }
     }
