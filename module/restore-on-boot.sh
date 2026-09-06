@@ -72,13 +72,14 @@ if [ -n "$GMS_UID" ]; then
 fi
 
 # Restore PowerKeeper gms_control and both userTable rows to stock
+RESTORE_FAILED=0
 pk_ctrl="true"
 if [ -f "$RESTORE_CONF" ]; then
     saved_pk=$(awk -F= '$1 == "powerkeeper_gms_control" { print substr($0, index($0, "=") + 1); exit }' "$RESTORE_CONF" 2>/dev/null)
     [ -n "$saved_pk" ] && pk_ctrl="$saved_pk"
 fi
 content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
-  --method PUT_misc --arg gms_control --extra value:s:"$pk_ctrl" 2>/dev/null || true
+  --method PUT_misc --arg gms_control --extra value:s:"$pk_ctrl" 2>/dev/null || RESTORE_FAILED=1
 
 if [ -f "$RESTORE_CONF" ]; then
     for pk_pkg in com.google.android.gms com.android.vending; do
@@ -86,15 +87,21 @@ if [ -f "$RESTORE_CONF" ]; then
           '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$RESTORE_CONF" 2>/dev/null)
         if [ "$pk_existed" = "0" ]; then
             content delete --uri content://com.miui.powerkeeper.configure/userTable \
-              --where "pkgName='${pk_pkg}' AND userId=0" 2>/dev/null || true
+              --where "pkgName='${pk_pkg}' AND userId=0" 2>/dev/null || RESTORE_FAILED=1
         elif [ "$pk_existed" = "1" ]; then
             pk_bg_control=$(awk -F= -v key="powerkeeper_user:${pk_pkg}:bg_control" \
               '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$RESTORE_CONF" 2>/dev/null)
-            [ -n "$pk_bg_control" ] || continue
+            if [ -z "$pk_bg_control" ]; then
+                RESTORE_FAILED=1
+                continue
+            fi
             pk_row=$(content query --uri content://com.miui.powerkeeper.configure/userTable \
               --where "pkgName='${pk_pkg}' AND userId=0" 2>/dev/null)
             pk_query_status=$?
-            [ "$pk_query_status" -eq 0 ] || continue
+            if [ "$pk_query_status" -ne 0 ]; then
+                RESTORE_FAILED=1
+                continue
+            fi
             if [ "$pk_bg_control" = "NULL" ] || [ "$pk_bg_control" = "null" ]; then
                 pk_binding="bgControl:n:"
             else
@@ -102,10 +109,10 @@ if [ -f "$RESTORE_CONF" ]; then
             fi
             if printf '%s\n' "$pk_row" | grep -q "pkgName=${pk_pkg}"; then
                 content update --uri content://com.miui.powerkeeper.configure/userTable \
-                  --bind "$pk_binding" --where "pkgName='${pk_pkg}' AND userId=0" 2>/dev/null || true
+                  --bind "$pk_binding" --where "pkgName='${pk_pkg}' AND userId=0" 2>/dev/null || RESTORE_FAILED=1
             else
                 content insert --uri content://com.miui.powerkeeper.configure/userTable \
-                  --bind pkgName:s:"$pk_pkg" --bind userId:i:0 --bind "$pk_binding" 2>/dev/null || true
+                  --bind pkgName:s:"$pk_pkg" --bind userId:i:0 --bind "$pk_binding" 2>/dev/null || RESTORE_FAILED=1
             fi
         fi
     done
@@ -142,6 +149,10 @@ fi
 
 cmd notification cancel fcm_repatch 2>/dev/null || true
 cmd notification cancel fcm_repatch 0 2>/dev/null || true
+
+if [ "$RESTORE_FAILED" -ne 0 ]; then
+    exit 1
+fi
 
 cleanup_restore
 exit 0
