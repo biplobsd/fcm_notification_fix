@@ -236,4 +236,49 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 # Run sync asynchronously on boot completion
 sync_notification_channels &
 
+# ==============================================================================
+# 5. Google Play Services (GMS) Background AOT Compilation Cache
+# ==============================================================================
+# Pre-compiling GMS Core and Google Services Framework with full speed AOT
+# ensures zero JIT warmup latency and instant socket wake execution when FCM
+# packets arrive during deep sleep. We track the installed package versionCode
+# in .gms_aot_compiled so compilation runs only once per GMS update.
+optimize_gms_aot_cache() {
+    # Grace period: let Android finish initial boot and launch animations before running dex2oat
+    sleep 15
+
+    # Verify GMS is installed
+    if ! pm path com.google.android.gms >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Extract dynamic versionCode for com.google.android.gms
+    _cur_gms_ver=$(dumpsys package com.google.android.gms 2>/dev/null | grep -m1 'versionCode=' | tr -cd '0-9')
+    [ -z "$_cur_gms_ver" ] && _cur_gms_ver=$(stat -c %Y /data/data/com.google.android.gms 2>/dev/null)
+    [ -z "$_cur_gms_ver" ] && _cur_gms_ver="1"
+
+    _cached_gms_ver=$(cat "$MODDIR/.gms_aot_compiled" 2>/dev/null)
+
+    if [ "$_cur_gms_ver" != "$_cached_gms_ver" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting background AOT speed compilation for GMS (version: $_cur_gms_ver)..." >> "$MODDIR/repatch.log"
+
+        _compile_ok=1
+        if command -v cmd >/dev/null 2>&1; then
+            cmd package compile -m speed -f com.google.android.gms >/dev/null 2>&1 || _compile_ok=0
+            if pm path com.google.android.gsf >/dev/null 2>&1; then
+                cmd package compile -m speed -f com.google.android.gsf >/dev/null 2>&1 || true
+            fi
+        fi
+
+        if [ "$_compile_ok" -eq 1 ]; then
+            echo "$_cur_gms_ver" > "$MODDIR/.gms_aot_compiled" 2>/dev/null
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [PASS] GMS AOT speed compilation complete." >> "$MODDIR/repatch.log"
+        else
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] GMS AOT compilation encountered non-zero return code." >> "$MODDIR/repatch.log"
+        fi
+    fi
+}
+
+optimize_gms_aot_cache &
+
 

@@ -9,6 +9,7 @@ import java.io.FileReader;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Dynamic FCM Wake-on-Push Filter for HyperOS / Android 16.
@@ -31,6 +32,11 @@ public class FcmWakeFilter {
 
     private static final String GMS_PKG = "com.google.android.gms";
     private static final ThreadLocal<String> sPendingCallee = new ThreadLocal<String>();
+
+    // High-performance bounded concurrent cache for package authorization decisions.
+    // Cleared automatically whenever /data/system/fcm_wake.conf is reloaded.
+    private static final ConcurrentHashMap<String, Boolean> sDecisionCache = new ConcurrentHashMap<String, Boolean>();
+    private static final int MAX_DECISION_CACHE_SIZE = 256;
 
     private static volatile long sLastModified = -1;
     private static volatile int sCurrentMode = MODE_ALL;
@@ -139,11 +145,14 @@ public class FcmWakeFilter {
         if (callee == null || callee.isEmpty()) {
             return sCurrentMode == MODE_BLACKLIST ? 1 : 0;
         }
-        boolean inSet = isPackageInFilterSet(basePackage(callee));
-        if (sCurrentMode == MODE_WHITELIST) {
-            return inSet ? 1 : 0;
+        String targetPkg = basePackage(callee);
+        if (targetPkg != null) {
+            targetPkg = targetPkg.trim();
         }
-        return inSet ? 0 : 1; // MODE_BLACKLIST
+        if (targetPkg == null || targetPkg.isEmpty()) {
+            return sCurrentMode == MODE_BLACKLIST ? 1 : 0;
+        }
+        return isPackageAllowed(targetPkg) ? 1 : 0;
     }
 
     /**
@@ -187,18 +196,8 @@ public class FcmWakeFilter {
             return;
         }
 
-        boolean inSet = isPackageInFilterSet(targetPkg);
-
-        if (sCurrentMode == MODE_WHITELIST) {
-            // Only packages in the whitelist get the wake flag
-            if (inSet) {
-                intent.addFlags(FLAG_INCLUDE_STOPPED_PACKAGES);
-            }
-        } else if (sCurrentMode == MODE_BLACKLIST) {
-            // All packages get the wake flag EXCEPT those in the blacklist
-            if (!inSet) {
-                intent.addFlags(FLAG_INCLUDE_STOPPED_PACKAGES);
-            }
+        if (isPackageAllowed(targetPkg)) {
+            intent.addFlags(FLAG_INCLUDE_STOPPED_PACKAGES);
         }
     }
 
@@ -232,15 +231,7 @@ public class FcmWakeFilter {
             return sCurrentMode == MODE_BLACKLIST ? 1 : 0;
         }
 
-        boolean inSet = isPackageInFilterSet(targetPkg);
-
-        if (sCurrentMode == MODE_WHITELIST) {
-            return inSet ? 1 : 0;
-        } else if (sCurrentMode == MODE_BLACKLIST) {
-            return !inSet ? 1 : 0;
-        }
-
-        return 1;
+        return isPackageAllowed(targetPkg) ? 1 : 0;
     }
 
     public static boolean isAllowBroadcast(String action, String calleePkgName) {
@@ -292,17 +283,37 @@ public class FcmWakeFilter {
     public static boolean isPackageInFilterSet(String pkg) {
         if (pkg == null) return false;
         Set<String> set = sPackageFilterSet;
-        return set.contains(pkg) || set.contains(pkg.toLowerCase());
+        if (set.contains(pkg)) {
+            return true;
+        }
+        return set.contains(pkg.toLowerCase());
     }
 
     public static boolean isPackageAllowed(String pkg) {
         if (pkg == null || pkg.isEmpty()) return false;
         checkConfig();
         if (sCurrentMode == MODE_ALL) return true;
+
+        Boolean cached = sDecisionCache.get(pkg);
+        if (cached != null) {
+            return cached.booleanValue();
+        }
+
         boolean inSet = isPackageInFilterSet(pkg);
-        if (sCurrentMode == MODE_WHITELIST) return inSet;
-        if (sCurrentMode == MODE_BLACKLIST) return !inSet;
-        return true;
+        boolean allowed;
+        if (sCurrentMode == MODE_WHITELIST) {
+            allowed = inSet;
+        } else if (sCurrentMode == MODE_BLACKLIST) {
+            allowed = !inSet;
+        } else {
+            allowed = true;
+        }
+
+        if (sDecisionCache.size() > MAX_DECISION_CACHE_SIZE) {
+            sDecisionCache.clear();
+        }
+        sDecisionCache.put(pkg, Boolean.valueOf(allowed));
+        return allowed;
     }
 
     private static void checkConfig() {
@@ -321,6 +332,7 @@ public class FcmWakeFilter {
                 if (sLastModified != 0) {
                     sCurrentMode = MODE_ALL;
                     sPackageFilterSet = Collections.emptySet();
+                    sDecisionCache.clear();
                     sLastModified = 0;
                 }
                 return;
@@ -384,6 +396,7 @@ public class FcmWakeFilter {
             sAntiMuteUpdateEnabled = antiMuteUpdate;
             sUnthrottleAlertEnabled = unthrottleAlert;
             sLastModified = modified;
+            sDecisionCache.clear();
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
             sLastModified = -1; // Force retry on next attempt
@@ -391,6 +404,7 @@ public class FcmWakeFilter {
             sGroupAlertFixEnabled = true;
             sAntiMuteUpdateEnabled = true;
             sUnthrottleAlertEnabled = false;
+            sDecisionCache.clear();
         }
     }
 }

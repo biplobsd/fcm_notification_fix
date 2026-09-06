@@ -289,18 +289,27 @@ compile_aot_cache() {
     fi
     mkdir -p "/data/dalvik-cache/$_arch"
 
-    _services_oat="$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.dex"
-    _miui_oat="$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.dex"
+    _services_oat="/data/dalvik-cache/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.dex"
+    _miui_oat="/data/dalvik-cache/$_arch/$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.dex"
+
+    _services_tmp="/data/dalvik-cache/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.tmp.$$.dex"
+    _miui_tmp="/data/dalvik-cache/$_arch/$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.tmp.$$.dex"
 
     _sscp="$SYSTEMSERVERCLASSPATH"
     if [ -z "$_sscp" ]; then
         _sspid="$(pidof system_server)"
         [ -n "$_sspid" ] && _sscp="$(cat /proc/$_sspid/environ 2>/dev/null | tr '\0' '\n' | grep '^SYSTEMSERVERCLASSPATH=' | cut -d= -f2-)"
         [ -z "$_sscp" ] && _sscp="$(cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep '^SYSTEMSERVERCLASSPATH=' | cut -d= -f2-)"
+        if [ -z "$_sscp" ] && [ -f "/data/system/environ/classpath" ]; then
+            _sscp="$(grep -m1 '^export SYSTEMSERVERCLASSPATH ' /data/system/environ/classpath 2>/dev/null | awk '{print $3}')"
+        fi
     fi
 
+    # Generates ClassLoaderContext, optionally substituting a target jar with its staged counterpart
     _get_clc() {
         _tgt="$1"
+        _sub_tgt="$2"
+        _sub_rep="$3"
         _res=""
         _old_ifs="$IFS"
         IFS=:
@@ -308,51 +317,258 @@ compile_aot_cache() {
             if [ "$_j" = "$_tgt" ] || [ "$(basename "$_j")" = "$(basename "$_tgt")" ]; then
                 break
             fi
+            _val="$_j"
+            if [ -n "$_sub_tgt" ] && [ -n "$_sub_rep" ]; then
+                if [ "$_j" = "$_sub_tgt" ] || [ "$(basename "$_j")" = "$(basename "$_sub_tgt")" ]; then
+                    _val="$_sub_rep"
+                fi
+            fi
             if [ -n "$_res" ]; then
-                _res="$_res:$_j"
+                _res="$_res:$_val"
             else
-                _res="$_j"
+                _res="$_val"
             fi
         done
         IFS="$_old_ifs"
         echo "PCL[$_res]"
     }
 
+    _threads="$(nproc 2>/dev/null || echo 4)"
+
     _services_clc="$(_get_clc "$_target_services")"
-    _miui_clc="$(_get_clc "$_target_miui")"
+    _miui_compile_clc="$(_get_clc "$_target_miui" "$_target_services" "$_staged_services")"
+    _miui_stored_clc="$(_get_clc "$_target_miui")"
+
+    _cleanup_tmp() {
+        rm -f "$_services_tmp" "${_services_tmp%.dex}.vdex" \
+              "$_miui_tmp" "${_miui_tmp%.dex}.vdex" 2>/dev/null
+    }
 
     _services_status=0
     "$_dex2oat" \
         --instruction-set="$_arch" \
         --dex-file="$_staged_services" \
         --dex-location="$_target_services" \
-        --oat-file="/data/dalvik-cache/$_arch/$_services_oat" \
+        --oat-file="$_services_tmp" \
         --compiler-filter=speed \
         --class-loader-context="$_services_clc" \
+        -j"$_threads" \
+        --runtime-arg -Xmx512m \
         --generate-mini-debug-info >/dev/null 2>&1 || _services_status=$?
 
     _miui_status=0
-    "$_dex2oat" \
+    if ! "$_dex2oat" \
         --instruction-set="$_arch" \
         --dex-file="$_staged_miui" \
         --dex-location="$_target_miui" \
-        --oat-file="/data/dalvik-cache/$_arch/$_miui_oat" \
+        --oat-file="$_miui_tmp" \
         --compiler-filter=speed \
-        --class-loader-context="$_miui_clc" \
-        --generate-mini-debug-info >/dev/null 2>&1 || _miui_status=$?
+        --class-loader-context="$_miui_compile_clc" \
+        --stored-class-loader-context="$_miui_stored_clc" \
+        -j"$_threads" \
+        --runtime-arg -Xmx512m \
+        --generate-mini-debug-info >/dev/null 2>&1; then
+        # Fallback: if --stored-class-loader-context fails on legacy ART, execute inside isolated mount namespace
+        if command -v unshare >/dev/null 2>&1; then
+            unshare -m sh -c "mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && '$_dex2oat' \
+                --instruction-set='$_arch' \
+                --dex-file='$_staged_miui' \
+                --dex-location='$_target_miui' \
+                --oat-file='$_miui_tmp' \
+                --compiler-filter=speed \
+                --class-loader-context='$_miui_stored_clc' \
+                -j'$_threads' \
+                --runtime-arg -Xmx512m \
+                --generate-mini-debug-info >/dev/null 2>&1" || _miui_status=$?
+        else
+            _miui_status=1
+        fi
+    fi
 
     if [ "$_services_status" -ne 0 ] || [ "$_miui_status" -ne 0 ]; then
+        _cleanup_tmp
         return 1
     fi
 
-    if [ -f "/data/dalvik-cache/$_arch/$_services_oat" ] && [ -f "/data/dalvik-cache/$_arch/$_miui_oat" ]; then
-        chmod 0644 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
-        chown root:root /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
-        chcon u:object_r:dalvikcache_data_file:s0 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
-        return 0
+    # Verify all 4 staged artifacts exist and are non-empty
+    if [ ! -s "$_services_tmp" ] || [ ! -s "${_services_tmp%.dex}.vdex" ] || \
+       [ ! -s "$_miui_tmp" ] || [ ! -s "${_miui_tmp%.dex}.vdex" ]; then
+        _cleanup_tmp
+        return 1
     fi
 
-    return 1
+    # Atomically commit: purge stale companion and destination files in dalvik-cache dirs
+    for _clean_dir in "/data/dalvik-cache/$_arch" "/data/misc/apexdata/com.android.art/dalvik-cache/$_arch"; do
+        [ -d "$_clean_dir" ] || continue
+        for _f in "$_clean_dir"/*services*; do
+            [ -e "$_f" ] || continue
+            case "$_f" in
+                *.tmp.*) ;;
+                *) rm -f "$_f" 2>/dev/null ;;
+            esac
+        done
+    done
+
+    # Move staged artifacts to definitive names
+    mv -f "$_services_tmp" "$_services_oat" 2>/dev/null
+    mv -f "${_services_tmp%.dex}.vdex" "${_services_oat%.dex}.vdex" 2>/dev/null
+    mv -f "$_miui_tmp" "$_miui_oat" 2>/dev/null
+    mv -f "${_miui_tmp%.dex}.vdex" "${_miui_oat%.dex}.vdex" 2>/dev/null
+
+    chmod 0644 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
+    chown root:root /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
+    chcon u:object_r:dalvikcache_data_file:s0 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
+    restorecon -F /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
+
+    # ── Downstream SYSTEMSERVERCLASSPATH AOT Compilation ──
+    # All jars subsequent to miui-services.jar suffer from rejected factory .odex
+    # due to ClassLoaderContext dependency checksum mismatches. We sequentially
+    # pre-compile them so 100% of system_server runs in native speed AOT mode.
+    if [ -n "$_sscp" ]; then
+        _clc_compile=""
+        _clc_stored=""
+        _downstream_active=0
+        _downstream_compiled=0
+        _old_ifs="$IFS"
+        IFS=:
+        for _j in $_sscp; do
+            if [ "$_downstream_active" -eq 1 ]; then
+                if [ -f "$_j" ]; then
+                    _oat_name="$(echo "$_j" | sed 's|^/||; s|/|@|g')@classes.dex"
+                    _oat_target="/data/dalvik-cache/$_arch/$_oat_name"
+                    _oat_tmp="/data/dalvik-cache/$_arch/$_oat_name.tmp.$$.dex"
+
+                    _down_status=0
+                    "$_dex2oat" \
+                        --instruction-set="$_arch" \
+                        --dex-file="$_j" \
+                        --dex-location="$_j" \
+                        --oat-file="$_oat_tmp" \
+                        --compiler-filter=speed \
+                        --class-loader-context="PCL[$_clc_compile]" \
+                        --stored-class-loader-context="PCL[$_clc_stored]" \
+                        -j"$_threads" \
+                        --runtime-arg -Xmx512m \
+                        --generate-mini-debug-info >/dev/null 2>&1 || _down_status=$?
+
+                    if [ "$_down_status" -ne 0 ] && command -v unshare >/dev/null 2>&1; then
+                        unshare -m sh -c "mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && \
+                                          mount -o bind '$_staged_miui' '$_target_miui' 2>/dev/null && \
+                                          '$_dex2oat' \
+                                              --instruction-set='$_arch' \
+                                              --dex-file='$_j' \
+                                              --dex-location='$_j' \
+                                              --oat-file='$_oat_tmp' \
+                                              --compiler-filter=speed \
+                                              --class-loader-context='PCL[$_clc_stored]' \
+                                              -j'$_threads' \
+                                              --runtime-arg -Xmx512m \
+                                              --generate-mini-debug-info >/dev/null 2>&1" || true
+                    fi
+
+                    if [ -s "$_oat_tmp" ] && [ -s "${_oat_tmp%.dex}.vdex" ]; then
+                        mv -f "$_oat_tmp" "$_oat_target" 2>/dev/null
+                        mv -f "${_oat_tmp%.dex}.vdex" "${_oat_target%.dex}.vdex" 2>/dev/null
+                        chmod 0644 "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
+                        chown root:root "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
+                        chcon u:object_r:dalvikcache_data_file:s0 "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
+                        restorecon -F "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
+                        _downstream_compiled=$((_downstream_compiled + 1))
+                    else
+                        rm -f "$_oat_tmp" "${_oat_tmp%.dex}.vdex" 2>/dev/null
+                    fi
+                fi
+            fi
+
+            # Accumulate CLC chains
+            _compile_val="$_j"
+            if [ "$_j" = "$_target_services" ] || [ "$(basename "$_j")" = "$(basename "$_target_services")" ]; then
+                _compile_val="$_staged_services"
+            elif [ "$_j" = "$_target_miui" ] || [ "$(basename "$_j")" = "$(basename "$_target_miui")" ]; then
+                _compile_val="$_staged_miui"
+            fi
+
+            if [ -z "$_clc_compile" ]; then
+                _clc_compile="$_compile_val"
+                _clc_stored="$_j"
+            else
+                _clc_compile="${_clc_compile}:${_compile_val}"
+                _clc_stored="${_clc_stored}:${_j}"
+            fi
+
+            if [ "$_j" = "$_target_miui" ] || [ "$(basename "$_j")" = "$(basename "$_target_miui")" ]; then
+                _downstream_active=1
+            fi
+        done
+        # ── Standalone System Server Jars AOT Compilation ──
+        # Services loaded dynamically as children of system_server (e.g. wifi, connectivity, bluetooth)
+        # require ClassLoaderContext format PCL[];PCL[SYSTEMSERVERCLASSPATH].
+        _standalone="$STANDALONE_SYSTEMSERVER_JARS"
+        if [ -z "$_standalone" ]; then
+            _sspid="$(pidof system_server)"
+            [ -n "$_sspid" ] && _standalone="$(cat /proc/$_sspid/environ 2>/dev/null | tr '\0' '\n' | grep '^STANDALONE_SYSTEMSERVER_JARS=' | cut -d= -f2-)"
+            [ -z "$_standalone" ] && _standalone="$(cat /proc/1/environ 2>/dev/null | tr '\0' '\n' | grep '^STANDALONE_SYSTEMSERVER_JARS=' | cut -d= -f2-)"
+            if [ -z "$_standalone" ] && [ -f "/data/system/environ/classpath" ]; then
+                _standalone="$(grep -m1 '^export STANDALONE_SYSTEMSERVER_JARS ' /data/system/environ/classpath 2>/dev/null | awk '{print $3}')"
+            fi
+        fi
+
+        if [ -n "$_standalone" ]; then
+            IFS=:
+            for _sjar in $_standalone; do
+                if [ -f "$_sjar" ]; then
+                    _soat_name="$(echo "$_sjar" | sed 's|^/||; s|/|@|g')@classes.dex"
+                    _soat_target="/data/dalvik-cache/$_arch/$_soat_name"
+                    _soat_tmp="/data/dalvik-cache/$_arch/$_soat_name.tmp.$$.dex"
+
+                    _s_status=0
+                    "$_dex2oat" \
+                        --instruction-set="$_arch" \
+                        --dex-file="$_sjar" \
+                        --dex-location="$_sjar" \
+                        --oat-file="$_soat_tmp" \
+                        --compiler-filter=speed \
+                        --class-loader-context="PCL[];PCL[$_clc_compile]" \
+                        --stored-class-loader-context="PCL[];PCL[$_clc_stored]" \
+                        -j"$_threads" \
+                        --runtime-arg -Xmx512m \
+                        --generate-mini-debug-info >/dev/null 2>&1 || _s_status=$?
+
+                    if [ "$_s_status" -ne 0 ] && command -v unshare >/dev/null 2>&1; then
+                        unshare -m sh -c "mount -o bind '$_staged_services' '$_target_services' 2>/dev/null && \
+                                          mount -o bind '$_staged_miui' '$_target_miui' 2>/dev/null && \
+                                          '$_dex2oat' \
+                                              --instruction-set='$_arch' \
+                                              --dex-file='$_sjar' \
+                                              --dex-location='$_sjar' \
+                                              --oat-file='$_soat_tmp' \
+                                              --compiler-filter=speed \
+                                              --class-loader-context='PCL[];PCL[$_clc_stored]' \
+                                              -j'$_threads' \
+                                              --runtime-arg -Xmx512m \
+                                              --generate-mini-debug-info >/dev/null 2>&1" || true
+                    fi
+
+                    if [ -s "$_soat_tmp" ] && [ -s "${_soat_tmp%.dex}.vdex" ]; then
+                        mv -f "$_soat_tmp" "$_soat_target" 2>/dev/null
+                        mv -f "${_soat_tmp%.dex}.vdex" "${_soat_target%.dex}.vdex" 2>/dev/null
+                        chmod 0644 "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
+                        chown root:root "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
+                        chcon u:object_r:dalvikcache_data_file:s0 "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
+                        restorecon -F "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
+                        _downstream_compiled=$((_downstream_compiled + 1))
+                    else
+                        rm -f "$_soat_tmp" "${_soat_tmp%.dex}.vdex" 2>/dev/null
+                    fi
+                fi
+            done
+            IFS="$_old_ifs"
+        fi
+
+        [ "$_downstream_compiled" -gt 0 ] && export COMPILED_DOWNSTREAM_COUNT="$_downstream_compiled"
+    fi
+
+    return 0
 }
 
 # Executes the patcher engine using dalvikvm or app_process fallback with safe CLASSPATH.

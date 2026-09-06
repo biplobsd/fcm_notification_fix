@@ -112,7 +112,16 @@ rm -rf /data/dalvik-cache/*/*services* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*miui-services* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*services.jar@classes.* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*miui-services.jar@classes.* 2>/dev/null
+rm -rf /data/dalvik-cache/*/*apprecovery* 2>/dev/null
+rm -rf /data/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
+rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*services* 2>/dev/null
+rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*miui-services* 2>/dev/null
+rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*services.jar@classes.* 2>/dev/null
+rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*miui-services.jar@classes.* 2>/dev/null
+rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*apprecovery* 2>/dev/null
+rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
 find /data/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
+find /data/misc/apexdata/com.android.art/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
 
 # ==============================================================================
 # 3. Remove FCM Wake Filter Configuration and Staging Artifacts
@@ -154,6 +163,6 @@ fi
 # ==============================================================================
 # 5. Clean Up Module Runtime Flags and Transient Files
 # ==============================================================================
-rm -f "$MODDIR/repatch_pending" "$MODDIR/repatch_running" "$MODDIR/repatch_failed" "$MODDIR/repatch_reboot" "$MODDIR/wipe_cache_once" "$MODDIR/.defaults_applied" "$MODDIR/skip_mount" "$MODDIR/stock_settings.conf" "$MODDIR"/stock_settings.conf.tmp.* 2>/dev/null || true
+rm -f "$MODDIR/repatch_pending" "$MODDIR/repatch_running" "$MODDIR/repatch_failed" "$MODDIR/repatch_reboot" "$MODDIR/wipe_cache_once" "$MODDIR/.defaults_applied" "$MODDIR/.gms_aot_compiled" "$MODDIR/skip_mount" "$MODDIR/stock_settings.conf" "$MODDIR"/stock_settings.conf.tmp.* 2>/dev/null || true
 
 exit 0

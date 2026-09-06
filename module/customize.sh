@@ -15,6 +15,17 @@ mkdir -p "$STAGE_DIR"
 cleanup() {
     rm -rf "$STAGE_DIR"
 }
+trap cleanup EXIT INT TERM
+
+# Ensure sufficient storage on /data for staging and AOT compilation
+DATA_FREE_KB=$(df -k /data 2>/dev/null | tail -n 1 | awk '{print $4}')
+if [ -n "$DATA_FREE_KB" ] && [ "$DATA_FREE_KB" -lt 150000 ]; then
+    ui_print ""
+    ui_print "[!] LOW DISK SPACE: ${DATA_FREE_KB} KB free on /data"
+    ui_print "[!] At least 150 MB is required for framework staging and AOT compilation."
+    cleanup
+    abort "Low /data storage (${DATA_FREE_KB} KB free)."
+fi
 
 abort_install() {
     ui_print ""
@@ -247,12 +258,17 @@ EOF
     chmod 0644 "$CONF_FILE"
     chown system:system "$CONF_FILE" 2>/dev/null || true
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
+    restorecon -F "$CONF_FILE" 2>/dev/null || true
 fi
 
 # 7.5 Pre-compile system_server AOT cache (dex2oat)
 ui_print "- Pre-compiling system_server native AOT cache (dex2oat)..."
 if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
-    ui_print "- [PASS] Native AOT speed compilation complete."
+    if [ -n "$COMPILED_DOWNSTREAM_COUNT" ] && [ "$COMPILED_DOWNSTREAM_COUNT" -gt 0 ]; then
+        ui_print "- [PASS] Native AOT speed compilation complete (services + $COMPILED_DOWNSTREAM_COUNT downstream components)."
+    else
+        ui_print "- [PASS] Native AOT speed compilation complete."
+    fi
     rm -f "$MODPATH/wipe_cache_once"
 else
     # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot
@@ -272,7 +288,10 @@ touch "$MODPATH/skip_mount"
 
 # 8. Apply File Permissions and SELinux Attributes
 for jar in "$MODPATH/framework/services.jar" "$MODPATH/framework/miui-services.jar"; do
-    [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
+    if [ -f "$jar" ]; then
+        set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
+        restorecon -F "$jar" 2>/dev/null || true
+    fi
 done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
