@@ -92,6 +92,25 @@ public class FcmWakeFilter {
     }
 
     /**
+     * Hooked in NotificationManagerServiceImpl.checkFullScreenIntent(...)
+     * Returns true if the package is permitted to retain fullScreenIntent without stripping.
+     */
+    public static boolean shouldBypassFullScreenIntent(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        return isPackageAllowed(pkg);
+    }
+
+    /**
+     * Hooked in ActivityManagerServiceImpl.checkRunningCompatibility(ComponentName, ...)
+     * Returns true if the component's package is permitted cross-app start/bind.
+     */
+    public static boolean shouldAllowRunningCompatibility(ComponentName comp) {
+        if (comp == null) return false;
+        return isPackageAllowed(comp.getPackageName());
+    }
+
+
+    /**
      * Hooked at the head of GreezeManagerService.isRestrictBackgroundAction(...) on MIUI 14.
      * Records the target callee process name in a thread-local for subsequent isNeedAllowRequest check.
      */

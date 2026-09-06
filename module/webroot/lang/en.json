@@ -126,5 +126,22 @@
   "sync.toast.done": "Channel permissions synchronized successfully ✓",
   "sync.toast.synced_new": "Configured {n} new channels ({total} total) ✓",
   "sync.toast.all_up_to_date": "All {total} channels are already up to date ✓",
-  "sync.toast.saved": "Channel sync configuration saved ✓"
+  "sync.toast.saved": "Channel sync configuration saved ✓",
+  "parity.title": "GMS Global Parity",
+  "parity.badge.active": "PARITY ACTIVE",
+  "parity.badge.partial": "PARTIAL",
+  "parity.desc": "Enforces Global ROM network and notification behavior on China ROM.",
+  "parity.feat.pk": "PowerKeeper GMS Firewall",
+  "parity.feat.pk.hint": "Disarms Netd iptables CHAIN_GMS_WALL & DNS blocker",
+  "parity.feat.fsi": "VoIP FullScreen Intent",
+  "parity.feat.fsi.hint": "Preserves incoming call answer/decline screens when locked",
+  "parity.disarmed": "DISARMED",
+  "parity.active": "FIREWALL ON",
+  "parity.granted": "ALLOWED",
+  "parity.restricted": "RESTRICTED",
+  "parity.not_applicable": "NOT APPLICABLE",
+  "parity.unknown": "UNKNOWN",
+  "parity.toast.disarmed": "GMS Firewall disarmed ✓",
+  "parity.toast.enabled": "GMS Firewall enabled",
+  "parity.toast.error": "Failed to update firewall state"
 }

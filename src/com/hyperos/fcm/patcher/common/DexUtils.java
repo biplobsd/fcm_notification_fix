@@ -9,6 +9,7 @@ import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -16,7 +17,16 @@ import java.util.List;
  */
 public class DexUtils {
 
-    public static ClassDef findClassInJarOrClasspath(File patcherJar, String targetType) {
+    /**
+     * Discovers a base class and all of its associated inner, anonymous, and synthetic classes
+     * (e.g. FcmWakeFilter, FcmWakeFilter$1, FcmWakeFilter$Inner).
+     * Prevents NoClassDefFoundError at runtime when member classes are referenced.
+     */
+    public static List<ClassDef> findClassesByPrefix(File patcherJar, String baseType) {
+        List<ClassDef> results = new ArrayList<>();
+        String normalizedBaseType = baseType.endsWith(";") ? baseType : (baseType + ";");
+        String prefix = normalizedBaseType.substring(0, normalizedBaseType.length() - 1);
+
         if (patcherJar != null && patcherJar.exists()) {
             try {
                 MultiDexContainer<? extends DexBackedDexFile> container =
@@ -24,35 +34,49 @@ public class DexUtils {
                 for (String entry : container.getDexEntryNames()) {
                     DexBackedDexFile df = container.getEntry(entry).getDexFile();
                     for (ClassDef cd : df.getClasses()) {
-                        if (cd.getType().equals(targetType)) {
-                            return cd;
+                        String t = cd.getType();
+                        if (t.equals(normalizedBaseType) || t.startsWith(prefix + "$")) {
+                            results.add(cd);
                         }
                     }
                 }
             } catch (Exception e) {
-                System.err.println("Warning: Could not read class from patcherJar: " + e.getMessage());
+                System.err.println("Warning: Could not read classes from patcherJar: " + e.getMessage());
             }
         }
 
-        String cp = System.getProperty("java.class.path");
-        if (cp != null) {
-            for (String path : cp.split(File.pathSeparator)) {
-                File f = new File(path);
-                if (f.exists() && (f.getName().endsWith(".jar") || f.getName().endsWith(".dex") || f.getName().endsWith(".apk"))) {
-                    try {
-                        MultiDexContainer<? extends DexBackedDexFile> container =
-                            DexFileFactory.loadDexContainer(f, Opcodes.getDefault());
-                        for (String entry : container.getDexEntryNames()) {
-                            DexBackedDexFile df = container.getEntry(entry).getDexFile();
-                            for (ClassDef cd : df.getClasses()) {
-                                if (cd.getType().equals(targetType)) {
-                                    return cd;
+        if (results.isEmpty()) {
+            String cp = System.getProperty("java.class.path");
+            if (cp != null) {
+                for (String path : cp.split(File.pathSeparator)) {
+                    File f = new File(path);
+                    if (f.exists() && (f.getName().endsWith(".jar") || f.getName().endsWith(".dex") || f.getName().endsWith(".apk"))) {
+                        try {
+                            MultiDexContainer<? extends DexBackedDexFile> container =
+                                DexFileFactory.loadDexContainer(f, Opcodes.getDefault());
+                            for (String entry : container.getDexEntryNames()) {
+                                DexBackedDexFile df = container.getEntry(entry).getDexFile();
+                                for (ClassDef cd : df.getClasses()) {
+                                    String t = cd.getType();
+                                    if (t.equals(normalizedBaseType) || t.startsWith(prefix + "$")) {
+                                        results.add(cd);
+                                    }
                                 }
                             }
-                        }
-                    } catch (Exception ignored) {
+                        } catch (Exception ignored) {}
                     }
                 }
+            }
+        }
+        return results;
+    }
+
+    public static ClassDef findClassInJarOrClasspath(File patcherJar, String targetType) {
+        String normalizedTarget = targetType.endsWith(";") ? targetType : (targetType + ";");
+        List<ClassDef> list = findClassesByPrefix(patcherJar, normalizedTarget);
+        for (ClassDef cd : list) {
+            if (cd.getType().equals(normalizedTarget)) {
+                return cd;
             }
         }
         return null;

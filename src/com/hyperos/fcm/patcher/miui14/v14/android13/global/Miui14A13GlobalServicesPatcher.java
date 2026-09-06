@@ -43,9 +43,9 @@ public class Miui14A13GlobalServicesPatcher {
             List<String> entryNames = container.getDexEntryNames();
             System.out.println("[MIUI 14 / A13 Global services.jar] Scanning Multi-DEX container (" + entryNames.size() + " DEX entries)...");
 
-            ClassDef fcmFilterClassDef = DexUtils.findClassInJarOrClasspath(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
-            if (fcmFilterClassDef != null) {
-                System.out.println("  -> [FOUND] Located FcmWakeFilter ClassDef in patcher engine");
+            List<ClassDef> fcmFilterClassDefs = DexUtils.findClassesByPrefix(patcherJar, "Lcom/android/server/am/FcmWakeFilter;");
+            if (!fcmFilterClassDefs.isEmpty()) {
+                System.out.println("  -> [FOUND] Located " + fcmFilterClassDefs.size() + " FcmWakeFilter ClassDef(s) in patcher engine");
             } else {
                 System.out.println("  -> [WARNING] FcmWakeFilter ClassDef not found in patcher engine");
             }
@@ -146,10 +146,10 @@ public class Miui14A13GlobalServicesPatcher {
                 }
 
                 // Inject FcmWakeFilter into carrier entry to prevent method ref table overflow
-                if (entryName.equals(carrierEntryName) && fcmFilterClassDef != null) {
-                    classesList.add(fcmFilterClassDef);
+                if (entryName.equals(carrierEntryName) && !fcmFilterClassDefs.isEmpty()) {
+                    classesList.addAll(fcmFilterClassDefs);
                     dexModified = true;
-                    System.out.println("  -> [PASS] Injected FcmWakeFilter ClassDef into carrier entry " + entryName);
+                    System.out.println("  -> [PASS] Injected " + fcmFilterClassDefs.size() + " FcmWakeFilter ClassDef(s) into carrier entry " + entryName);
                 }
 
                 if (dexModified) {
@@ -170,8 +170,8 @@ public class Miui14A13GlobalServicesPatcher {
             }
 
             // If carrierEntryName was a newly allocated DEX entry (not present in original JAR), synthesize it
-            if (fcmFilterClassDef != null && !replacementDexMap.containsKey(carrierEntryName)) {
-                final Set<ClassDef> classesSet = Collections.singleton(fcmFilterClassDef);
+            if (!fcmFilterClassDefs.isEmpty() && !replacementDexMap.containsKey(carrierEntryName)) {
+                final Set<ClassDef> classesSet = new LinkedHashSet<>(fcmFilterClassDefs);
                 DexFile outDexFile = new DexFile() {
                     @Override public Set<? extends ClassDef> getClasses() { return classesSet; }
                     @Override public Opcodes getOpcodes() { return Opcodes.getDefault(); }

@@ -1,12 +1,27 @@
 package com.hyperos.fcm.patcher.test;
 
+import com.android.tools.smali.dexlib2.DexFileFactory;
+import com.android.tools.smali.dexlib2.Opcode;
+import com.android.tools.smali.dexlib2.Opcodes;
+import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
+import com.android.tools.smali.dexlib2.iface.ClassDef;
+import com.android.tools.smali.dexlib2.iface.Method;
+import com.android.tools.smali.dexlib2.iface.MultiDexContainer;
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction;
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction;
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
+import com.android.tools.smali.dexlib2.iface.reference.Reference;
+import com.hyperos.fcm.patcher.common.LinkageVerifier;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
  * Automated Multi-ROM Integration Test Runner for FCM Bytecode Patcher.
- * Verifies patcher execution, transactional commit, and 4-byte DEX alignment.
+ * Verifies patcher execution, transactional commit, 4-byte DEX alignment,
+ * bytecode linkage & register safety, and semantic hook invariants.
  */
 public class PatcherIntegrationTest {
 
@@ -14,10 +29,12 @@ public class PatcherIntegrationTest {
         public String archetypeId;
         public boolean patchSuccess;
         public boolean dex4ByteAligned;
+        public boolean linkageVerified;
+        public boolean semanticVerified;
         public String details = "";
 
         public boolean isAllPassed() {
-            return patchSuccess && dex4ByteAligned;
+            return patchSuccess && dex4ByteAligned && linkageVerified && semanticVerified;
         }
     }
 
@@ -81,9 +98,11 @@ public class PatcherIntegrationTest {
             String status = tr.isAllPassed() ? "[PASS ✓]" : "[FAIL ✗]";
             if (tr.isAllPassed()) passed++; else failed++;
 
-            System.out.println(String.format("%-10s %-38s | Aligned: %s",
+            System.out.println(String.format("%-10s %-32s | Aligned: %s | Linkage: %s | Semantics: %s",
                 status, tr.archetypeId,
-                tr.dex4ByteAligned ? "YES" : "NO"));
+                tr.dex4ByteAligned ? "YES" : "NO",
+                tr.linkageVerified ? "PASS" : "FAIL",
+                tr.semanticVerified ? "PASS" : "FAIL"));
 
             if (!tr.isAllPassed()) {
                 System.err.println("   -> Failure details: " + tr.details);
@@ -104,14 +123,16 @@ public class PatcherIntegrationTest {
         if (dir == null || !dir.exists() || !dir.isDirectory()) return;
         File s = new File(dir, "services.jar");
         File m = new File(dir, "miui-services.jar");
-        if (s.exists() && s.isFile() && m.exists() && m.isFile()) {
+        if (s.exists() && m.exists()) {
             accumulator.add(dir);
             return;
         }
-        File[] subs = dir.listFiles(File::isDirectory);
-        if (subs != null) {
-            for (File sub : subs) {
-                discoverFixturesRecursively(sub, accumulator);
+        File[] children = dir.listFiles();
+        if (children != null) {
+            for (File c : children) {
+                if (c.isDirectory()) {
+                    discoverFixturesRecursively(c, accumulator);
+                }
             }
         }
     }
@@ -121,25 +142,18 @@ public class PatcherIntegrationTest {
         tr.archetypeId = archetypeId;
 
         try {
-            // Determine OS & Region parameters (read version.json if present)
-            String osArg = "hyperos";
+            // Infer OS profile arguments from directory path
+            String osArg = "hyperos3";
             String regionArg = "cn";
             String sdkArg = "36";
 
-            File metaFile = new File(servicesSrc.getParentFile(), "version.json");
-            if (metaFile.exists()) {
-                try {
-                    String metaContent = new String(java.nio.file.Files.readAllBytes(metaFile.toPath()), StandardCharsets.UTF_8);
-                    if (metaContent.contains("\"os\": \"miui14\"") || metaContent.contains("\"os\":\"miui14\"")) osArg = "miui14";
-                    if (metaContent.contains("\"region\": \"global\"") || metaContent.contains("\"region\":\"global\"")) regionArg = "global";
-                    if (metaContent.contains("\"sdk\": 33") || metaContent.contains("\"sdk\":33")) sdkArg = "33";
-                    if (metaContent.contains("\"sdk\": 34") || metaContent.contains("\"sdk\":34")) sdkArg = "34";
-                    if (metaContent.contains("\"sdk\": 35") || metaContent.contains("\"sdk\":35")) sdkArg = "35";
-                    if (metaContent.contains("\"sdk\": 36") || metaContent.contains("\"sdk\":36")) sdkArg = "36";
-                } catch (Exception ignored) {}
+            if (archetypeId.contains("V14") || archetypeId.contains("TKUMIXM")) {
+                osArg = "miui14";
+                regionArg = "global";
+                sdkArg = "33";
             }
 
-            // Run Patcher Main via ProcessBuilder
+            // Execute patcher via Java sub-process
             List<String> cmd = new ArrayList<>();
             cmd.add("java");
             cmd.add("-cp");
@@ -174,10 +188,23 @@ public class PatcherIntegrationTest {
                 return tr;
             }
 
-            // Verify 4-Byte DEX Offset Alignment in ZIP
+            // Verify 4-Byte DEX Offset Alignment & Uncompressed Storage in ZIP
             tr.dex4ByteAligned = checkZipDexAlignment(patchedServices) && checkZipDexAlignment(patchedMiuiServices);
             if (!tr.dex4ByteAligned) {
-                tr.details += "DEX alignment check failed (SIGBUS risk on ART). ";
+                tr.details += "DEX alignment/storage check failed (SIGBUS risk on ART). ";
+            }
+
+            // Verify Bytecode Linkage, Register Bounds, Duplicate Classes, and 64K Tables
+            tr.linkageVerified = LinkageVerifier.verifyJarLinkage(patchedServices, "Lcom/android/server/am/FcmWakeFilter") &&
+                                 LinkageVerifier.verifyJarLinkage(patchedMiuiServices, "Lcom/android/server/am/FcmWakeFilter");
+            if (!tr.linkageVerified) {
+                tr.details += "Bytecode linkage/structural integrity check failed. ";
+            }
+
+            // Verify Semantic Vector Hook Invariants
+            tr.semanticVerified = verifySemanticInvariants(patchedServices, patchedMiuiServices, archetypeId, tr);
+            if (!tr.semanticVerified) {
+                tr.details += "Semantic vector verification failed. ";
             }
 
         } catch (Exception e) {
@@ -186,6 +213,168 @@ public class PatcherIntegrationTest {
         }
 
         return tr;
+    }
+
+    private static boolean verifySemanticInvariants(File servicesJar, File miuiServicesJar, String archetypeId, TestResult tr) {
+        try {
+            MultiDexContainer<? extends DexBackedDexFile> servicesContainer =
+                DexFileFactory.loadDexContainer(servicesJar, Opcodes.getDefault());
+            MultiDexContainer<? extends DexBackedDexFile> miuiContainer =
+                DexFileFactory.loadDexContainer(miuiServicesJar, Opcodes.getDefault());
+
+            boolean isHyperos = archetypeId.contains("OS") || archetypeId.contains("WNVCNXM") ||
+                                archetypeId.contains("WOKCNXM") || archetypeId.contains("WOLCNXM");
+
+            boolean foundVector1 = false;
+            boolean foundVector2 = false;
+            boolean foundVector3 = false;
+            boolean foundVector4 = false;
+            boolean foundVector17 = false;
+            boolean foundVector18 = false;
+            boolean foundVector19 = false;
+
+            // Check services.jar
+            for (String entry : servicesContainer.getDexEntryNames()) {
+                DexBackedDexFile df = servicesContainer.getEntry(entry).getDexFile();
+                for (ClassDef cd : df.getClasses()) {
+                    String type = cd.getType();
+                    if (type.equals("Lcom/android/server/am/BroadcastController;") || type.equals("Lcom/android/server/am/ActivityManagerService;")) {
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().startsWith("broadcastIntentLocked") && m.getImplementation() != null) {
+                                for (Instruction ins : m.getImplementation().getInstructions()) {
+                                    if (ins instanceof ReferenceInstruction) {
+                                        Reference ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof MethodReference) {
+                                            MethodReference mr = (MethodReference) ref;
+                                            if (mr.getDefiningClass().equals("Lcom/android/server/am/FcmWakeFilter;") &&
+                                                (mr.getName().equals("applyFlags") || mr.getName().equals("shouldAllowFcmBroadcast"))) {
+                                                foundVector1 = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check miui-services.jar
+            for (String entry : miuiContainer.getDexEntryNames()) {
+                DexBackedDexFile df = miuiContainer.getEntry(entry).getDexFile();
+                for (ClassDef cd : df.getClasses()) {
+                    String type = cd.getType();
+
+                    // Vector 2 & 3: GreezeManagerService
+                    if (type.equals("Lcom/miui/server/greeze/GreezeManagerService;")) {
+                        for (Method m : cd.getMethods()) {
+                            if ((m.getName().equals("isAllowBroadcast") || m.getName().equals("isNeedAllowRequest")) && m.getImplementation() != null) {
+                                for (Instruction ins : m.getImplementation().getInstructions()) {
+                                    if (ins instanceof ReferenceInstruction) {
+                                        Reference ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof MethodReference && ((MethodReference) ref).getDefiningClass().equals("Lcom/android/server/am/FcmWakeFilter;")) {
+                                            foundVector2 = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (m.getName().equals("triggerGMSLimitAction") && m.getImplementation() != null) {
+                                Iterator<? extends Instruction> it = m.getImplementation().getInstructions().iterator();
+                                if (it.hasNext() && it.next().getOpcode() == Opcode.RETURN_VOID) {
+                                    foundVector3 = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // Vector 4: AutoStart C2DM Permission Bypass
+                    if (type.equals("Lcom/android/server/am/BroadcastQueueModernStubImpl;") || type.equals("Lcom/android/server/am/BroadcastQueueImpl;")) {
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("checkApplicationAutoStart") && m.getImplementation() != null) {
+                                for (Instruction ins : m.getImplementation().getInstructions()) {
+                                    if (ins.getOpcode() == Opcode.CONST_4 && ins instanceof OneRegisterInstruction) {
+                                        foundVector4 = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Vector 17: ActivityManagerServiceImpl.checkRunningCompatibility
+                    if (type.equals("Lcom/android/server/am/ActivityManagerServiceImpl;")) {
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("checkRunningCompatibility") && m.getImplementation() != null) {
+                                for (Instruction ins : m.getImplementation().getInstructions()) {
+                                    if (ins instanceof ReferenceInstruction) {
+                                        Reference ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof MethodReference) {
+                                            MethodReference mr = (MethodReference) ref;
+                                            if (mr.getDefiningClass().equals("Lcom/android/server/am/FcmWakeFilter;") && mr.getName().equals("shouldAllowRunningCompatibility")) {
+                                                foundVector17 = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Vector 18: NotificationManagerServiceImpl.checkFullScreenIntent
+                    if (type.equals("Lcom/android/server/notification/NotificationManagerServiceImpl;")) {
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("checkFullScreenIntent") && m.getImplementation() != null) {
+                                for (Instruction ins : m.getImplementation().getInstructions()) {
+                                    if (ins instanceof ReferenceInstruction) {
+                                        Reference ref = ((ReferenceInstruction) ins).getReference();
+                                        if (ref instanceof MethodReference) {
+                                            MethodReference mr = (MethodReference) ref;
+                                            if (mr.getDefiningClass().equals("Lcom/android/server/am/FcmWakeFilter;") && mr.getName().equals("shouldBypassFullScreenIntent")) {
+                                                foundVector18 = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Vector 19: AlarmManagerServiceStubImpl.init
+                    if (type.equals("Lcom/android/server/alarm/AlarmManagerServiceStubImpl;")) {
+                        for (Method m : cd.getMethods()) {
+                            if (m.getName().equals("init") && m.getImplementation() != null) {
+                                for (Instruction ins : m.getImplementation().getInstructions()) {
+                                    if (ins.getOpcode() == Opcode.CONST_4 && ins instanceof OneRegisterInstruction) {
+                                        foundVector19 = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            boolean ok = foundVector1 && foundVector2 && foundVector4;
+            if (isHyperos) {
+                ok = ok && foundVector3 && foundVector17 && foundVector18 && foundVector19;
+            }
+
+            if (!ok) {
+                tr.details += "Semantic invariants missing: [V1=" + foundVector1 + ", V2=" + foundVector2 +
+                              ", V3=" + foundVector3 + ", V4=" + foundVector4 + ", V17=" + foundVector17 +
+                              ", V18=" + foundVector18 + ", V19=" + foundVector19 + "]. ";
+            }
+            return ok;
+
+        } catch (Exception e) {
+            tr.details += "Semantic verification exception: " + e.getMessage() + ". ";
+            return false;
+        }
     }
 
     private static boolean checkZipDexAlignment(File jarFile) {
