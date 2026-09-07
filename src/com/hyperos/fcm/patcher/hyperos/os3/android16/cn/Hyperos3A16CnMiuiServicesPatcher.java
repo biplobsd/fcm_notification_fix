@@ -397,45 +397,6 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
-                    // Vector 19: AlarmManagerServiceStubImpl.init (IS_INTERNATIONAL_BUILD -> const/4 1)
-                    } else if (type.equals("Lcom/android/server/alarm/AlarmManagerServiceStubImpl;")) {
-                        System.out.println("  -> Located AlarmManagerServiceStubImpl in " + entryName);
-                        List<Method> methods = new ArrayList<>();
-                        for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("init") && m.getImplementation() != null) {
-                                System.out.println("    -> Patching AlarmManagerServiceStubImpl.init for IS_INTERNATIONAL_BUILD bypass");
-                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
-
-                                int idx = 0;
-                                for (BuilderInstruction ins : mut.getInstructions()) {
-                                    if (ins instanceof BuilderInstruction21c) {
-                                        BuilderInstruction21c refIns = (BuilderInstruction21c) ins;
-                                        if (refIns.getReference() instanceof FieldReference) {
-                                            FieldReference fr = (FieldReference) refIns.getReference();
-                                            if (fr.getName().equals("IS_INTERNATIONAL_BUILD") && fr.getDefiningClass().contains("Build")) {
-                                                mut.replaceInstruction(idx, new BuilderInstruction11n(Opcode.CONST_4, refIns.getRegisterA(), 1));
-                                                result.v19_alarm_whitelist = true;
-                                                result.v19_note = "AlarmManagerServiceStubImpl.init (IS_INTERNATIONAL_BUILD -> const/4 1)";
-                                                dexModified = true;
-                                                System.out.println("    -> Replaced Build.IS_INTERNATIONAL_BUILD with const/4 1 in init");
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    idx++;
-                                }
-
-                                methods.add(new ImmutableMethod(
-                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
-                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
-                            } else {
-                                methods.add(m);
-                            }
-                        }
-                        classesList.add(new ImmutableClassDef(
-                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
-                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
-
                     } else {
                         classesList.add(cd);
                     }
@@ -583,7 +544,7 @@ public class Hyperos3A16CnMiuiServicesPatcher {
             AlignedJarRepacker.repackJar(sourceJar, replacementDexMap, destJar);
 
             result.success = true;
-            result.details = "Vectors 2, 3, 4, 8, 9, 17, 18, 19 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
+            result.details = "Vectors 2, 3, 4, 8, 9, 17, 18 successfully applied to HyperOS 3.0 A16 CN miui-services.jar";
             return result;
 
         } catch (Exception e) {

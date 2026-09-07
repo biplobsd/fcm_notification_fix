@@ -250,7 +250,6 @@ public class PatcherIntegrationTest {
             boolean foundVector4 = false;
             boolean foundVector17 = false;
             boolean foundVector18 = false;
-            boolean foundVector19 = false;
 
             // Check services.jar
             for (String entry : servicesContainer.getDexEntryNames()) {
@@ -362,31 +361,18 @@ public class PatcherIntegrationTest {
                         }
                     }
 
-                    // Vector 19: AlarmManagerServiceStubImpl.init
-                    if (type.equals("Lcom/android/server/alarm/AlarmManagerServiceStubImpl;")) {
-                        for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("init") && m.getImplementation() != null) {
-                                for (Instruction ins : m.getImplementation().getInstructions()) {
-                                    if (ins.getOpcode() == Opcode.CONST_4 && ins instanceof OneRegisterInstruction) {
-                                        foundVector19 = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
             boolean ok = foundVector1 && foundVector2 && foundVector4;
             if (isHyperos) {
-                ok = ok && foundVector3 && foundVector17 && foundVector18 && foundVector19;
+                ok = ok && foundVector3 && foundVector17 && foundVector18;
             }
 
             if (!ok) {
                 tr.details += "Semantic invariants missing: [V1=" + foundVector1 + ", V2=" + foundVector2 +
                               ", V3=" + foundVector3 + ", V4=" + foundVector4 + ", V17=" + foundVector17 +
-                              ", V18=" + foundVector18 + ", V19=" + foundVector19 + "]. ";
+                              ", V18=" + foundVector18 + "]. ";
             }
             return ok;
 

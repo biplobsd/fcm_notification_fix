@@ -22,14 +22,13 @@ A **patcher** and **KernelSU WebUI controller** for Xiaomi HyperOS China ROMs th
 - 🔋 **Zero Battery Drain & 0 Daemons**: Retains kernel cgroup freezer (`greezer`) for inactive apps; no background daemons running.
 - 🎛️ **KernelSU / APatch / Magisk WebUI**:
   - **Dynamic Modes**: Switch between `Allow All`, `Whitelist`, and `Blacklist` without rebooting.
-  - **⚡ Sound Anti-Mute (6 Protections)**:
+  - **⚡ Sound Anti-Mute (5 Protections)**:
     - **Group Summary Alert Fix** (`GROUP_ALERT_FIX`): Prevents child notification sounds from being suppressed in conversation groups.
-    - **Anti-Mute Alert on Update** (`ANTI_MUTE_UPDATE`): Prevents rapid app state updates (e.g. avatar sync, read receipts) from aborting in-flight chimes and vibrations.
     - **Unthrottle Notification Alerts** (`UNTHROTTLE_ALERT`): Bypasses consecutive notification rate-limiting so incoming message bursts always alert.
     - **MIUI Sound Rate Limit**: Suppresses MIUI random note mute interval timers.
     - **Android 15 Notification Cooldown**: Disables system-level notification cooldowns.
     - **Wearable Off-Body Mute**: Prevents notification silencing when watches/wearables are off-body.
-    - **1-Tap Master Toggle**: "⚡ Eliminate Sound Silencing" enables all 6 protections simultaneously; "Restore Defaults" reverts to stock.
+    - **1-Tap Master Toggle**: "⚡ Eliminate Sound Silencing" enables all 5 protections simultaneously; "Restore Defaults" reverts to stock.
   - **🔄 Notification Channel Sync**:
     - Batch syncs sound, vibration, lock screen visibility, and floating banners across all target app notification channels.
     - **Auto-Sync on Boot**: Automatically re-applies channel permissions after device reboots.

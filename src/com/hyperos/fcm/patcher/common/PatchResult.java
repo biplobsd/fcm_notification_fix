@@ -23,26 +23,17 @@ public class PatchResult {
     public boolean v5_group_alert_fix = false;
     public String v5_note = "";
 
-    public boolean v7_anti_mute_update = false;
-    public String v7_note = "";
-
     public boolean v8_policy_intl = false;
     public String v8_note = "";
 
     public boolean v9_aurogon_filter = false;
     public String v9_note = "";
 
-    public boolean v14_playsound_unthrottle = false;
-    public String v14_note = "";
-
     public boolean v17_running_compat = false;
     public String v17_note = "";
 
     public boolean v18_fullscreen_intent = false;
     public String v18_note = "";
-
-    public boolean v19_alarm_whitelist = false;
-    public String v19_note = "";
 
     public boolean isAllSuccess() {
         return (v1_wake_flag || (v2_screenoff_thaw && v3_gms_quickfreeze && v4_autostart_bypass)) && success;

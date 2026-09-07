@@ -308,16 +308,15 @@
                             (soundFeatures.android15_cooldown ? 1 : 0) +
                             (soundFeatures.offbody_mute ? 1 : 0) +
                             (alertFixConfig.group_alert_fix ? 1 : 0) +
-                            (alertFixConfig.anti_mute_update ? 1 : 0) +
                             (alertFixConfig.unthrottle_alert ? 1 : 0);
 
         if (badge) {
-            if (countActive === 6) {
+            if (countActive === 5) {
                 badge.className = 'status-pill status-running';
                 badge.textContent = t('sound.badge.active');
             } else if (countActive > 0) {
                 badge.className = 'status-pill status-running';
-                badge.textContent = t('sound.badge.custom') + ` (${countActive}/6)`;
+                badge.textContent = t('sound.badge.custom') + ` (${countActive}/5)`;
             } else {
                 badge.className = 'status-pill status-stopped';
                 badge.textContent = t('sound.badge.stock');
@@ -325,7 +324,7 @@
         }
 
         if (btnApply) {
-            btnApply.style.opacity = (countActive === 6) ? '0.75' : '1';
+            btnApply.style.opacity = (countActive === 5) ? '0.75' : '1';
         }
         if (btnRestore) {
             btnRestore.style.display = (countActive > 0 || soundFixHasBackup) ? 'inline-flex' : 'none';
@@ -394,7 +393,6 @@
                     });
                     updateAlertFixUI(res.data.alert_fix || {
                         group_alert_fix: true,
-                        anti_mute_update: true,
                         unthrottle_alert: true
                     });
                     saveStateCache();
@@ -437,7 +435,6 @@
                     });
                     updateAlertFixUI(res.data.alert_fix || {
                         group_alert_fix: true,
-                        anti_mute_update: true,
                         unthrottle_alert: false
                     });
                     saveStateCache();
@@ -465,7 +462,6 @@
      * ====================================================================== */
     let alertFixConfig = {
         group_alert_fix: true,
-        anti_mute_update: true,
         unthrottle_alert: false
     };
     let alertFixSaveInProgress = false;
@@ -476,10 +472,8 @@
             alertFixConfig = Object.assign(alertFixConfig, config);
         }
         const swGroup = document.getElementById('switchGroupAlertFix');
-        const swAntiMute = document.getElementById('switchAntiMuteUpdate');
         const swUnthrottleAlert = document.getElementById('switchUnthrottleAlert');
         if (swGroup) swGroup.checked = !!alertFixConfig.group_alert_fix;
-        if (swAntiMute) swAntiMute.checked = !!alertFixConfig.anti_mute_update;
         if (swUnthrottleAlert) swUnthrottleAlert.checked = !!alertFixConfig.unthrottle_alert;
         updateSoundFixUI();
     }
@@ -640,7 +634,6 @@
                     updateAlertFixUI(res.data || requestedConfig);
                     saveStateCache();
                     const alertTitles = {
-                        'anti_mute_update': t('sound.feat.anti_mute_update'),
                         'group_alert_fix': t('sound.feat.group_alert'),
                         'unthrottle_alert': t('sound.feat.unthrottle_alert')
                     };

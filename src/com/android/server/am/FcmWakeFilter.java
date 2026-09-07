@@ -43,7 +43,6 @@ public class FcmWakeFilter {
     private static volatile int sCurrentMode = MODE_ALL;
     private static volatile Set<String> sPackageFilterSet = Collections.emptySet();
     private static volatile boolean sGroupAlertFixEnabled = true;
-    private static volatile boolean sAntiMuteUpdateEnabled = true;
     private static volatile boolean sUnthrottleAlertEnabled = false;
     private static volatile long sLastCheckTimestamp = 0;
     private static final long CONFIG_CHECK_INTERVAL_MS = 5000;
@@ -60,30 +59,6 @@ public class FcmWakeFilter {
             return false; // Do not mute grouped notifications
         }
         return stockSuppress;
-    }
-
-    /**
-     * Hooked in NotificationAttentionHelper.buzzBeepBlinkLocked(...) for sound & vibrate cancellation.
-     * Prevents rapid app updates (e.g. Telegram/WhatsApp syncing, avatar loading, silent channel switches)
-     * from aborting in-flight ringtones and vibrations during the 500ms audio focus acquisition delay.
-     *
-     * If sAntiMuteUpdateEnabled is true, returns false (skips clearSoundLocked() and clearVibrateLocked()).
-     * If sAntiMuteUpdateEnabled is false, returns stockCancel (preserves 100% stock Android behavior).
-     */
-    public static boolean shouldCancelEffectsOnUpdate(boolean stockCancel) {
-        checkConfig();
-        if (!stockCancel) {
-            return false;
-        }
-        if (sAntiMuteUpdateEnabled) {
-            return false; // Prevent update from killing in-flight alert
-        }
-        return true; // Preserve stock cancellation
-    }
-
-    public static boolean isAntiMuteUpdateEnabled() {
-        checkConfig();
-        return sAntiMuteUpdateEnabled;
     }
 
     /**
@@ -352,7 +327,6 @@ public class FcmWakeFilter {
             Set<String> newFilterSet = new HashSet<String>();
             int mode = MODE_ALL;
             boolean groupAlertFix = true;
-            boolean antiMuteUpdate = true;
             boolean unthrottleAlert = false;
 
             BufferedReader reader = null;
@@ -374,10 +348,6 @@ public class FcmWakeFilter {
                         groupAlertFix = false;
                     } else if (line.equalsIgnoreCase("GROUP_ALERT_FIX=1") || line.equalsIgnoreCase("GROUP_ALERT_FIX=TRUE")) {
                         groupAlertFix = true;
-                    } else if (line.equalsIgnoreCase("ANTI_MUTE_UPDATE=0") || line.equalsIgnoreCase("ANTI_MUTE_UPDATE=FALSE")) {
-                        antiMuteUpdate = false;
-                    } else if (line.equalsIgnoreCase("ANTI_MUTE_UPDATE=1") || line.equalsIgnoreCase("ANTI_MUTE_UPDATE=TRUE")) {
-                        antiMuteUpdate = true;
                     } else if (line.equalsIgnoreCase("UNTHROTTLE_ALERT=0") || line.equalsIgnoreCase("UNTHROTTLE_ALERT=FALSE")) {
                         unthrottleAlert = false;
                     } else if (line.equalsIgnoreCase("UNTHROTTLE_ALERT=1") || line.equalsIgnoreCase("UNTHROTTLE_ALERT=TRUE")) {
@@ -399,7 +369,6 @@ public class FcmWakeFilter {
             sPackageFilterSet = Collections.unmodifiableSet(newFilterSet);
             sCurrentMode = mode;
             sGroupAlertFixEnabled = groupAlertFix;
-            sAntiMuteUpdateEnabled = antiMuteUpdate;
             sUnthrottleAlertEnabled = unthrottleAlert;
             sLastModified = modified;
             sGeneration++;
@@ -409,7 +378,6 @@ public class FcmWakeFilter {
             sLastModified = -1; // Force retry on next attempt
             sCurrentMode = MODE_ALL;
             sGroupAlertFixEnabled = true;
-            sAntiMuteUpdateEnabled = true;
             sUnthrottleAlertEnabled = false;
             sGeneration++;
             sDecisionCache.clear();
