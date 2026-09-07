@@ -158,11 +158,11 @@ public class PatcherIntegrationTest {
             String regionArg = "cn";
             String sdkArg = "36";
 
-            if (archetypeId.contains("V14") || archetypeId.contains("TKUMIXM")) {
+            if (archetypeId.contains("V14") || archetypeId.toLowerCase().contains("miui")) {
                 osArg = "miui14";
                 regionArg = "global";
                 sdkArg = "33";
-            } else if (archetypeId.contains("OS4") || archetypeId.contains("hyperos4")) {
+            } else if (archetypeId.contains("OS4") || archetypeId.toLowerCase().contains("hyperos4")) {
                 osArg = "hyperos4";
                 regionArg = "cn";
                 sdkArg = "37";
@@ -262,9 +262,7 @@ public class PatcherIntegrationTest {
             MultiDexContainer<? extends DexBackedDexFile> miuiContainer =
                 DexFileFactory.loadDexContainer(miuiServicesJar, Opcodes.getDefault());
 
-            boolean isHyperos = archetypeId.contains("OS") || archetypeId.toLowerCase().contains("hyperos") ||
-                                archetypeId.contains("WNVCNXM") || archetypeId.contains("WOKCNXM") ||
-                                archetypeId.contains("WOLCNXM");
+            boolean isHyperos = archetypeId.contains("OS") || archetypeId.toLowerCase().contains("hyperos");
 
             boolean foundVector1 = false;
             boolean foundVector2 = false;
