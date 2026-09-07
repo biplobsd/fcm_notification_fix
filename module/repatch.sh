@@ -262,7 +262,11 @@ cmd_run() {
 
     # Pre-compile system_server AOT cache (dex2oat)
     if compile_aot_cache "$MODDIR/framework/services.jar" "$SERVICES_LIVE" "$MODDIR/framework/miui-services.jar" "$MIUI_LIVE"; then
-        log "native AOT speed compilation complete"
+        if [ -n "$COMPILED_DOWNSTREAM_COUNT" ] && [ "$COMPILED_DOWNSTREAM_COUNT" -gt 0 ]; then
+            log "native AOT speed compilation complete (services + $COMPILED_DOWNSTREAM_COUNT downstream components)"
+        else
+            log "native AOT speed compilation complete"
+        fi
         rm -f "$MODDIR/wipe_cache_once"
     else
         # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot

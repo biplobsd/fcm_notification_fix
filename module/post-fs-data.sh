@@ -5,6 +5,12 @@ MODDIR=${0%/*}
 if [ -f "$MODDIR/wipe_cache_once" ]; then
     rm -rf /data/dalvik-cache/*/*services* 2>/dev/null
     rm -rf /data/dalvik-cache/*/*miui-services* 2>/dev/null
+    rm -rf /data/dalvik-cache/*/*apprecovery* 2>/dev/null
+    rm -rf /data/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
+    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*services* 2>/dev/null
+    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*miui-services* 2>/dev/null
+    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*apprecovery* 2>/dev/null
+    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
     rm -f "$MODDIR/wipe_cache_once"
 fi
 
