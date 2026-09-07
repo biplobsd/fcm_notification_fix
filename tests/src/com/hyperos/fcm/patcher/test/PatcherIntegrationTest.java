@@ -137,6 +137,17 @@ public class PatcherIntegrationTest {
         }
     }
 
+    /**
+     * Executes the end-to-end integration test against a specific ROM fixture archetype,
+     * verifying DEX alignment, structural bytecode linkage, and semantic vector invariants.
+     *
+     * @param archetypeId ROM fixture identifier
+     * @param servicesSrc source services.jar
+     * @param miuiServicesSrc source miui-services.jar
+     * @param patcherJar compiled patcher DEX jar
+     * @param stageOut staging directory for test outputs
+     * @return TestResult summarizing test status and details
+     */
     private static TestResult runFixtureTest(String archetypeId, File servicesSrc, File miuiServicesSrc, File patcherJar, File stageOut) {
         TestResult tr = new TestResult();
         tr.archetypeId = archetypeId;
@@ -234,6 +245,16 @@ public class PatcherIntegrationTest {
         return tr;
     }
 
+    /**
+     * Inspects patched bytecode to verify that required bytecode hooks are present
+     * and correctly structured according to the ROM profile invariants.
+     *
+     * @param servicesJar patched services.jar
+     * @param miuiServicesJar patched miui-services.jar
+     * @param archetypeId ROM fixture identifier
+     * @param tr TestResult to append error details to
+     * @return true if all required semantic hooks are present, false otherwise
+     */
     private static boolean verifySemanticInvariants(File servicesJar, File miuiServicesJar, String archetypeId, TestResult tr) {
         try {
             MultiDexContainer<? extends DexBackedDexFile> servicesContainer =
@@ -241,8 +262,9 @@ public class PatcherIntegrationTest {
             MultiDexContainer<? extends DexBackedDexFile> miuiContainer =
                 DexFileFactory.loadDexContainer(miuiServicesJar, Opcodes.getDefault());
 
-            boolean isHyperos = archetypeId.contains("OS") || archetypeId.contains("WNVCNXM") ||
-                                archetypeId.contains("WOKCNXM") || archetypeId.contains("WOLCNXM");
+            boolean isHyperos = archetypeId.contains("OS") || archetypeId.toLowerCase().contains("hyperos") ||
+                                archetypeId.contains("WNVCNXM") || archetypeId.contains("WOKCNXM") ||
+                                archetypeId.contains("WOLCNXM");
 
             boolean foundVector1 = false;
             boolean foundVector2 = false;

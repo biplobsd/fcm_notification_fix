@@ -42,6 +42,16 @@ import java.util.*;
  */
 public class Hyperos3A16CnServicesPatcher {
 
+    /**
+     * Patches the specified services.jar for HyperOS 3.0 / Android 16+ China builds,
+     * applying Vector 1 (BroadcastController) and Vector 5 (NotificationAttentionHelper).
+     *
+     * @param sourceJar original stock services.jar
+     * @param destJar output patched services.jar destination
+     * @param workDir temporary working directory for intermediate DEX extraction
+     * @param patcherJar patcher engine JAR containing FcmWakeFilter classes
+     * @return PatchResult containing operation status and applied vector notes
+     */
     public static PatchResult patchServicesJar(File sourceJar, File destJar, File workDir, File patcherJar) {
         PatchResult result = new PatchResult();
 

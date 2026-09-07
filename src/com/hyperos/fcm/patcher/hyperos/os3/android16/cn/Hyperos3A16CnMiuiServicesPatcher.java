@@ -38,6 +38,16 @@ import java.util.*;
  */
 public class Hyperos3A16CnMiuiServicesPatcher {
 
+    /**
+     * Patches the specified miui-services.jar for HyperOS 3.0 / Android 16+ China builds,
+     * applying Vectors 2, 3, 4, 8, 9, 17, and 18.
+     *
+     * @param sourceJar original stock miui-services.jar
+     * @param destJar output patched miui-services.jar destination
+     * @param workDir temporary working directory for intermediate DEX extraction
+     * @param patcherJar patcher engine JAR containing FcmWakeFilter classes
+     * @return PatchResult containing operation status and applied vector notes
+     */
     public static PatchResult patchMiuiServicesJar(File sourceJar, File destJar, File workDir, File patcherJar) {
         PatchResult result = new PatchResult();
 
