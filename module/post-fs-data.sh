@@ -196,25 +196,47 @@ fi
 # firmware mismatch we already exited above with skip_mount intact, so mountify
 # skips us after an OTA exactly like the self-mount path — the OTA guard holds.
 # Any failure here falls through to the in-memory stealth mount below.
+# The resolvers above also accept published layouts that already live inside
+# $MODDIR/system (legacy installs, and the find() fallback). There the tree IS
+# the published source, not a stale staging artifact, so it must never be
+# deleted: doing so would destroy the patched jars and leave both the delegated
+# and the self-mount path with a missing source.
+_src_in_system=0
+case "$SERVICES_SRC" in "$MODDIR"/system/*) _src_in_system=1 ;; esac
+case "$MIUI_SRC" in "$MODDIR"/system/*) _src_in_system=1 ;; esac
+
 if metamodule_will_mount && mountify_maps_cleanly "$SERVICES_DST" "$MIUI_DST"; then
     _srv_rel="$(target_to_module_rel "$SERVICES_DST")"
     _miui_rel="$(target_to_module_rel "$MIUI_DST")"
-    rm -rf "$MODDIR/system"
-    if [ -n "$_srv_rel" ] && [ -n "$_miui_rel" ] && \
-       mkdir -p "$MODDIR/system/${_srv_rel%/*}" "$MODDIR/system/${_miui_rel%/*}" 2>/dev/null && \
-       ln -f "$SERVICES_SRC" "$MODDIR/system/$_srv_rel" 2>/dev/null && \
-       ln -f "$MIUI_SRC" "$MODDIR/system/$_miui_rel" 2>/dev/null; then
+    _staged=0
+    if [ -n "$_srv_rel" ] && [ -n "$_miui_rel" ]; then
+        if [ "$_src_in_system" -eq 1 ]; then
+            # Sources already sit in the system/ tree: keep it as published and
+            # delegate only when its layout matches the live targets.
+            [ -f "$MODDIR/system/$_srv_rel" ] && [ -f "$MODDIR/system/$_miui_rel" ] && _staged=1
+        else
+            rm -rf "$MODDIR/system"
+            if mkdir -p "$MODDIR/system/${_srv_rel%/*}" "$MODDIR/system/${_miui_rel%/*}" 2>/dev/null && \
+               ln -f "$SERVICES_SRC" "$MODDIR/system/$_srv_rel" 2>/dev/null && \
+               ln -f "$MIUI_SRC" "$MODDIR/system/$_miui_rel" 2>/dev/null; then
+                _staged=1
+            else
+                rm -rf "$MODDIR/system"
+            fi
+        fi
+    fi
+    if [ "$_staged" -eq 1 ]; then
         rm -f "$MODDIR/skip_mount"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] framework mount delegated to metamodule via system/ overlay (skip_mount cleared)" >> "$MODDIR/repatch.log"
         exit 0
     fi
-    rm -rf "$MODDIR/system"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] metamodule overlay staging failed, falling back to in-memory stealth mount" >> "$MODDIR/repatch.log"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] metamodule overlay staging unavailable, falling back to in-memory stealth mount" >> "$MODDIR/repatch.log"
 fi
 
-# Not delegating: drop any stale overlay tree and keep skip_mount enforced so no
-# root manager auto-mounts our on-disk module directory into the namespace.
-rm -rf "$MODDIR/system"
+# Not delegating: drop only a staging tree we own - never one holding the
+# published sources - and keep skip_mount enforced so no root manager
+# auto-mounts our on-disk module directory into the namespace.
+[ "$_src_in_system" -eq 0 ] && rm -rf "$MODDIR/system"
 touch "$MODDIR/skip_mount"
 
 # Mount transactionally with automatic rollback on any failure
