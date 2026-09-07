@@ -25,6 +25,15 @@
       "track_latest": true
     },
     {
+      "codename": "piano",
+      "device": "Xiaomi Pad 8 Pro",
+      "version": "OS4.0.0.37.XPYCNXM",
+      "sdk": 37,
+      "region": "cn",
+      "os": "hyperos4",
+      "url": "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS4.0.0.37.XPYCNXM/piano-ota_full-OS4.0.0.37.XPYCNXM-user-17.0-409588cc4f.zip"
+    },
+    {
       "codename": "selene",
       "device": "Redmi 10",
       "version": "V14.0.7.0.TKUMIXM",

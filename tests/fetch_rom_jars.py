@@ -245,7 +245,7 @@ def check_and_update_matrix(matrix, auto_update=False):
             live_ver = rom.get("version")
             android_ver = rom.get("android")
             link = rom.get("link")
-            should_track = arch.get("track_latest", False)
+            should_track = arch.get("track_latest", False) and not arch.get("url") and not arch.get("ota_url")
 
             is_match = live_ver in matrix_ver or matrix_ver in live_ver
             match_sym = "✓ Up-to-date" if is_match else f"⚡ New update available: {live_ver}"
@@ -1142,33 +1142,36 @@ def fetch_rom_jars(target_identifier, matrix, preferred_mirror=None, workers=Non
               f"({os.path.getsize(services_path)} bytes / {os.path.getsize(miui_services_path)} bytes).")
         return True
 
-    print(f"[*] Fixture {target_arch.get('codename')} ({target_arch.get('version')}) is missing locally.")
-    print("[*] Resolving official BigOTA download URL from Xiaomi tracker...")
-    records = fetch_latest_ota_records()
+    target_link = target_arch.get("url") or target_arch.get("ota_url")
+    if target_link:
+        print(f"[*] Using direct OTA URL specified for {target_arch.get('codename')}: {target_link}")
+    else:
+        print(f"[*] Fixture {target_arch.get('codename')} ({target_arch.get('version')}) is missing locally.")
+        print("[*] Resolving official BigOTA download URL from Xiaomi tracker...")
+        records = fetch_latest_ota_records()
 
-    base_code = target_arch.get("codename", "").split("_")[0]
-    exact_matches = []
-    fallback_matches = []
-    for r in records:
-        rom_code = r.get("codename", "")
-        if rom_code.split("_")[0] != base_code or r.get("method") != "Recovery":
-            continue
-        link = r.get("link")
-        if not link:
-            continue
-        live_ver = r.get("version", "")
-        matrix_ver = target_arch.get("version", "")
-        if matrix_ver in live_ver or live_ver in matrix_ver:
-            exact_matches.append(link)
-        else:
-            fallback_matches.append(link)
+        base_code = target_arch.get("codename", "").split("_")[0]
+        exact_matches = []
+        fallback_matches = []
+        for r in records:
+            rom_code = r.get("codename", "")
+            if rom_code.split("_")[0] != base_code or r.get("method") != "Recovery":
+                continue
+            link = r.get("link")
+            if not link:
+                continue
+            live_ver = r.get("version", "")
+            matrix_ver = target_arch.get("version", "")
+            if matrix_ver in live_ver or live_ver in matrix_ver:
+                exact_matches.append(link)
+            else:
+                fallback_matches.append(link)
 
-    target_link = None
-    if exact_matches:
-        target_link = exact_matches[0]
-    elif fallback_matches:
-        print("[!] Note: no version-exact OTA found; using latest stable release instead.")
-        target_link = fallback_matches[0]
+        if exact_matches:
+            target_link = exact_matches[0]
+        elif fallback_matches:
+            print("[!] Note: no version-exact OTA found; using latest stable release instead.")
+            target_link = fallback_matches[0]
 
     if not target_link:
         print(f"[!] No Recovery OTA found on tracker for codename '{target_arch.get('codename')}'.")

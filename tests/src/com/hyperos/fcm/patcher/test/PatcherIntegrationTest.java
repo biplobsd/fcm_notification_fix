@@ -151,6 +151,25 @@ public class PatcherIntegrationTest {
                 osArg = "miui14";
                 regionArg = "global";
                 sdkArg = "33";
+            } else if (archetypeId.contains("OS4") || archetypeId.contains("hyperos4")) {
+                osArg = "hyperos4";
+                regionArg = "cn";
+                sdkArg = "37";
+            }
+
+            File versionMeta = new File(servicesSrc.getParentFile(), "version.json");
+            if (versionMeta.exists()) {
+                try {
+                    String meta = new String(java.nio.file.Files.readAllBytes(versionMeta.toPath()), StandardCharsets.UTF_8);
+                    if (meta.contains("\"sdk\": 37") || meta.contains("\"sdk\": \"37\"")) {
+                        sdkArg = "37";
+                        osArg = "hyperos4";
+                    }
+                    if (meta.contains("\"os\": \"hyperos4\"")) {
+                        osArg = "hyperos4";
+                    }
+                } catch (Exception ignored) {
+                }
             }
 
             // Execute patcher via Java sub-process
