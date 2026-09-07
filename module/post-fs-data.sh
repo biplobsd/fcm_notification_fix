@@ -187,6 +187,36 @@ if [ -z "$SERVICES_SRC" ] || [ ! -f "$SERVICES_SRC" ] || [ ! -e "$SERVICES_DST" 
     exit 0
 fi
 
+# 3a. Prefer handing the mount to a skip_mount-respecting metamodule (mountify).
+# Its OverlayFS mounts show a clean /mnt/vendor source with no /adb/modules token
+# and are read-only, so integrity checkers (banking / payment apps) stop flagging
+# a module mount over /system. We build the system/ layout it consumes as
+# hardlinks to the already-published jars (no data copy, same filesystem) and
+# clear skip_mount so mountify's later metamount phase overlays them. On a
+# firmware mismatch we already exited above with skip_mount intact, so mountify
+# skips us after an OTA exactly like the self-mount path — the OTA guard holds.
+# Any failure here falls through to the in-memory stealth mount below.
+if metamodule_will_mount && mountify_maps_cleanly "$SERVICES_DST" "$MIUI_DST"; then
+    _srv_rel="$(target_to_module_rel "$SERVICES_DST")"
+    _miui_rel="$(target_to_module_rel "$MIUI_DST")"
+    rm -rf "$MODDIR/system"
+    if [ -n "$_srv_rel" ] && [ -n "$_miui_rel" ] && \
+       mkdir -p "$MODDIR/system/${_srv_rel%/*}" "$MODDIR/system/${_miui_rel%/*}" 2>/dev/null && \
+       ln -f "$SERVICES_SRC" "$MODDIR/system/$_srv_rel" 2>/dev/null && \
+       ln -f "$MIUI_SRC" "$MODDIR/system/$_miui_rel" 2>/dev/null; then
+        rm -f "$MODDIR/skip_mount"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] framework mount delegated to metamodule via system/ overlay (skip_mount cleared)" >> "$MODDIR/repatch.log"
+        exit 0
+    fi
+    rm -rf "$MODDIR/system"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] metamodule overlay staging failed, falling back to in-memory stealth mount" >> "$MODDIR/repatch.log"
+fi
+
+# Not delegating: drop any stale overlay tree and keep skip_mount enforced so no
+# root manager auto-mounts our on-disk module directory into the namespace.
+rm -rf "$MODDIR/system"
+touch "$MODDIR/skip_mount"
+
 # Mount transactionally with automatic rollback on any failure
 MOUNTED_TARGETS=""
 
