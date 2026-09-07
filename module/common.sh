@@ -248,6 +248,63 @@ live_miui_services() {
 }
 
 
+# True when a skip_mount-respecting metamodule (mountify) is active and will
+# overlay-mount our system/ layout. When so, post-fs-data.sh hands the framework
+# mount to it instead of doing the in-memory stealth self-mount: mountify's
+# OverlayFS mounts carry a clean /mnt/vendor source and are read-only, so
+# integrity checkers (banking / payment apps) no longer flag a module bind mount
+# sitting over /system. Only mountify is keyed on here because it is the one
+# metamodule verified to honour skip_mount in metamodule mode (its OTA guard).
+metamodule_will_mount() {
+    _mmp=""
+    [ -L /data/adb/metamodule ] && _mmp="$(readlink -f /data/adb/metamodule 2>/dev/null)"
+    [ -z "$_mmp" ] && [ -f /data/adb/modules/mountify/metamount.sh ] && _mmp="/data/adb/modules/mountify"
+    [ -n "$_mmp" ] || return 1
+    [ "$(basename "$_mmp")" = "mountify" ] || return 1
+    [ -f "$_mmp/metamount.sh" ] || return 1
+    [ -f "$_mmp/disable" ] && return 1
+    [ -f "$_mmp/remove" ] && return 1
+
+    # mountify modes: 2 auto (mounts every module with system/), 1 manual (needs
+    # us in modules.txt), 0/other disabled. Only delegate when it will mount us.
+    _cfg="/data/adb/mountify/config.sh"
+    _mode="$(sed -n 's/^[[:space:]]*mountify_mounts=\([0-9]\).*/\1/p' "$_cfg" 2>/dev/null | tail -n1)"
+    [ -z "$_mode" ] && _mode=2
+    case "$_mode" in
+        2) return 0 ;;
+        1) grep -Eq '^[[:space:]]*fcm_notification_fix([[:space:]]|$)' /data/adb/mountify/modules.txt 2>/dev/null && return 0
+           return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+# True only when the live framework targets map 1:1 onto mountify's OverlayFS
+# target scheme: module/system/<dir> -> /system/<dir> (single depth) or /<top>
+# for top-level partition names (system_ext, product, ...). Paths nested under
+# /system/<partition>/ (e.g. /system/system_ext/...) would land at the wrong
+# mountpoint, so those layouts self-mount instead of delegating.
+mountify_maps_cleanly() {
+    [ "$1" = "/system/framework/services.jar" ] || return 1
+    case "$2" in
+        /system_ext/framework/miui-services.jar) return 0 ;;
+        /product/framework/miui-services.jar) return 0 ;;
+        /system/framework/miui-services.jar) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Maps an absolute framework target to its path INSIDE the module's system/ tree,
+# matching how mountify re-mounts it: module/system/<dir> is overlaid at
+# /system/<dir>, while a top-level partition dir (system_ext, product, ...) is
+# overlaid at /<dir>. So /system/framework/x -> framework/x, but
+# /system_ext/framework/x -> system_ext/framework/x.
+target_to_module_rel() {
+    case "$1" in
+        /system/*) printf '%s\n' "${1#/system/}" ;;
+        /*) printf '%s\n' "${1#/}" ;;
+    esac
+}
+
 # Pre-compiles system_server framework jars with dex2oat using full speed AOT
 # so that the runtime never suffers from interpreter or JIT lag.
 # Returns 0 on success, 1 on failure / missing dex2oat.
