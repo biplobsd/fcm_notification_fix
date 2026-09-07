@@ -19,7 +19,13 @@
         } catch (e) {}
         return [
             { code: 'en', name: 'English' },
-            { code: 'ru', name: 'Русский' }
+            { code: 'ru', name: 'Русский' },
+            { code: 'tr', name: 'Türkçe' },
+            { code: 'zh', name: '简体中文' },
+            { code: 'hi', name: 'हिन्दी' },
+            { code: 'bn', name: 'বাংলা' },
+            { code: 'pt', name: 'Português' },
+            { code: 'ja', name: '日本語' }
         ];
     })();
     const DICT = {};
