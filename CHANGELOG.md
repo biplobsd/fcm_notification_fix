@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3 (versionCode: 4)
+- **Anonymous Stealth Mount**: Switched to in-memory tmpfs mounts to bypass root detection (Duck Detector), with Mountify metamodule delegation.
+- **Notification Sound Anti-Mute**: Patched `NotificationAttentionHelper` to prevent suppression of rapid and group alerts, with granular channel controls.
+- **PowerKeeper Firewall Disarm**: Disarmed PowerKeeper GMS firewall by default to prevent silent background push drops.
+- **Full Classpath AOT Compilation**: Native `dex2oat` compilation for full `system_server` classpath with generation-based cache invalidation.
+- **64K Spill Guard & Linkage Verifier**: Dynamic DEX carrier synthesis and bytecode linkage checks to prevent method limit overflow.
+- **Composite Firmware Fingerprint**: Multi-partition OTA guard and subversion tracking to safely boot stock framework on updates.
+- **WebUI & Extended Languages**: Added Sound Anti-Mute controls, faster `window.ksu` bridge, and translations for PT, HI, TR, JA, ZH, and BN.
+- **Safe Uninstallation**: Added `uninstall.sh` to restore stock system configurations and cleanly unmount stealth layers.
+
 ## v1.2 (versionCode: 3)
 ### Added
 - **Pluggable Modular Patcher Strategy Architecture**:
@@ -65,4 +75,3 @@
 - Patches Greeze frozen state (screen-off instant defrost on GMS FCM broadcast).
 - GMS Doze keepalive heartbeat optimization.
 - 100% Native on-device DexLib2 bytecode surgery with 0 background daemons.
-
