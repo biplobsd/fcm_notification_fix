@@ -275,6 +275,32 @@ else
     touch "$MODPATH/wipe_cache_once"
 fi
 
+# 7.6 Disarm PowerKeeper GMS Firewall by default at install time (China ROM)
+if command -v content >/dev/null 2>&1 && [ "$(getprop sys.boot_completed)" = "1" ]; then
+    _has_pk_gms=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc --where "name='gms_control'" 2>/dev/null | grep -o 'value=' | head -n1)
+    if [ "$ROM_REGION" = "cn" ] || [ -n "$_has_pk_gms" ]; then
+        ui_print "- Disarming PowerKeeper GMS Firewall & DNS blocker by default..."
+        STOCK_CONF="$MODPATH/stock_settings.conf"
+        if command -v ensure_powerkeeper_backup >/dev/null 2>&1; then
+            ensure_powerkeeper_backup "$STOCK_CONF"
+        fi
+        content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+          --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null || true
+        for _p in com.google.android.gms com.android.vending; do
+          content update --uri content://com.miui.powerkeeper.configure/userTable \
+            --bind bgControl:s:noRestrict --where "pkgName='${_p}' AND userId=0" 2>/dev/null || true
+          _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}' AND userId=0" 2>/dev/null | grep -o 'pkgName=' | head -n1)
+          if [ -z "$_has_entry" ]; then
+            content insert --uri content://com.miui.powerkeeper.configure/userTable \
+              --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null || true
+          fi
+        done
+        iptables -F gms_wall 2>/dev/null || true
+        ip6tables -F gms_wall 2>/dev/null || true
+        ui_print "- [PASS] PowerKeeper GMS Firewall disarmed."
+    fi
+fi
+
 # Keep the patch engine inside the module: after an OTA the firmware guard in
 # post-fs-data.sh skips every mount, and repatch.sh needs the engine to rebuild
 # the jars against the new firmware without a re-flash.
