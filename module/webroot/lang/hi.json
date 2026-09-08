@@ -133,6 +133,8 @@
   "parity.desc": "चाइना रॉम पर ग्लोबल रॉम नेटवर्क और सूचना व्यवहार लागू करता है।",
   "parity.feat.pk": "PowerKeeper GMS फ़ायरवॉल",
   "parity.feat.pk.hint": "Netd iptables CHAIN_GMS_WALL और DNS ब्लॉकर को निष्क्रिय करता है",
+  "parity.feat.boot": "बूट पर लागू करें",
+  "parity.feat.boot.hint": "डिवाइस स्टार्टअप पर PowerKeeper फ़ायरवॉल को स्वचालित रूप से निष्क्रिय करें",
   "parity.feat.fsi": "VoIP फ़ुलस्क्रीन इंटेंट",
   "parity.feat.fsi.hint": "फ़ोन लॉक होने पर आने वाली कॉल की उत्तर/अस्वीकार स्क्रीन सुरक्षित रखता है",
   "parity.disarmed": "निष्क्रिय",
@@ -143,5 +145,7 @@
   "parity.unknown": "अज्ञात",
   "parity.toast.disarmed": "GMS फ़ायरवॉल निष्क्रिय किया गया ✓",
   "parity.toast.enabled": "GMS फ़ायरवॉल सक्षम किया गया",
+  "parity.toast.boot_enabled": "बूट पर लागू करना सक्षम किया गया ✓",
+  "parity.toast.boot_disabled": "बूट पर लागू करना अक्षम किया गया",
   "parity.toast.error": "फ़ायरवॉल स्थिति अपडेट करने में विफल"
 }

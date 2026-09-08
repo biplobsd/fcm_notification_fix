@@ -428,6 +428,20 @@
                 </div>
             </div>
 
+            <div class="sound-row" id="rowPkGmsBoot">
+                <div class="sound-info">
+                    <div class="sound-name" data-i18n="parity.feat.boot">Apply on Boot</div>
+                    <div class="sound-hint" data-i18n="parity.feat.boot.hint">Automatically disarm PowerKeeper firewall on device startup</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                    <div class="spinner-small" id="spinPkGmsBoot" style="display: none;"></div>
+                    <label class="switch" id="lblSwitchPkGmsBoot" style="opacity: 0.35; pointer-events: none;" onclick="event.stopPropagation()">
+                        <input type="checkbox" id="switchPkGmsBoot" disabled onchange="onTogglePkGmsBoot(this.checked)">
+                        <span class="slider green"></span>
+                    </label>
+                </div>
+            </div>
+
             <div class="sound-row">
                 <div class="sound-info">
                     <div class="sound-name" data-i18n="parity.feat.fsi">VoIP FullScreen Intent</div>

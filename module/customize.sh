@@ -286,6 +286,14 @@ else
     abort_install "Patched framework failed ART verification ($VERIFY_FAILED_JAR)."
 fi
 
+PK_BOOT_CONF="/data/system/fcm_pk_boot.conf"
+if [ ! -f "$PK_BOOT_CONF" ]; then
+    echo "true" > "$PK_BOOT_CONF"
+    chmod 0644 "$PK_BOOT_CONF"
+    chown system:system "$PK_BOOT_CONF" 2>/dev/null || true
+    chcon u:object_r:system_data_file:s0 "$PK_BOOT_CONF" 2>/dev/null || true
+fi
+
 # 7.5 Pre-compile system_server AOT cache (dex2oat)
 ui_print "- Pre-compiling system_server native AOT cache (dex2oat)..."
 if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
@@ -300,29 +308,16 @@ else
     touch "$MODPATH/wipe_cache_once"
 fi
 
-# 7.6 Disarm PowerKeeper GMS Firewall by default at install time (China ROM)
+# 7.6 Backup PowerKeeper stock configuration at install time
 if command -v content >/dev/null 2>&1 && [ "$(getprop sys.boot_completed)" = "1" ]; then
     _has_pk_gms=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc --where "name='gms_control'" 2>/dev/null | grep -o 'value=' | head -n1)
     if [ "$ROM_REGION" = "cn" ] || [ -n "$_has_pk_gms" ]; then
-        ui_print "- Disarming PowerKeeper GMS Firewall & DNS blocker by default..."
+        ui_print "- Backing up stock PowerKeeper configuration..."
         STOCK_CONF="$MODPATH/stock_settings.conf"
         if command -v ensure_powerkeeper_backup >/dev/null 2>&1; then
             ensure_powerkeeper_backup "$STOCK_CONF"
         fi
-        content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
-          --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null || true
-        for _p in com.google.android.gms com.android.vending; do
-          content update --uri content://com.miui.powerkeeper.configure/userTable \
-            --bind bgControl:s:noRestrict --where "pkgName='${_p}' AND userId=0" 2>/dev/null || true
-          _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}' AND userId=0" 2>/dev/null | grep -o 'pkgName=' | head -n1)
-          if [ -z "$_has_entry" ]; then
-            content insert --uri content://com.miui.powerkeeper.configure/userTable \
-              --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null || true
-          fi
-        done
-        iptables -F gms_wall 2>/dev/null || true
-        ip6tables -F gms_wall 2>/dev/null || true
-        ui_print "- [PASS] PowerKeeper GMS Firewall disarmed."
+        ui_print "- [PASS] PowerKeeper stock configuration backed up."
     fi
 fi
 

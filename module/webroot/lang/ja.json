@@ -133,6 +133,8 @@
   "parity.desc": "中国版ROMでグローバル版ROMのネットワークおよび通知動作を強制適用します。",
   "parity.feat.pk": "PowerKeeper GMS ファイアウォール",
   "parity.feat.pk.hint": "Netd iptables CHAIN_GMS_WALL および DNS ブロッカーを解除",
+  "parity.feat.boot": "起動時に適用",
+  "parity.feat.boot.hint": "端末起動時に PowerKeeper ファイアウォールを自動的に解除",
   "parity.feat.fsi": "VoIP 全画面インテント",
   "parity.feat.fsi.hint": "画面ロック時の着信応答/拒否画面を保持",
   "parity.disarmed": "解除済み",
@@ -143,5 +145,7 @@
   "parity.unknown": "不明",
   "parity.toast.disarmed": "GMS ファイアウォールを解除しました ✓",
   "parity.toast.enabled": "GMS ファイアウォールを有効化しました",
+  "parity.toast.boot_enabled": "起動時適用を有効化しました ✓",
+  "parity.toast.boot_disabled": "起動時適用を無効化しました",
   "parity.toast.error": "ファイアウォール状態の更新に失敗しました"
 }

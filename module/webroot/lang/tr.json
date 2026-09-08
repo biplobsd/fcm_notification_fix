@@ -133,6 +133,8 @@
   "parity.desc": "Çin ROM'unda Global ROM ağ ve bildirim davranışını uygular.",
   "parity.feat.pk": "PowerKeeper GMS Güvenlik Duvarı",
   "parity.feat.pk.hint": "Netd iptables CHAIN_GMS_WALL ve DNS engelleyicisini devre dışı bırakır",
+  "parity.feat.boot": "Başlangıçta Uygula",
+  "parity.feat.boot.hint": "Cihaz başlangıcında PowerKeeper güvenlik duvarını otomatik devre dışı bırak",
   "parity.feat.fsi": "VoIP Tam Ekran Bildirimi (FullScreen Intent)",
   "parity.feat.fsi.hint": "Ekran kilitliyken gelen arama cevaplama/reddetme ekranlarını korur",
   "parity.disarmed": "DEVRE DIŞI",
@@ -143,5 +145,7 @@
   "parity.unknown": "BİLİNMİYOR",
   "parity.toast.disarmed": "GMS Güvenlik Duvarı devre dışı bırakıldı ✓",
   "parity.toast.enabled": "GMS Güvenlik Duvarı etkinleştirildi",
+  "parity.toast.boot_enabled": "Başlangıçta uygulama etkinleştirildi ✓",
+  "parity.toast.boot_disabled": "Başlangıçta uygulama devre dışı bırakıldı",
   "parity.toast.error": "Güvenlik duvarı durumu güncellenemedi"
 }

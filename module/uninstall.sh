@@ -129,6 +129,8 @@ find /data/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
 # ==============================================================================
 rm -f /data/system/fcm_wake.conf 2>/dev/null
 rm -f /data/system/fcm_wake.conf.tmp.* 2>/dev/null
+rm -f /data/system/fcm_pk_boot.conf 2>/dev/null
+rm -f /data/system/fcm_pk_boot.conf.tmp.* 2>/dev/null
 rm -rf /data/local/tmp/fcm_* 2>/dev/null
 rm -rf /data/local/tmp/fcm_patch_stage_* 2>/dev/null
 rm -rf /data/local/tmp/fcm_repatch_* 2>/dev/null

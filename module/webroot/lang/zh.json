@@ -133,6 +133,8 @@
   "parity.desc": "在国行 ROM 上强制应用全球版 ROM 的网络和通知行为。",
   "parity.feat.pk": "PowerKeeper GMS 防火墙",
   "parity.feat.pk.hint": "解除 Netd iptables CHAIN_GMS_WALL 及 DNS 拦截",
+  "parity.feat.boot": "开机自动应用",
+  "parity.feat.boot.hint": "设备开机启动时自动解除 PowerKeeper 防火墙",
   "parity.feat.fsi": "VoIP 全屏意图 (FullScreen Intent)",
   "parity.feat.fsi.hint": "锁屏状态下完整保留来电接听/挂断全屏界面",
   "parity.disarmed": "已解除",
@@ -143,5 +145,7 @@
   "parity.unknown": "未知",
   "parity.toast.disarmed": "GMS 防火墙已解除 ✓",
   "parity.toast.enabled": "GMS 防火墙已启用",
+  "parity.toast.boot_enabled": "已开启开机自动应用 ✓",
+  "parity.toast.boot_disabled": "已关闭开机自动应用",
   "parity.toast.error": "更新防火墙状态失败"
 }

@@ -133,6 +133,8 @@
   "parity.desc": "Enforces Global ROM network and notification behavior on China ROM.",
   "parity.feat.pk": "PowerKeeper GMS Firewall",
   "parity.feat.pk.hint": "Disarms Netd iptables CHAIN_GMS_WALL & DNS blocker",
+  "parity.feat.boot": "Apply on Boot",
+  "parity.feat.boot.hint": "Automatically disarm PowerKeeper firewall on device startup",
   "parity.feat.fsi": "VoIP FullScreen Intent",
   "parity.feat.fsi.hint": "Preserves incoming call answer/decline screens when locked",
   "parity.disarmed": "DISARMED",
@@ -143,5 +145,7 @@
   "parity.unknown": "UNKNOWN",
   "parity.toast.disarmed": "GMS Firewall disarmed ✓",
   "parity.toast.enabled": "GMS Firewall enabled",
+  "parity.toast.boot_enabled": "Apply on boot enabled ✓",
+  "parity.toast.boot_disabled": "Apply on boot disabled",
   "parity.toast.error": "Failed to update firewall state"
 }

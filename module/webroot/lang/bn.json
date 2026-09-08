@@ -133,6 +133,8 @@
   "parity.desc": "চায়না রমে গ্লোবাল রমের নেটওয়ার্ক ও নোটিফিকেশন আচরণ প্রয়োগ করে।",
   "parity.feat.pk": "PowerKeeper GMS ফায়ারওয়াল",
   "parity.feat.pk.hint": "Netd iptables CHAIN_GMS_WALL ও DNS ব্লকার নিষ্ক্রিয় করে",
+  "parity.feat.boot": "বুটে প্রয়োগ করুন",
+  "parity.feat.boot.hint": "ডিভাইস চালু হওয়ার সময় স্বয়ংক্রিয়ভাবে PowerKeeper ফায়ারওয়াল নিষ্ক্রিয় করে",
   "parity.feat.fsi": "VoIP ফুলস্ক্রিন ইনটেন্ট",
   "parity.feat.fsi.hint": "ফোন লক থাকা অবস্থায় ইনকামিং কল রিসিভ/বাতিল করার স্ক্রিন ঠিক রাখে",
   "parity.disarmed": "নিষ্ক্রিয়",
@@ -143,5 +145,7 @@
   "parity.unknown": "অজানা",
   "parity.toast.disarmed": "GMS ফায়ারওয়াল নিষ্ক্রিয় করা হয়েছে ✓",
   "parity.toast.enabled": "GMS ফায়ারওয়াল সক্রিয় করা হয়েছে",
+  "parity.toast.boot_enabled": "বুটে প্রয়োগ সক্রিয় করা হয়েছে ✓",
+  "parity.toast.boot_disabled": "বুটে প্রয়োগ নিষ্ক্রিয় করা হয়েছে",
   "parity.toast.error": "ফায়ারওয়ালের অবস্থা আপডেট করতে ব্যর্থ"
 }

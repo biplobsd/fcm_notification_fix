@@ -12,6 +12,7 @@ SOUND_BACKUP_FILE="$DATA_DIR/fcm_sound_backup.json"
 SOUND_STATE_FILE="$DATA_DIR/fcm_sound_state.json"
 SOUND_LOCK_FILE="$DATA_DIR/fcm_sound.lock"
 SYNCED_CACHE_FILE="$DATA_DIR/fcm_synced_channels.txt"
+PK_BOOT_CONF="$DATA_DIR/fcm_pk_boot.conf"
 
 # Resolve module directory
 MODDIR="${0%/*}/../.."
@@ -49,9 +50,17 @@ release_sound_lock() {
     fi
 }
 
+read_pk_boot_config() {
+    PK_GMS_BOOT="true"
+    if [ -f "$PK_BOOT_CONF" ]; then
+        _bval=$(cat "$PK_BOOT_CONF" 2>/dev/null | tr -d ' \r\n')
+        [ "$_bval" = "false" ] || [ "$_bval" = "0" ] && PK_GMS_BOOT="false"
+    fi
+}
+
 disarm_powerkeeper_gms() {
-    command -v ensure_powerkeeper_backup >/dev/null 2>&1 || return 1
-    ensure_powerkeeper_backup "$STOCK_CONF" || return 1
+    # Backup is best-effort; disarm should proceed even if backup fails (e.g. first run before stock state exists)
+    command -v ensure_powerkeeper_backup >/dev/null 2>&1 && ensure_powerkeeper_backup "$STOCK_CONF"
     _pk_disarm_status=0
     content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
       --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null || _pk_disarm_status=1
@@ -449,6 +458,7 @@ case "$ACTION" in
         compute_sound_features
         read_channel_sync_config
         read_alert_fix_config
+        read_pk_boot_config
 
         # GMS Parity indicators
         PK_GMS_CTRL=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc --where "name='gms_control'" 2>/dev/null | grep -o 'value=[a-z]*' | cut -d= -f2 | head -n1)
@@ -476,8 +486,8 @@ case "$ACTION" in
             fi
         fi
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s},"gms_parity":{"powerkeeper_gms_control":"%s","v18_active":%s}}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT" "$PK_GMS_CTRL" "$V18_ACTIVE"
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s},"gms_parity":{"powerkeeper_gms_control":"%s","boot_apply":%s,"v18_active":%s}}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT" "$PK_GMS_CTRL" "$PK_GMS_BOOT" "$V18_ACTIVE"
         ;;
 
     stopped)
@@ -770,7 +780,10 @@ case "$ACTION" in
 
     boot_sync)
         read_channel_sync_config
-        disarm_powerkeeper_gms
+        read_pk_boot_config
+        if [ "$PK_GMS_BOOT" = "true" ]; then
+            disarm_powerkeeper_gms
+        fi
         if [ "$SYNC_BOOT" = "true" ]; then
             sync_notification_channels
             printf '{"status":"ok","message":"Boot channel sync completed","total":%d,"synced":%d}\n' "$_TOTAL_CH" "$_NEW_CH"
@@ -796,10 +809,7 @@ case "$ACTION" in
             fi
         fi
         if [ "$_target" = "false" ]; then
-            if ! disarm_powerkeeper_gms; then
-                printf '{"status":"error","message":"Unable to back up PowerKeeper state"}\n'
-                exit 1
-            fi
+            disarm_powerkeeper_gms
         else
             if command -v restore_powerkeeper_state >/dev/null 2>&1 && restore_powerkeeper_state "$STOCK_CONF"; then
                 _target=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
@@ -812,6 +822,41 @@ case "$ACTION" in
             fi
         fi
         printf '{"status":"ok","powerkeeper_gms_control":"%s"}\n' "$_target"
+        ;;
+
+    set_pk_gms_boot)
+        _target="$2"
+        [ "$_target" = "1" ] && _target="true"
+        [ "$_target" = "0" ] && _target="false"
+        if [ "$_target" != "true" ] && [ "$_target" != "false" ]; then
+            _target="true"
+        fi
+
+        _tmp_boot="${PK_BOOT_CONF}.tmp.$$"
+        printf '%s\n' "$_target" > "$_tmp_boot"
+        chmod 0644 "$_tmp_boot" 2>/dev/null || true
+        chown system:system "$_tmp_boot" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$_tmp_boot" 2>/dev/null || true
+
+        if ! mv -f "$_tmp_boot" "$PK_BOOT_CONF" 2>/dev/null; then
+            rm -f "$_tmp_boot" 2>/dev/null
+            printf '{"status":"error","message":"Failed to write boot apply config"}\n'
+            exit 1
+        fi
+        chmod 0644 "$PK_BOOT_CONF" 2>/dev/null || true
+        chown system:system "$PK_BOOT_CONF" 2>/dev/null || true
+        chcon u:object_r:system_data_file:s0 "$PK_BOOT_CONF" 2>/dev/null || true
+
+        if [ "$_target" = "true" ]; then
+            _curr=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc --where "name='gms_control'" 2>/dev/null | grep -o 'value=[a-z]*' | cut -d= -f2 | head -n1)
+            if [ "$_curr" != "false" ]; then
+                disarm_powerkeeper_gms
+            fi
+        fi
+
+        _curr_pk=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc --where "name='gms_control'" 2>/dev/null | grep -o 'value=[a-z]*' | cut -d= -f2 | head -n1)
+        [ -z "$_curr_pk" ] && _curr_pk="false"
+        printf '{"status":"ok","boot_apply":%s,"powerkeeper_gms_control":"%s"}\n' "$_target" "$_curr_pk"
         ;;
 
     get_channel_sync_config)

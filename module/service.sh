@@ -178,41 +178,59 @@ if [ -n "$GMS_UID" ]; then
     fi
   done
 
-  # ── Gap 1: Disarm PowerKeeper GmsObserver Netd Firewall & DNS Blocker ──────
-  # PowerKeeper's GmsObserver creates iptables CHAIN_GMS_WALL to block all GMS
-  # TCP/DNS when Google servers are unreachable. On CN ROM, defaultState=true
-  # (IS_INTERNATIONAL_BUILD=false). Setting gms_control=false completely disarms
-  # the firewall chain, DNS blocker, wakelock revocation, and alarm suppression.
-  if [ "$POWERKEEPER_BACKUP_OK" -eq 1 ]; then
-    content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
-      --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null
-
-    # PowerKeeper GmsObserver.isGmsControlEnabled() explicitly inspects com.android.vending
-    # in userTable: if bgControl == "noRestrict", isGmsControlEnabled() returns false.
-    # We enforce "noRestrict" across both Play Store and Google Play Services.
-    for _p in com.google.android.gms com.android.vending; do
-      content update --uri content://com.miui.powerkeeper.configure/userTable \
-        --bind bgControl:s:noRestrict --where "pkgName='${_p}' AND userId=0" 2>/dev/null
-      _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}' AND userId=0" 2>/dev/null | grep -o 'pkgName=' | head -n1)
-      if [ -z "$_has_entry" ]; then
-        content insert --uri content://com.miui.powerkeeper.configure/userTable \
-          --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null
-      fi
-    done
-
-    # Flush any existing gms_wall iptables chains
-    iptables -F gms_wall 2>/dev/null
-    ip6tables -F gms_wall 2>/dev/null
-  fi
-
-  # ── Gap 2: GMS Socket Recovery ─────────────────────────────────────────────
+  # ── Gap 1: GMS Socket Recovery ─────────────────────────────────────────────
   # Trigger GCM_RECONNECT broadcast to force immediate MCS socket establishment
   am broadcast -a com.google.android.intent.action.GCM_RECONNECT \
     -p com.google.android.gms >/dev/null 2>&1
 fi
 
 # ==============================================================================
-# 3. Notification Channel Permission Synchronization
+# 3. Disarm PowerKeeper GMS Firewall & DNS Blocker (China ROM Boot Apply)
+# ==============================================================================
+# PowerKeeper's GmsObserver creates iptables CHAIN_GMS_WALL to block all GMS
+# TCP/DNS when Google servers are unreachable. On CN ROM, defaultState=true
+# (IS_INTERNATIONAL_BUILD=false). Setting gms_control=false completely disarms
+# the firewall chain, DNS blocker, wakelock revocation, and alarm suppression.
+apply_pk_boot_disarm() {
+    _pk_boot="true"
+    if [ -f "/data/system/fcm_pk_boot.conf" ]; then
+        _v=$(cat "/data/system/fcm_pk_boot.conf" 2>/dev/null | tr -d ' \r\n')
+        [ "$_v" = "false" ] || [ "$_v" = "0" ] && _pk_boot="false"
+    fi
+    [ "$_pk_boot" = "true" ] || return 0
+
+    if [ -z "$ROM_REGION" ] && command -v detect_rom_profile >/dev/null 2>&1; then
+        detect_rom_profile
+    fi
+
+    # Retries at boot completion, +5s, and +15s to prevent PowerKeeper's delayed
+    # startup on China ROM from silently overriding the disarmed state.
+    for _delay in 0 5 15; do
+        [ "$_delay" -gt 0 ] && sleep "$_delay"
+        if command -v content >/dev/null 2>&1; then
+            _has_pk_gms=$(content query --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc --where "name='gms_control'" 2>/dev/null | grep -o 'value=' | head -n1)
+            if [ "$ROM_REGION" = "cn" ] || [ -n "$_has_pk_gms" ]; then
+                command -v ensure_powerkeeper_backup >/dev/null 2>&1 && ensure_powerkeeper_backup "$STOCK_CONF"
+                content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
+                  --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null || true
+                for _p in com.google.android.gms com.android.vending; do
+                  content update --uri content://com.miui.powerkeeper.configure/userTable \
+                    --bind bgControl:s:noRestrict --where "pkgName='${_p}' AND userId=0" 2>/dev/null || true
+                  _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}' AND userId=0" 2>/dev/null | grep -o 'pkgName=' | head -n1)
+                  if [ -z "$_has_entry" ]; then
+                    content insert --uri content://com.miui.powerkeeper.configure/userTable \
+                      --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null || true
+                  fi
+                done
+                iptables -F gms_wall 2>/dev/null || true
+                ip6tables -F gms_wall 2>/dev/null || true
+            fi
+        fi
+    done
+}
+
+# ==============================================================================
+# 4. Notification Channel Permission Synchronization
 # ==============================================================================
 # In HyperOS China ROM, unconfigured 3rd-party app channels default to "Don't show"
 # on keyguard and have sound/vibration silenced due to CN whitelist fallback.
@@ -225,7 +243,7 @@ sync_notification_channels() {
 }
 
 # ==============================================================================
-# 4. FCM Wake Filter Configuration & WebUI Permissions
+# 5. FCM Wake Filter Configuration & WebUI Permissions
 # ==============================================================================
 CONF_FILE="/data/system/fcm_wake.conf"
 if [ ! -f "$CONF_FILE" ]; then
@@ -241,7 +259,6 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 
 [ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
 
-# Run sync asynchronously on boot completion
+# Run PowerKeeper boot disarm and channel sync asynchronously on boot completion
+apply_pk_boot_disarm &
 sync_notification_channels &
-
-

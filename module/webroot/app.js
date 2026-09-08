@@ -485,6 +485,7 @@
     }
 
     let currentPkCtrl = 'unknown';
+    let currentPkBoot = true;
     let currentV18Active = false;
     let currentGmsParity = null;
 
@@ -518,6 +519,29 @@
                 if (lblSwitchPk) {
                     lblSwitchPk.style.opacity = '1';
                     lblSwitchPk.style.pointerEvents = 'auto';
+                }
+            }
+        }
+
+        const switchPkBoot = document.getElementById('switchPkGmsBoot');
+        const lblSwitchPkBoot = document.getElementById('lblSwitchPkGmsBoot');
+        const isBootApply = parity.boot_apply !== undefined ? !!parity.boot_apply : true;
+        currentPkBoot = isBootApply;
+
+        if (switchPkBoot) {
+            if (isPkNA || isPkUnknown) {
+                switchPkBoot.checked = false;
+                switchPkBoot.disabled = true;
+                if (lblSwitchPkBoot) {
+                    lblSwitchPkBoot.style.opacity = '0.35';
+                    lblSwitchPkBoot.style.pointerEvents = 'none';
+                }
+            } else {
+                switchPkBoot.checked = isBootApply;
+                switchPkBoot.disabled = false;
+                if (lblSwitchPkBoot) {
+                    lblSwitchPkBoot.style.opacity = '1';
+                    lblSwitchPkBoot.style.pointerEvents = 'auto';
                 }
             }
         }
@@ -591,6 +615,7 @@
                     currentPkCtrl = res.data.powerkeeper_gms_control;
                     updateGmsParityUI({
                         powerkeeper_gms_control: currentPkCtrl,
+                        boot_apply: currentPkBoot,
                         v18_active: currentV18Active
                     });
                     saveStateCache();
@@ -613,6 +638,64 @@
             if (spinPk) spinPk.style.display = 'none';
             if (badgePk) badgePk.style.opacity = '1';
             if (lblSwitchPk) lblSwitchPk.style.opacity = '1';
+        }
+    }
+
+    let pkGmsBootSaveInProgress = false;
+
+    async function onTogglePkGmsBoot(isChecked) {
+        const switchPkBoot = document.getElementById('switchPkGmsBoot');
+        const lblSwitchPkBoot = document.getElementById('lblSwitchPkGmsBoot');
+        const spinPkBoot = document.getElementById('spinPkGmsBoot');
+
+        if (currentPkCtrl === 'global_na' || currentPkCtrl === 'unknown') {
+            showToast(currentPkCtrl === 'global_na'
+                ? (t('parity.not_applicable') || 'Not applicable on Global ROM')
+                : (t('parity.toast.error') || 'PowerKeeper state is unavailable'));
+            if (switchPkBoot) switchPkBoot.checked = false;
+            return;
+        }
+
+        if (pkGmsBootSaveInProgress) return;
+        pkGmsBootSaveInProgress = true;
+
+        if (spinPkBoot) spinPkBoot.style.display = 'inline-block';
+        if (lblSwitchPkBoot) lblSwitchPkBoot.style.opacity = '0.6';
+
+        // Yield to render loop so spinner/opacity changes are painted before the blocking fetch
+        await new Promise(r => setTimeout(r, 50));
+
+        try {
+            const targetState = isChecked ? 'true' : 'false';
+            const res = await execAction('set_pk_gms_boot', targetState);
+
+            if (res && res.success && res.data && res.data.boot_apply !== undefined) {
+                currentPkBoot = !!res.data.boot_apply;
+                if (res.data.powerkeeper_gms_control) {
+                    currentPkCtrl = res.data.powerkeeper_gms_control;
+                }
+                updateGmsParityUI({
+                    powerkeeper_gms_control: currentPkCtrl,
+                    boot_apply: currentPkBoot,
+                    v18_active: currentV18Active
+                });
+                saveStateCache();
+                if (currentPkBoot) {
+                    showToast(t('parity.toast.boot_enabled') || 'Apply on boot enabled ✓');
+                } else {
+                    showToast(t('parity.toast.boot_disabled') || 'Apply on boot disabled');
+                }
+            } else {
+                if (switchPkBoot) switchPkBoot.checked = currentPkBoot;
+                showToast(t('parity.toast.error') || 'Failed to update boot apply state');
+            }
+        } catch (e) {
+            if (switchPkBoot) switchPkBoot.checked = currentPkBoot;
+            showToast(t('parity.toast.error') || 'Failed to update boot apply state');
+        } finally {
+            pkGmsBootSaveInProgress = false;
+            if (spinPkBoot) spinPkBoot.style.display = 'none';
+            if (lblSwitchPkBoot) lblSwitchPkBoot.style.opacity = '1';
         }
     }
 

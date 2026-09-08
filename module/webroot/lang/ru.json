@@ -133,6 +133,8 @@
   "parity.desc": "Применяет сетевые и системные правила Global ROM на China ROM.",
   "parity.feat.pk": "Файрвол PowerKeeper GMS",
   "parity.feat.pk.hint": "Отключает блокировку iptables CHAIN_GMS_WALL и DNS",
+  "parity.feat.boot": "Применять при загрузке",
+  "parity.feat.boot.hint": "Автоматически отключать файрвол PowerKeeper при старте устройства",
   "parity.feat.fsi": "Полноэкранный вызов VoIP",
   "parity.feat.fsi.hint": "Сохраняет экран ответа на заблокированном экране",
   "parity.disarmed": "ОТКЛЮЧЕН",
@@ -143,5 +145,7 @@
   "parity.unknown": "НЕИЗВЕСТНО",
   "parity.toast.disarmed": "Файрвол GMS отключен ✓",
   "parity.toast.enabled": "Файрвол GMS включен",
+  "parity.toast.boot_enabled": "Применение при загрузке включено ✓",
+  "parity.toast.boot_disabled": "Применение при загрузке отключено",
   "parity.toast.error": "Не удалось обновить статус файрвола"
 }
