@@ -99,7 +99,7 @@ jobs:
           name: rom-fixture-${{ matrix.codename }}-${{ matrix.version }}
           path: tests/fixtures/${{ matrix.codename }}
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
       - name: Run Integration Test for Fixture
         run: |
