@@ -111,6 +111,64 @@ public class DexUtils {
         return count;
     }
 
+    /**
+     * Resolves the register holding a declared parameter.
+     *
+     * <p>Parameters occupy the tail of the register frame: {@code this} first for instance
+     * methods, then the declared parameters in order, with {@code long} and {@code double}
+     * taking two registers each. Computing an offset by hand (for example
+     * {@code registerCount - 4} for the first of four parameters) is only correct while every
+     * parameter is single-width; one wide parameter shifts every register after it, and the
+     * resulting instruction reads a value of the wrong type. That passes the register-bounds
+     * check in {@link LinkageVerifier} - the index is still in range - and only surfaces as a
+     * verification failure when ART loads the class.
+     *
+     * @param m          method the parameter is declared on
+     * @param totalRegs  register count of the code item being edited
+     * @param paramIndex zero-based index over declared parameters, excluding {@code this}
+     * @return register holding that parameter, or -1 if the index is out of range
+     */
+    public static int paramRegister(Method m, int totalRegs, int paramIndex) {
+        if (paramIndex < 0) {
+            return -1;
+        }
+        int reg = totalRegs - paramRegCount(m);
+        if (!AccessFlags.STATIC.isSet(m.getAccessFlags())) {
+            reg += 1; // step over p0 (this)
+        }
+        int i = 0;
+        for (CharSequence pt : m.getParameterTypes()) {
+            if (i == paramIndex) {
+                return reg >= 0 && reg < totalRegs ? reg : -1;
+            }
+            String s = pt.toString();
+            reg += (s.equals("J") || s.equals("D")) ? 2 : 1;
+            i++;
+        }
+        return -1;
+    }
+
+    /**
+     * Index of the last declared parameter, or -1 when the method takes none.
+     */
+    public static int lastParamIndex(Method m) {
+        return m.getParameterTypes().size() - 1;
+    }
+
+    /**
+     * Whether the declared parameter at {@code paramIndex} has exactly the given type.
+     * Used to confirm a vector's assumption about a signature before injecting against it,
+     * so an unexpected signature on a newer ROM skips the vector instead of producing a
+     * method that fails verification at load time.
+     */
+    public static boolean paramTypeIs(Method m, int paramIndex, String type) {
+        List<? extends CharSequence> params = m.getParameterTypes();
+        if (paramIndex < 0 || paramIndex >= params.size()) {
+            return false;
+        }
+        return params.get(paramIndex).toString().equals(type);
+    }
+
     public static final int MAX_SAFE_METHOD_COUNT = 65000;
 
     /**

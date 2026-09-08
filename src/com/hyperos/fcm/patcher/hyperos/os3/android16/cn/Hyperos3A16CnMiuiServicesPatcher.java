@@ -293,8 +293,17 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                                 System.out.println("    -> Hooking checkRunningCompatibility(ComponentName,...) with FcmWakeFilter");
                                 MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
                                 int totalRegs = mut.getRegisterCount();
-                                // p0 is this (totalRegs - 5), p1 is ComponentName (totalRegs - 4)
-                                int compReg = totalRegs - 4;
+                                // Resolve the ComponentName register from the signature instead of
+                                // assuming four single-width parameters. One long or double anywhere
+                                // in the list shifts every register after it, and the hook would then
+                                // be handed a non-reference - in bounds, so LinkageVerifier passes it,
+                                // and it only fails when ART verifies the class at load.
+                                int compReg = DexUtils.paramRegister(m, totalRegs, 0);
+                                if (compReg == -1) {
+                                    System.err.println("    -> [SKIP] cannot resolve the ComponentName register in checkRunningCompatibility" + params);
+                                    methods.add(m);
+                                    continue;
+                                }
 
                                 int replaceIdx = -1;
                                 int targetReg = -1;
@@ -350,7 +359,18 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                                 System.out.println("    -> Hooking checkFullScreenIntent with FcmWakeFilter");
                                 MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
                                 int totalRegs = mut.getRegisterCount();
-                                int pkgReg = totalRegs - 1; // Last param is String pkg
+                                // The hook is declared as shouldBypassFullScreenIntent(String), so the
+                                // vector only holds while the last parameter really is the String pkg.
+                                // Matching on name and return type alone would hand it whatever the last
+                                // parameter happens to be on a ROM that reordered or extended the
+                                // signature; confirm the type and skip the vector when it does not hold.
+                                int pkgIdx = DexUtils.lastParamIndex(m);
+                                int pkgReg = DexUtils.paramRegister(m, totalRegs, pkgIdx);
+                                if (!DexUtils.paramTypeIs(m, pkgIdx, "Ljava/lang/String;") || pkgReg == -1) {
+                                    System.err.println("    -> [SKIP] checkFullScreenIntent does not end in a String parameter" + m.getParameterTypes());
+                                    methods.add(m);
+                                    continue;
+                                }
 
                                 int replaceIdx = -1;
                                 int targetReg = -1;

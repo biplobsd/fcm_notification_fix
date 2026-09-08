@@ -262,6 +262,22 @@ EOF
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
 fi
 
+# 7.4 Verify the patched jars with ART's own verifier before they can be mounted.
+# A vector that resolved a register or a type wrongly produces a jar that looks fine to
+# every structural check and is only rejected when ART loads system_server - a device
+# that never finishes booting. Catching it here turns that into a failed install.
+ui_print "- Verifying patched framework with ART verifier..."
+if verify_patched_jars "$MODPATH/framework/services.jar" "$SERVICES_STOCK" \
+                       "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
+    ui_print "- [PASS] Patched framework passes ART verification."
+else
+    ui_print ""
+    ui_print "[!] ART rejected the patched framework: $VERIFY_FAILED_JAR"
+    [ -n "$VERIFY_FAILED_REASON" ] && ui_print "[!] $VERIFY_FAILED_REASON"
+    ui_print "[!] Installing it would leave the device unable to boot."
+    abort_install "Patched framework failed ART verification ($VERIFY_FAILED_JAR)."
+fi
+
 # 7.5 Pre-compile system_server AOT cache (dex2oat)
 ui_print "- Pre-compiling system_server native AOT cache (dex2oat)..."
 if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
