@@ -46,7 +46,7 @@ public class DexUtilsRegisterTest {
         expect("instance, wide param present: param 0", 7, DexUtils.paramRegister(withWide, 12, 0));
         expectNot("instance, wide param present: differs from registerCount - 4", 12 - 4,
                 DexUtils.paramRegister(withWide, 12, 0));
-        expect("instance, wide param present: param after the long", 9,
+        expect("instance, wide param present: param after the long", 10,
                 DexUtils.paramRegister(withWide, 12, 2));
 
         // Static methods have no p0, so the whole frame shifts by one.
