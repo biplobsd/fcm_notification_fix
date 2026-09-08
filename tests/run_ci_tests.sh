@@ -127,7 +127,20 @@ fi
 FIXTURES_DIR="${1:-$DIR/tests/fixtures}"
 mkdir -p "$FIXTURES_DIR"
 
-# 6. Execute Test Suite
+# 6a. Unit tests. No fixtures, no device: these cover the parameter register arithmetic
+# that yields a jar every structural check accepts and ART rejects only at class load.
+echo "[3/4] Executing DexUtils register resolution unit tests"
+# Run inside the if condition: errexit is suspended there, so a failure reaches the
+# banner instead of terminating the script on the java line.
+if ! java -cp "$ANDROID_CP:$BUILD_CLASSES" com.hyperos.fcm.patcher.test.DexUtilsRegisterTest; then
+    echo "================================================="
+    echo " DexUtils register resolution unit tests FAILED ✗"
+    echo "================================================="
+    exit 1
+fi
+echo ""
+
+# 6b. Execute Test Suite
 echo "[3/4] Executing Patcher Integration Test Suite across: $FIXTURES_DIR"
 STAGE_OUT="/tmp/fcm_test_runs_$$"
 mkdir -p "$STAGE_OUT"

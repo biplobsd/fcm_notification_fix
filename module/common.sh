@@ -308,42 +308,112 @@ target_to_module_rel() {
 # Pre-compiles system_server framework jars with dex2oat using full speed AOT
 # so that the runtime never suffers from interpreter or JIT lag.
 # Returns 0 on success, 1 on failure / missing dex2oat.
+# Locates the dex2oat binary, or prints nothing when the device has none.
+resolve_dex2oat() {
+    if command -v dex2oat64 >/dev/null 2>&1; then
+        command -v dex2oat64
+    elif command -v dex2oat >/dev/null 2>&1; then
+        command -v dex2oat
+    elif [ -f "/apex/com.android.art/bin/dex2oat64" ]; then
+        echo "/apex/com.android.art/bin/dex2oat64"
+    elif [ -f "/system/bin/dex2oat64" ]; then
+        echo "/system/bin/dex2oat64"
+    elif [ -f "/apex/com.android.art/bin/dex2oat" ]; then
+        echo "/apex/com.android.art/bin/dex2oat"
+    elif [ -f "/apex/com.android.runtime/bin/dex2oat" ]; then
+        echo "/apex/com.android.runtime/bin/dex2oat"
+    elif [ -f "/system/bin/dex2oat" ]; then
+        echo "/system/bin/dex2oat"
+    fi
+}
+
+# Instruction set name dex2oat expects for this device.
+resolve_isa() {
+    _isa="$(getprop ro.bionic.arch)"
+    if [ -z "$_isa" ]; then
+        case "$(getprop ro.product.cpu.abi)" in
+            arm64*|aarch64*) _isa="arm64" ;;
+            armeabi*|armv7*) _isa="arm" ;;
+            x86_64*)         _isa="x86_64" ;;
+            x86*)            _isa="x86" ;;
+            *)               _isa="arm64" ;;
+        esac
+    fi
+    echo "$_isa"
+}
+
+# Runs ART's own verifier over the patched jars before anything can mount them.
+#
+# A bytecode injection that resolves a register or a type wrongly still produces a
+# structurally valid DEX: the register index is in range and every reference links, so
+# the patcher's own LinkageVerifier passes it. It fails only when ART verifies the class
+# while starting system_server - at which point the device never finishes booting and
+# there is no comfortable way to read the error off it. dex2oat reaches the same verdict
+# at install time with --compiler-filter=verify --abort-on-hard-verifier-error, where the
+# answer is still useful: the install can simply refuse.
+#
+# Unresolved references to classes outside the jar are soft failures and do not abort,
+# so no class-loader context is needed here; type confusion of the kind a mis-resolved
+# parameter register produces is a hard failure, which is exactly what we want to catch.
+#
+# Returns 0 when both jars verify, 2 when the device has no dex2oat at all - nothing can
+# be asserted there, and the install proceeds as it did before this check existed - and 1
+# on failure, with VERIFY_FAILED_JAR and VERIFY_FAILED_REASON set.
+#
+# Anything that goes wrong once dex2oat *is* available fails closed. A gate that reports a
+# pass it never actually performed is worse than no gate, because the install then claims
+# the jars were verified when they were not.
+verify_patched_jars() {
+    VERIFY_FAILED_JAR=""
+    VERIFY_FAILED_REASON=""
+
+    _vp_dex2oat="$(resolve_dex2oat)"
+    [ -z "$_vp_dex2oat" ] && return 2
+    _vp_isa="$(resolve_isa)"
+
+    _vp_tmp="${TMPDIR:-/data/local/tmp}/fcm_verify.$$"
+    if ! mkdir -p "$_vp_tmp" 2>/dev/null; then
+        VERIFY_FAILED_JAR="$_vp_tmp"
+        VERIFY_FAILED_REASON="cannot create the verifier workspace, so the jars were left unverified"
+        return 1
+    fi
+    _vp_status=0
+
+    for _vp_pair in "$1|$2" "$3|$4"; do
+        _vp_jar="${_vp_pair%%|*}"
+        _vp_dst="${_vp_pair#*|}"
+        [ -f "$_vp_jar" ] || continue
+
+        if ! "$_vp_dex2oat" \
+            --instruction-set="$_vp_isa" \
+            --dex-file="$_vp_jar" \
+            --dex-location="$_vp_dst" \
+            --oat-file="$_vp_tmp/verify.oat" \
+            --compiler-filter=verify \
+            --abort-on-hard-verifier-error \
+            >"$_vp_tmp/log" 2>&1; then
+            VERIFY_FAILED_JAR="$_vp_dst"
+            VERIFY_FAILED_REASON="$(grep -m1 -iE 'verif|reject|cannot|failure' "$_vp_tmp/log" 2>/dev/null)"
+            [ -z "$VERIFY_FAILED_REASON" ] && VERIFY_FAILED_REASON="$(tail -n 1 "$_vp_tmp/log" 2>/dev/null)"
+            _vp_status=1
+            break
+        fi
+    done
+
+    rm -rf "$_vp_tmp" 2>/dev/null
+    return "$_vp_status"
+}
+
 compile_aot_cache() {
     _staged_services="$1"
     _target_services="$2"
     _staged_miui="$3"
     _target_miui="$4"
 
-    _dex2oat=""
-    if command -v dex2oat64 >/dev/null 2>&1; then
-        _dex2oat="$(command -v dex2oat64)"
-    elif command -v dex2oat >/dev/null 2>&1; then
-        _dex2oat="$(command -v dex2oat)"
-    elif [ -f "/apex/com.android.art/bin/dex2oat64" ]; then
-        _dex2oat="/apex/com.android.art/bin/dex2oat64"
-    elif [ -f "/system/bin/dex2oat64" ]; then
-        _dex2oat="/system/bin/dex2oat64"
-    elif [ -f "/apex/com.android.art/bin/dex2oat" ]; then
-        _dex2oat="/apex/com.android.art/bin/dex2oat"
-    elif [ -f "/apex/com.android.runtime/bin/dex2oat" ]; then
-        _dex2oat="/apex/com.android.runtime/bin/dex2oat"
-    elif [ -f "/system/bin/dex2oat" ]; then
-        _dex2oat="/system/bin/dex2oat"
-    fi
-
+    _dex2oat="$(resolve_dex2oat)"
     [ -z "$_dex2oat" ] && return 1
 
-    _arch="$(getprop ro.bionic.arch)"
-    if [ -z "$_arch" ]; then
-        _abi="$(getprop ro.product.cpu.abi)"
-        case "$_abi" in
-            arm64*|aarch64*) _arch="arm64" ;;
-            armeabi*|armv7*) _arch="arm" ;;
-            x86_64*)         _arch="x86_64" ;;
-            x86*)            _arch="x86" ;;
-            *)               _arch="arm64" ;;
-        esac
-    fi
+    _arch="$(resolve_isa)"
     mkdir -p "/data/dalvik-cache/$_arch"
 
     _services_oat="/data/dalvik-cache/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.dex"
