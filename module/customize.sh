@@ -257,8 +257,9 @@ MODE=ALL
 EOF
     chmod 0644 "$CONF_FILE"
     chown system:system "$CONF_FILE" 2>/dev/null || true
+    # system_data_file is deliberate - system_server reads this at runtime.
+    # restorecon would force the /data/system default back and undo it.
     chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
-    restorecon -F "$CONF_FILE" 2>/dev/null || true
 fi
 
 # 7.5 Pre-compile system_server AOT cache (dex2oat)
@@ -314,10 +315,13 @@ touch "$MODPATH/skip_mount"
 
 # 8. Apply File Permissions and SELinux Attributes
 for jar in "$MODPATH/framework/services.jar" "$MODPATH/framework/miui-services.jar"; do
-    if [ -f "$jar" ]; then
-        set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
-        restorecon -F "$jar" 2>/dev/null || true
-    fi
+    # Never restorecon these: they live under /data/adb, so restoring the path's
+    # default context relabels them away from system_file. A metamodule overlay
+    # exposes this very file as /system/framework/services.jar, so with the wrong
+    # label system_server cannot open it, ART silently drops both jars from
+    # SYSTEMSERVERCLASSPATH, and com.android.server.SystemServer is not found -
+    # zygote then crash-loops on every boot.
+    [ -f "$jar" ] && set_perm "$jar" 0 0 0644 "u:object_r:system_file:s0"
 done
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755

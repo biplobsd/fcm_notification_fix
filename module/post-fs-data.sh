@@ -2,15 +2,21 @@
 MODDIR=${0%/*}
 
 # 1. Purge stale dalvik-cache artifacts ONCE on first boot after install/update
+#
+# Scope is deliberately limited to the legacy /data/dalvik-cache tree, which is
+# the only place compile_aot_cache writes to. The ART-managed tree under
+# /data/misc/apexdata/com.android.art/dalvik-cache is owned by odrefresh and must
+# NOT be touched: we never write replacements there, so deleting its system-server
+# artifacts only makes odrefresh recompile the whole boot classpath plus every
+# SYSTEMSERVERCLASSPATH and apex system-server jar on the next boot. That runs
+# before the home screen and blocks it for minutes, which reads as a hang and
+# gets force-rebooted - tripping the anti-bootloop counter of any metamodule we
+# delegate the mount to. Never delete artifacts this module does not replace.
 if [ -f "$MODDIR/wipe_cache_once" ]; then
     rm -rf /data/dalvik-cache/*/*services* 2>/dev/null
     rm -rf /data/dalvik-cache/*/*miui-services* 2>/dev/null
     rm -rf /data/dalvik-cache/*/*apprecovery* 2>/dev/null
     rm -rf /data/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
-    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*services* 2>/dev/null
-    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*miui-services* 2>/dev/null
-    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*apprecovery* 2>/dev/null
-    rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
     rm -f "$MODDIR/wipe_cache_once"
 fi
 
