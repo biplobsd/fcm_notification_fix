@@ -356,16 +356,27 @@ resolve_isa() {
 # so no class-loader context is needed here; type confusion of the kind a mis-resolved
 # parameter register produces is a hard failure, which is exactly what we want to catch.
 #
-# Sets VERIFY_FAILED_JAR and VERIFY_FAILED_REASON on failure. Returns 0 when both jars
-# verify, and also when the device has no dex2oat - nothing is asserted in that case and
-# the install proceeds exactly as it did before.
+# Returns 0 when both jars verify, 2 when the device has no dex2oat at all - nothing can
+# be asserted there, and the install proceeds as it did before this check existed - and 1
+# on failure, with VERIFY_FAILED_JAR and VERIFY_FAILED_REASON set.
+#
+# Anything that goes wrong once dex2oat *is* available fails closed. A gate that reports a
+# pass it never actually performed is worse than no gate, because the install then claims
+# the jars were verified when they were not.
 verify_patched_jars() {
+    VERIFY_FAILED_JAR=""
+    VERIFY_FAILED_REASON=""
+
     _vp_dex2oat="$(resolve_dex2oat)"
-    [ -z "$_vp_dex2oat" ] && return 0
+    [ -z "$_vp_dex2oat" ] && return 2
     _vp_isa="$(resolve_isa)"
 
     _vp_tmp="${TMPDIR:-/data/local/tmp}/fcm_verify.$$"
-    mkdir -p "$_vp_tmp" 2>/dev/null || return 0
+    if ! mkdir -p "$_vp_tmp" 2>/dev/null; then
+        VERIFY_FAILED_JAR="$_vp_tmp"
+        VERIFY_FAILED_REASON="cannot create the verifier workspace, so the jars were left unverified"
+        return 1
+    fi
     _vp_status=0
 
     for _vp_pair in "$1|$2" "$3|$4"; do

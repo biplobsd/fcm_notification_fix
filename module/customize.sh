@@ -267,9 +267,17 @@ fi
 # every structural check and is only rejected when ART loads system_server - a device
 # that never finishes booting. Catching it here turns that into a failed install.
 ui_print "- Verifying patched framework with ART verifier..."
-if verify_patched_jars "$MODPATH/framework/services.jar" "$SERVICES_STOCK" \
-                       "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
+# Capture through `|| VERIFY_RC=$?` rather than a bare `$?` on the next line, so the
+# status survives an errexit shell instead of terminating the installer.
+VERIFY_RC=0
+verify_patched_jars "$MODPATH/framework/services.jar" "$SERVICES_STOCK" \
+                    "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK" || VERIFY_RC=$?
+if [ "$VERIFY_RC" -eq 0 ]; then
     ui_print "- [PASS] Patched framework passes ART verification."
+elif [ "$VERIFY_RC" -eq 2 ]; then
+    # Say so rather than claiming a pass: on a device with no dex2oat there is nothing to
+    # verify with, and the install is no worse off than before this check existed.
+    ui_print "- [SKIP] No dex2oat on this device; framework left unverified."
 else
     ui_print ""
     ui_print "[!] ART rejected the patched framework: $VERIFY_FAILED_JAR"
