@@ -108,20 +108,21 @@ done
 # ==============================================================================
 # Dropping the pre-compiled AOT cache ensures that system_server on the next boot
 # compiles fresh stock framework bytecode without mismatched method offsets or hooks.
+#
+# Only the artifacts this module actually wrote are dropped, all of which live in
+# the legacy /data/dalvik-cache tree. The ART-managed tree under
+# /data/misc/apexdata/com.android.art/dalvik-cache is left untouched: it holds
+# odrefresh's own artifacts, which were built against the stock jars this
+# uninstall restores and therefore stay valid. Clearing them would force a full
+# boot-classpath and system-server recompile on the next boot for no benefit -
+# turning an uninstall into a multi-minute apparent hang.
 rm -rf /data/dalvik-cache/*/*services* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*miui-services* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*services.jar@classes.* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*miui-services.jar@classes.* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*apprecovery* 2>/dev/null
 rm -rf /data/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
-rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*services* 2>/dev/null
-rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*miui-services* 2>/dev/null
-rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*services.jar@classes.* 2>/dev/null
-rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*miui-services.jar@classes.* 2>/dev/null
-rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/*apprecovery* 2>/dev/null
-rm -rf /data/misc/apexdata/com.android.art/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
 find /data/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
-find /data/misc/apexdata/com.android.art/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
 
 # ==============================================================================
 # 3. Remove FCM Wake Filter Configuration and Staging Artifacts

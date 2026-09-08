@@ -455,9 +455,15 @@ compile_aot_cache() {
         return 1
     fi
 
-    # Atomically commit: purge stale companion and destination files in dalvik-cache dirs
-    for _clean_dir in "/data/dalvik-cache/$_arch" "/data/misc/apexdata/com.android.art/dalvik-cache/$_arch"; do
-        [ -d "$_clean_dir" ] || continue
+    # Atomically commit: purge stale companion and destination files in the
+    # dalvik-cache tree we own. Only /data/dalvik-cache is ours - every artifact
+    # written above lands there. The ART-managed tree under
+    # /data/misc/apexdata/com.android.art/dalvik-cache belongs to odrefresh and is
+    # deliberately left alone: clearing its system-server artifacts without
+    # replacing them forces odrefresh to rebuild the boot classpath and the whole
+    # system-server classpath on the next boot, stalling it for minutes.
+    _clean_dir="/data/dalvik-cache/$_arch"
+    if [ -d "$_clean_dir" ]; then
         for _f in "$_clean_dir"/*services*; do
             [ -e "$_f" ] || continue
             case "$_f" in
@@ -465,7 +471,7 @@ compile_aot_cache() {
                 *) rm -f "$_f" 2>/dev/null ;;
             esac
         done
-    done
+    fi
 
     # Move staged artifacts to definitive names
     mv -f "$_services_tmp" "$_services_oat" 2>/dev/null
