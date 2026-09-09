@@ -42,6 +42,7 @@ public class FcmWakeFilter {
     private static volatile long sLastModified = -1;
     private static volatile int sCurrentMode = MODE_ALL;
     private static volatile Set<String> sPackageFilterSet = Collections.emptySet();
+    private static volatile Set<String> sFsiPackageSet = Collections.emptySet();
     private static volatile boolean sGroupAlertFixEnabled = true;
     private static volatile boolean sAntiMuteUpdateEnabled = true;
     private static volatile boolean sUnthrottleAlertEnabled = false;
@@ -101,10 +102,16 @@ public class FcmWakeFilter {
     /**
      * Hooked in NotificationManagerServiceImpl.checkFullScreenIntent(...)
      * Returns true if the package is permitted to retain fullScreenIntent without stripping.
+     * Uses the dedicated FSI package set (FSI_PKG= entries in config) for granular per-app control.
+     * When no FSI packages are configured, returns false (strict opt-in).
      */
     public static boolean shouldBypassFullScreenIntent(String pkg) {
         if (pkg == null || pkg.isEmpty()) return false;
-        return isPackageAllowed(pkg);
+        checkConfig();
+        Set<String> fsiSet = sFsiPackageSet;
+        if (fsiSet.isEmpty()) return false;
+        if (fsiSet.contains(pkg)) return true;
+        return fsiSet.contains(pkg.toLowerCase());
     }
 
     /**
@@ -350,6 +357,7 @@ public class FcmWakeFilter {
             }
 
             Set<String> newFilterSet = new HashSet<String>();
+            Set<String> newFsiSet = new HashSet<String>();
             int mode = MODE_ALL;
             boolean groupAlertFix = true;
             boolean antiMuteUpdate = true;
@@ -382,6 +390,12 @@ public class FcmWakeFilter {
                         unthrottleAlert = false;
                     } else if (line.equalsIgnoreCase("UNTHROTTLE_ALERT=1") || line.equalsIgnoreCase("UNTHROTTLE_ALERT=TRUE")) {
                         unthrottleAlert = true;
+                    } else if (line.startsWith("FSI_PKG=")) {
+                        String fsiPkg = line.substring(8).trim();
+                        if (!fsiPkg.isEmpty()) {
+                            newFsiSet.add(fsiPkg);
+                            newFsiSet.add(fsiPkg.toLowerCase());
+                        }
                     } else if (!line.contains("=")) {
                         newFilterSet.add(line);
                         newFilterSet.add(line.toLowerCase());
@@ -397,6 +411,7 @@ public class FcmWakeFilter {
             }
 
             sPackageFilterSet = Collections.unmodifiableSet(newFilterSet);
+            sFsiPackageSet = Collections.unmodifiableSet(newFsiSet);
             sCurrentMode = mode;
             sGroupAlertFixEnabled = groupAlertFix;
             sAntiMuteUpdateEnabled = antiMuteUpdate;

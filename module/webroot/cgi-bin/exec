@@ -96,6 +96,39 @@ read_alert_fix_config() {
     fi
 }
 
+read_fsi_packages() {
+    FSI_PKGS=""
+    if [ -f "$CONF_FILE" ]; then
+        FSI_PKGS=$(grep "^FSI_PKG=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r' | grep -E '^[a-zA-Z0-9._-]+$')
+    fi
+}
+
+format_fsi_packages_json() {
+    read_fsi_packages
+    FSI_JSON=$(echo "$FSI_PKGS" | awk 'NF{if(n++) printf ","; printf "\"%s\"", $0}' | awk '{printf "[%s]", $0}')
+    [ -z "$FSI_JSON" ] || [ "$FSI_JSON" = "[]" ] && FSI_JSON="[]"
+}
+
+apply_fsi_appops() {
+    _pkg="$1"
+    [ -z "$_pkg" ] && return 1
+    cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT allow 2>/dev/null || true
+    cmd appops set "$_pkg" 10008 allow 2>/dev/null || true
+    cmd appops set "$_pkg" 10020 allow 2>/dev/null || true
+    cmd appops set "$_pkg" 10021 allow 2>/dev/null || true
+    return 0
+}
+
+revoke_fsi_appops() {
+    _pkg="$1"
+    [ -z "$_pkg" ] && return 1
+    cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT default 2>/dev/null || true
+    cmd appops set "$_pkg" 10008 ignore 2>/dev/null || true
+    cmd appops set "$_pkg" 10020 ignore 2>/dev/null || true
+    cmd appops set "$_pkg" 10021 ignore 2>/dev/null || true
+    return 0
+}
+
 write_alert_fix_config() {
     TMP_CONF="$CONF_FILE.tmp.$$"
     if [ -f "$CONF_FILE" ]; then
@@ -486,8 +519,10 @@ case "$ACTION" in
             fi
         fi
 
-        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s},"gms_parity":{"powerkeeper_gms_control":"%s","boot_apply":%s,"v18_active":%s}}\n' \
-            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT" "$PK_GMS_CTRL" "$PK_GMS_BOOT" "$V18_ACTIVE"
+        format_fsi_packages_json
+
+        printf '{"status":"ok","mode":"%s","packages":%s,"installed":%s,"prestart":"%s","sound_active":%s,"sound_backup":%s,"features":{"miui_cooldown":%s,"android15_cooldown":%s,"offbody_mute":%s},"channel_sync":{"auto_sync_boot":%s,"sync_sound":%s,"sync_vibration":%s,"sync_lockscreen":%s,"sync_float":%s},"alert_fix":{"group_alert_fix":%s,"anti_mute_update":%s,"unthrottle_alert":%s},"gms_parity":{"powerkeeper_gms_control":"%s","boot_apply":%s,"v18_active":%s},"fsi_packages":%s}\n' \
+            "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT" "$PK_GMS_CTRL" "$PK_GMS_BOOT" "$V18_ACTIVE" "$FSI_JSON"
         ;;
 
     stopped)
@@ -514,7 +549,11 @@ case "$ACTION" in
         # Extract and sanitize package list (only valid package names)
         PKGS=$(echo "$BODY" | sed -n 's/.*"packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '" ' | grep -E '^[a-zA-Z0-9._-]+$')
 
+        # Extract FSI packages
+        FSI_NEW=$(echo "$BODY" | sed -n 's/.*"fsi_packages":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '"  ' | grep -E '^[a-zA-Z0-9._-]+$')
+
         read_alert_fix_config
+        read_fsi_packages
 
         # Write to atomic temp file first
         TMP_CONF="$CONF_FILE.tmp.$$"
@@ -525,6 +564,11 @@ case "$ACTION" in
             [ "$ALERT_GROUP_FIX" = "false" ] && echo "GROUP_ALERT_FIX=0" || echo "GROUP_ALERT_FIX=1"
             [ "$ALERT_ANTI_MUTE_UPDATE" = "false" ] && echo "ANTI_MUTE_UPDATE=0" || echo "ANTI_MUTE_UPDATE=1"
             [ "$ALERT_UNTHROTTLE_ALERT" = "true" ] && echo "UNTHROTTLE_ALERT=1" || echo "UNTHROTTLE_ALERT=0"
+            if [ -n "$FSI_NEW" ]; then
+                echo "$FSI_NEW" | while read -r _fpkg; do
+                    [ -n "$_fpkg" ] && echo "FSI_PKG=$_fpkg"
+                done
+            fi
             if [ -n "$PKGS" ]; then
                 echo "$PKGS"
             fi
@@ -542,6 +586,30 @@ case "$ACTION" in
         chmod 0644 "$CONF_FILE" 2>/dev/null || true
         chown system:system "$CONF_FILE" 2>/dev/null || true
         chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null || true
+
+        # Dynamically apply/revoke FSI AppOps
+        _OLD_FSI_SET="$FSI_PKGS"
+        _NEW_FSI_SET="$FSI_NEW"
+
+        # Apply AppOps for newly added FSI packages
+        if [ -n "$_NEW_FSI_SET" ]; then
+            echo "$_NEW_FSI_SET" | while read -r _fpkg; do
+                [ -z "$_fpkg" ] && continue
+                if [ -z "$_OLD_FSI_SET" ] || ! echo "$_OLD_FSI_SET" | grep -qx "$_fpkg"; then
+                    apply_fsi_appops "$_fpkg"
+                fi
+            done
+        fi
+
+        # Revoke AppOps for removed FSI packages
+        if [ -n "$_OLD_FSI_SET" ]; then
+            echo "$_OLD_FSI_SET" | while read -r _fpkg; do
+                [ -z "$_fpkg" ] && continue
+                if [ -z "$_NEW_FSI_SET" ] || ! echo "$_NEW_FSI_SET" | grep -qx "$_fpkg"; then
+                    revoke_fsi_appops "$_fpkg"
+                fi
+            done
+        fi
 
         echo '{"status":"ok","message":"Configuration saved successfully"}'
         ;;

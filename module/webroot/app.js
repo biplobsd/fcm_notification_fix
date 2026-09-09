@@ -987,6 +987,8 @@
     let stoppedApps = new Set();
     let selectedApps = new Set();
     let savedApps = new Set();
+    let fsiApps = new Set();
+    let savedFsiApps = new Set();
 
     function checkDraftChanges() {
         let isDirty = false;
@@ -999,6 +1001,20 @@
                 if (!savedApps.has(app)) {
                     isDirty = true;
                     break;
+                }
+            }
+        }
+
+        // Check FSI changes
+        if (!isDirty) {
+            if (fsiApps.size !== savedFsiApps.size) {
+                isDirty = true;
+            } else {
+                for (const app of fsiApps) {
+                    if (!savedFsiApps.has(app)) {
+                        isDirty = true;
+                        break;
+                    }
                 }
             }
         }
@@ -1022,6 +1038,7 @@
             const state = {
                 mode: savedMode,
                 packages: Array.from(savedApps),
+                fsi_packages: Array.from(savedFsiApps),
                 installed: installedApps,
                 stopped: Array.from(stoppedApps),
                 sound_active: soundFixActive,
@@ -1050,6 +1067,10 @@
             if (Array.isArray(cache.packages)) {
                 savedApps = new Set(cache.packages);
                 selectedApps = new Set(cache.packages);
+            }
+            if (Array.isArray(cache.fsi_packages)) {
+                savedFsiApps = new Set(cache.fsi_packages);
+                fsiApps = new Set(cache.fsi_packages);
             }
             if (Array.isArray(cache.installed) && cache.installed.length) {
                 installedApps = cache.installed;
@@ -1159,6 +1180,10 @@
             }
             if (data.gms_parity) {
                 updateGmsParityUI(data.gms_parity);
+            }
+            if (Array.isArray(data.fsi_packages)) {
+                savedFsiApps = new Set(data.fsi_packages);
+                fsiApps = new Set(data.fsi_packages);
             }
             filterApps();
             checkDraftChanges();
@@ -1353,6 +1378,10 @@
             ? `<span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? t('pill.stopped') : t('pill.active')}</span>`
             : `<span class="status-pill status-running" data-badge-pkg="${pkg}"><span class="skeleton skeleton-text" style="width: 36px; height: 10px;"></span></span>`;
 
+        const isFsi = fsiApps.has(pkg);
+        const fsiTitle = isFsi ? t('fsi.btn.active') : t('fsi.btn.hint');
+        const fsiBtnHtml = `<button class="fsi-btn ${isFsi ? 'fsi-active' : ''}" data-fsi-pkg="${pkg}" title="${fsiTitle}" onclick="toggleFsi('${pkg}', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg></button>`;
+
         return `
             <div class="app-item ${isChecked ? 'selected' : ''}" data-pkg="${pkg}">
                 <div class="app-pkg-container" onclick="copyPkg(event, '${pkg}')" title="Tap to copy package name">
@@ -1365,6 +1394,7 @@
                 </div>
                 <div class="app-actions">
                     ${badgeHtml}
+                    ${fsiBtnHtml}
                     <label class="switch" onclick="event.stopPropagation()">
                         <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleApp('${pkg}', this.checked)">
                         <span class="slider ${sliderClass}"></span>
@@ -1471,6 +1501,28 @@
 
         updateCounts();
         checkDraftChanges();
+    }
+
+    function toggleFsi(pkg, event) {
+        if (event) event.stopPropagation();
+        const wasActive = fsiApps.has(pkg);
+        if (wasActive) {
+            fsiApps.delete(pkg);
+        } else {
+            fsiApps.add(pkg);
+        }
+        const isActive = !wasActive;
+
+        // Update the button in DOM
+        const btn = document.querySelector(`.fsi-btn[data-fsi-pkg="${CSS.escape(pkg)}"]`);
+        if (btn) {
+            btn.classList.toggle('fsi-active', isActive);
+            btn.title = isActive ? t('fsi.btn.active') : t('fsi.btn.hint');
+        }
+
+        checkDraftChanges();
+
+        showToast(t(isActive ? 'fsi.toast.enabled' : 'fsi.toast.disabled', { pkg }));
     }
 
     function copyPkg(event, pkg) {
@@ -1606,12 +1658,14 @@
         try {
             const payload = {
                 mode: currentMode,
-                packages: Array.from(selectedApps)
+                packages: Array.from(selectedApps),
+                fsi_packages: Array.from(fsiApps)
             };
             const res = await execAction('save_config', payload);
             if (res.success) {
                 savedMode = currentMode;
                 savedApps = new Set(selectedApps);
+                savedFsiApps = new Set(fsiApps);
                 checkDraftChanges();
                 saveStateCache();
                 showToast(t('toast.saved'));

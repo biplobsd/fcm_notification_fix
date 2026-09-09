@@ -147,5 +147,9 @@
   "parity.toast.enabled": "GMS Firewall enabled",
   "parity.toast.boot_enabled": "Apply on boot enabled ✓",
   "parity.toast.boot_disabled": "Apply on boot disabled",
-  "parity.toast.error": "Failed to update firewall state"
+  "parity.toast.error": "Failed to update firewall state",
+  "fsi.btn.hint": "Enable VoIP lockscreen call UI",
+  "fsi.btn.active": "VoIP lockscreen enabled ✓",
+  "fsi.toast.enabled": "Lockscreen VoIP call UI enabled for {pkg}. Tap Save Changes to apply.",
+  "fsi.toast.disabled": "Lockscreen VoIP call UI disabled for {pkg}. Tap Save Changes to apply."
 }

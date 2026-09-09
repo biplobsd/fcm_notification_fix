@@ -147,5 +147,9 @@
   "parity.toast.enabled": "Firewall GMS ativado",
   "parity.toast.boot_enabled": "Aplicar na inicialização ativado ✓",
   "parity.toast.boot_disabled": "Aplicar na inicialização desativado",
-  "parity.toast.error": "Falha ao atualizar o estado do firewall"
+  "parity.toast.error": "Falha ao atualizar o estado do firewall",
+  "fsi.btn.hint": "Ativar interface VoIP na tela de bloqueio",
+  "fsi.btn.active": "VoIP na tela de bloqueio ativado ✓",
+  "fsi.toast.enabled": "UI de chamada VoIP na tela de bloqueio ativada para {pkg}. Toque em Salvar alterações para aplicar.",
+  "fsi.toast.disabled": "UI de chamada VoIP na tela de bloqueio desativada para {pkg}. Toque em Salvar alterações para aplicar."
 }

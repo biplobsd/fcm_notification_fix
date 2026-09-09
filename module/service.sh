@@ -259,6 +259,27 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 
 [ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
 
-# Run PowerKeeper boot disarm and channel sync asynchronously on boot completion
+# ==============================================================================
+# 6. Per-App VoIP FullScreen Intent AppOps (Boot Re-Apply)
+# ==============================================================================
+# Re-apply USE_FULL_SCREEN_INTENT and MIUI ops for apps configured with FSI_PKG=
+# in fcm_wake.conf. These AppOps are volatile and must be re-applied after reboot.
+apply_fsi_boot() {
+    [ -f "$CONF_FILE" ] || return 0
+    _fsi_pkgs=$(grep "^FSI_PKG=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r' | grep -E '^[a-zA-Z0-9._-]+$')
+    [ -z "$_fsi_pkgs" ] && return 0
+
+    echo "$_fsi_pkgs" | while read -r _fpkg; do
+        [ -z "$_fpkg" ] && continue
+        cmd appops set "$_fpkg" USE_FULL_SCREEN_INTENT allow 2>/dev/null || true
+        cmd appops set "$_fpkg" 10008 allow 2>/dev/null || true
+        cmd appops set "$_fpkg" 10020 allow 2>/dev/null || true
+        cmd appops set "$_fpkg" 10021 allow 2>/dev/null || true
+    done
+}
+
+# Run PowerKeeper boot disarm, FSI boot re-apply, and channel sync asynchronously on boot completion
 apply_pk_boot_disarm &
+apply_fsi_boot &
 sync_notification_channels &
+

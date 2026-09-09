@@ -147,5 +147,9 @@
   "parity.toast.enabled": "GMS ファイアウォールを有効化しました",
   "parity.toast.boot_enabled": "起動時適用を有効化しました ✓",
   "parity.toast.boot_disabled": "起動時適用を無効化しました",
-  "parity.toast.error": "ファイアウォール状態の更新に失敗しました"
+  "parity.toast.error": "ファイアウォール状態の更新に失敗しました",
+  "fsi.btn.hint": "VoIPロック画面通話UIを有効化",
+  "fsi.btn.active": "VoIPロック画面有効 ✓",
+  "fsi.toast.enabled": "{pkg} のロックスクリーンVoIP通話UIを有効化しました。「変更を保存」をタップして適用してください。",
+  "fsi.toast.disabled": "{pkg} のロックスクリーンVoIP通話UIを無効化しました。「変更を保存」をタップして適用してください。"
 }
