@@ -127,6 +127,22 @@ find /data/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
 # ==============================================================================
 # 3. Remove FCM Wake Filter Configuration and Staging Artifacts
 # ==============================================================================
+FSI_UNINSTALL_PKGS=""
+if [ -f "/data/system/fcm_wake.conf" ]; then
+    FSI_UNINSTALL_PKGS=$(grep "^FSI_PKG=" "/data/system/fcm_wake.conf" 2>/dev/null | cut -d= -f2 | tr -d '\r')
+fi
+
+# Revoke FSI AppOps granted to user packages before deleting configuration
+if [ -n "$FSI_UNINSTALL_PKGS" ]; then
+    echo "$FSI_UNINSTALL_PKGS" | while read -r _pkg; do
+        [ -z "$_pkg" ] && continue
+        cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT default 2>/dev/null || true
+        cmd appops set "$_pkg" 10008 ignore 2>/dev/null || true
+        cmd appops set "$_pkg" 10020 ignore 2>/dev/null || true
+        cmd appops set "$_pkg" 10021 ignore 2>/dev/null || true
+    done
+fi
+
 rm -f /data/system/fcm_wake.conf 2>/dev/null
 rm -f /data/system/fcm_wake.conf.tmp.* 2>/dev/null
 rm -f /data/system/fcm_pk_boot.conf 2>/dev/null
@@ -155,6 +171,12 @@ if [ -f "$MODDIR/stock_settings.conf" ]; then
     chmod 0600 "$RESTORE_CONF" 2>/dev/null || true
 else
     rm -f "$RESTORE_CONF" 2>/dev/null || true
+fi
+if [ -n "$FSI_UNINSTALL_PKGS" ]; then
+    echo "$FSI_UNINSTALL_PKGS" | while read -r _pkg; do
+        [ -n "$_pkg" ] && echo "fsi_pkg:$_pkg" >> "$RESTORE_CONF" 2>/dev/null || true
+    done
+    chmod 0600 "$RESTORE_CONF" 2>/dev/null || true
 fi
 if [ -f "$MODDIR/restore-on-boot.sh" ]; then
     cp -f "$MODDIR/restore-on-boot.sh" "$RESTORE_SCRIPT.tmp.$$" 2>/dev/null && \
