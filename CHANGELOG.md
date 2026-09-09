@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.4 (versionCode: 5)
+### Added
+- **Per-App VoIP Full-Screen Intent (FSI) Lockscreen Control**:
+  - Granular `FSI_PKG=` allowlist in `FcmWakeFilter` — FSI bypass is now strict opt-in per package instead of following the global wake filter.
+  - WebUI phone-call button per app with glowing active state, draft tracking, and toasts; `exec` grants/revokes `USE_FULL_SCREEN_INTENT` + MIUI AppOps `10008`/`10020`/`10021`.
+  - `service.sh` re-applies FSI AppOps on boot; `uninstall.sh` + `restore-on-boot.sh` revoke/reset them to stock (`default`/`ignore`).
+  - i18n for FSI hints/toasts across all 8 languages (EN, RU, PT, HI, TR, JA, ZH, BN).
+- **PowerKeeper GMS Firewall Persist Toggle**:
+  - New WebUI "Apply on Boot" switch persisted in `/data/system/fcm_pk_boot.conf`.
+  - Boot disarm retries at 0/5/15s with CN-region gating, backup ensure, and resilient iptables flush; cleaned up on uninstall.
+
+### Fixed
+- **v1.3 Bootloop — SELinux Relabel**: Removed `restorecon -F` that stripped `system_file` from patched jars (broke OverlayFS/metamodule mounts with `ClassLoaderContext classpath size mismatch` → `ClassNotFoundException: SystemServer`).
+- **v1.3 Boot Stall — AOT Cache Scope**: Dalvik-cache purge/commit scoped to `/data/dalvik-cache` only; never touches `/data/misc/apexdata/com.android.art/dalvik-cache` (avoids forced odrefresh full rebuild + mountify anti-bootloop disable). Same scoping in `post-fs-data.sh` and `uninstall.sh`.
+- **Signature-Safe Patcher Vectors 17/18**: Derive parameter registers via `DexUtils.paramRegister()` / `lastParamIndex()` / `paramTypeIs()` instead of hardcoded `registerCount - N`; skip-with-warning on unexpected signatures. Fixes wide-param (`long`/`double`) mis-patch that passed linkage checks but ART rejects at boot.
+- **Fail-Closed Install Verifier**: New `verify_patched_jars()` runs `dex2oat --compiler-filter=verify --abort-on-hard-verifier-error` over patched jars during install and aborts leaving stock untouched on failure. Returns `2` when dex2oat is absent (plain notice, no false pass). Fixed `errexit` swallowing of test/verifier status in `customize.sh` and `run_ci_tests.sh`.
+- **FSI Safety**: Fixed-string membership (`grep -Fqx`) for package checks; `sFsiPackageSet` cleared on missing-config and `Throwable` fallback paths.
+
+### Improved & Testing
+- Shared `resolve_dex2oat()` / `resolve_isa()` helpers for AOT + verifier paths.
+- CI: direct OTA URL support + HyperOS 4 matrix entry (Xiaomi Pad 8 Pro `piano`, `OS4.0.0.37.XPYCNXM`, SDK 37); new `DexUtilsRegisterTest` (wide-param arithmetic) and extended `PatcherIntegrationTest`; artifact retention reduced to 3 days.
+
 ## v1.3 (versionCode: 4)
 - **Anonymous Stealth Mount**: Switched to in-memory tmpfs mounts to bypass root detection (Duck Detector), with Mountify metamodule delegation.
 - **Notification Sound Anti-Mute**: Patched `NotificationAttentionHelper` to prevent suppression of rapid and group alerts, with granular channel controls.
