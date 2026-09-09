@@ -344,6 +344,7 @@ public class FcmWakeFilter {
                 if (sLastModified != 0) {
                     sCurrentMode = MODE_ALL;
                     sPackageFilterSet = Collections.emptySet();
+                    sFsiPackageSet = Collections.emptySet();
                     sGeneration++;
                     sDecisionCache.clear();
                     sLastModified = 0;
@@ -423,6 +424,8 @@ public class FcmWakeFilter {
             // Failsafe fallback: never break push delivery on file read errors
             sLastModified = -1; // Force retry on next attempt
             sCurrentMode = MODE_ALL;
+            sPackageFilterSet = Collections.emptySet();
+            sFsiPackageSet = Collections.emptySet();
             sGroupAlertFixEnabled = true;
             sAntiMuteUpdateEnabled = true;
             sUnthrottleAlertEnabled = false;

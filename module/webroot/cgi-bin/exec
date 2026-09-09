@@ -595,7 +595,7 @@ case "$ACTION" in
         if [ -n "$_NEW_FSI_SET" ]; then
             echo "$_NEW_FSI_SET" | while read -r _fpkg; do
                 [ -z "$_fpkg" ] && continue
-                if [ -z "$_OLD_FSI_SET" ] || ! echo "$_OLD_FSI_SET" | grep -qx "$_fpkg"; then
+                if [ -z "$_OLD_FSI_SET" ] || ! printf '%s\n' "$_OLD_FSI_SET" | grep -Fqx -- "$_fpkg"; then
                     apply_fsi_appops "$_fpkg"
                 fi
             done
@@ -605,7 +605,7 @@ case "$ACTION" in
         if [ -n "$_OLD_FSI_SET" ]; then
             echo "$_OLD_FSI_SET" | while read -r _fpkg; do
                 [ -z "$_fpkg" ] && continue
-                if [ -z "$_NEW_FSI_SET" ] || ! echo "$_NEW_FSI_SET" | grep -qx "$_fpkg"; then
+                if [ -z "$_NEW_FSI_SET" ] || ! printf '%s\n' "$_NEW_FSI_SET" | grep -Fqx -- "$_fpkg"; then
                     revoke_fsi_appops "$_fpkg"
                 fi
             done
