@@ -147,5 +147,9 @@
   "parity.toast.enabled": "GMS Güvenlik Duvarı etkinleştirildi",
   "parity.toast.boot_enabled": "Başlangıçta uygulama etkinleştirildi ✓",
   "parity.toast.boot_disabled": "Başlangıçta uygulama devre dışı bırakıldı",
-  "parity.toast.error": "Güvenlik duvarı durumu güncellenemedi"
+  "parity.toast.error": "Güvenlik duvarı durumu güncellenemedi",
+  "fsi.btn.hint": "VoIP kilit ekranı arama arayüzünü etkinleştir",
+  "fsi.btn.active": "VoIP kilit ekranı etkin ✓",
+  "fsi.toast.enabled": "{pkg} için kilit ekranı VoIP arama kullanıcı arayüzü etkinleştirildi. Uygulamak için Değişiklikleri Kaydet'e dokunun.",
+  "fsi.toast.disabled": "{pkg} için kilit ekranı VoIP arama kullanıcı arayüzü devre dışı bırakıldı. Uygulamak için Değişiklikleri Kaydet'e dokunun."
 }

@@ -405,6 +405,57 @@
             border: 1px solid rgba(16, 185, 129, 0.25);
         }
 
+        /* Per-App VoIP FullScreen Intent Button */
+        .fsi-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: rgba(255, 255, 255, 0.25);
+            cursor: pointer;
+            transition: all 0.22s ease;
+            flex-shrink: 0;
+            padding: 0;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .fsi-btn svg {
+            width: 13px;
+            height: 13px;
+            transition: transform 0.18s ease;
+        }
+
+        .fsi-btn:hover {
+            border-color: rgba(6, 182, 212, 0.3);
+            color: rgba(6, 182, 212, 0.6);
+            background: rgba(6, 182, 212, 0.06);
+        }
+
+        .fsi-btn:active {
+            transform: scale(0.92);
+        }
+
+        .fsi-btn.fsi-active {
+            background: rgba(6, 182, 212, 0.15);
+            border-color: rgba(6, 182, 212, 0.4);
+            color: #22d3ee;
+            box-shadow: 0 0 8px rgba(6, 182, 212, 0.25);
+        }
+
+        .fsi-btn.fsi-active:hover {
+            background: rgba(6, 182, 212, 0.22);
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.35);
+        }
+
+        .fsi-btn.fsi-active svg {
+            filter: drop-shadow(0 0 2px rgba(6, 182, 212, 0.5));
+        }
+
         /* Compact Switch */
         .switch {
             position: relative;

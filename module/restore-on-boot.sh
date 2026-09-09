@@ -71,6 +71,17 @@ if [ -n "$GMS_UID" ]; then
     cmd greezer monitor "$GMS_UID" 2>/dev/null || true
 fi
 
+# Restore FSI AppOps for user packages if staged by uninstall.sh
+if [ -f "$RESTORE_CONF" ]; then
+    grep "^fsi_pkg:" "$RESTORE_CONF" 2>/dev/null | cut -d: -f2 | tr -d '\r' | while read -r _pkg; do
+        [ -z "$_pkg" ] && continue
+        cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT default 2>/dev/null || true
+        cmd appops set "$_pkg" 10008 ignore 2>/dev/null || true
+        cmd appops set "$_pkg" 10020 ignore 2>/dev/null || true
+        cmd appops set "$_pkg" 10021 ignore 2>/dev/null || true
+    done
+fi
+
 # Restore PowerKeeper gms_control and both userTable rows to stock
 RESTORE_FAILED=0
 pk_ctrl="true"

@@ -147,5 +147,9 @@
   "parity.toast.enabled": "GMS 防火墙已启用",
   "parity.toast.boot_enabled": "已开启开机自动应用 ✓",
   "parity.toast.boot_disabled": "已关闭开机自动应用",
-  "parity.toast.error": "更新防火墙状态失败"
+  "parity.toast.error": "更新防火墙状态失败",
+  "fsi.btn.hint": "启用 VoIP 锁屏来电界面",
+  "fsi.btn.active": "VoIP 锁屏已启用 ✓",
+  "fsi.toast.enabled": "已为 {pkg} 启用锁屏 VoIP 通话界面。点击“保存更改”以应用。",
+  "fsi.toast.disabled": "已为 {pkg} 禁用锁屏 VoIP 通话界面。点击“保存更改”以应用。"
 }

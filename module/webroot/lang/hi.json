@@ -147,5 +147,9 @@
   "parity.toast.enabled": "GMS फ़ायरवॉल सक्षम किया गया",
   "parity.toast.boot_enabled": "बूट पर लागू करना सक्षम किया गया ✓",
   "parity.toast.boot_disabled": "बूट पर लागू करना अक्षम किया गया",
-  "parity.toast.error": "फ़ायरवॉल स्थिति अपडेट करने में विफल"
+  "parity.toast.error": "फ़ायरवॉल स्थिति अपडेट करने में विफल",
+  "fsi.btn.hint": "VoIP लॉकस्क्रीन कॉल UI सक्षम करें",
+  "fsi.btn.active": "VoIP लॉकस्क्रीन सक्षम ✓",
+  "fsi.toast.enabled": "{pkg} के लिए लॉकस्क्रीन VoIP कॉल UI सक्षम किया गया। लागू करने के लिए Save Changes पर टैप करें।",
+  "fsi.toast.disabled": "{pkg} के लिए लॉकस्क्रीन VoIP कॉल UI अक्षम किया गया। लागू करने के लिए Save Changes पर टैप करें।"
 }

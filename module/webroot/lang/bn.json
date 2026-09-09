@@ -147,5 +147,9 @@
   "parity.toast.enabled": "GMS ফায়ারওয়াল সক্রিয় করা হয়েছে",
   "parity.toast.boot_enabled": "বুটে প্রয়োগ সক্রিয় করা হয়েছে ✓",
   "parity.toast.boot_disabled": "বুটে প্রয়োগ নিষ্ক্রিয় করা হয়েছে",
-  "parity.toast.error": "ফায়ারওয়ালের অবস্থা আপডেট করতে ব্যর্থ"
+  "parity.toast.error": "ফায়ারওয়ালের অবস্থা আপডেট করতে ব্যর্থ",
+  "fsi.btn.hint": "VoIP লকস্ক্রিন কল UI সক্রিয় করুন",
+  "fsi.btn.active": "VoIP লকস্ক্রিন সক্রিয় ✓",
+  "fsi.toast.enabled": "{pkg}-এর জন্য লকস্ক্রিন VoIP কল UI সক্রিয় করা হয়েছে। প্রয়োগ করতে Save Changes চাপুন।",
+  "fsi.toast.disabled": "{pkg}-এর জন্য লকস্ক্রিন VoIP কল UI নিষ্ক্রিয় করা হয়েছে। প্রয়োগ করতে Save Changes চাপুন।"
 }
