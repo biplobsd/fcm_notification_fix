@@ -229,7 +229,9 @@ backup_fsi_appops() {
     if [ -z "$_bf_conf" ] || [ -z "$_bf_pkg" ]; then
         return 1
     fi
-    [ -f "$_bf_conf" ] || : > "$_bf_conf" 2>/dev/null || return 1
+    # Braces around the redirect: a failing `>` is reported by the shell before
+    # a trailing 2>/dev/null on the command itself can suppress it.
+    [ -f "$_bf_conf" ] || { : > "$_bf_conf"; } 2>/dev/null || return 1
 
     for _bf_op in $FSI_APPOPS; do
         # Exact key comparison, not a regex: a package name is full of dots.
@@ -268,39 +270,22 @@ forget_fsi_appops() {
 }
 
 # Grant the FSI ops, recording what they were beforehand.
+#
+# The grant is refused outright when the record could not be written. Granting
+# with no record means a later removal has nothing to give back and falls to
+# "default", which silently loses an ignore, deny or foreground the user had
+# set - the very failure this whole change exists to stop. Refusing costs
+# nothing the feature needs: vector 18's bypass makes checkFullScreenIntent
+# return before it ever consults 10021, so a listed package keeps its
+# full-screen call screen whether or not these ops were granted.
 apply_fsi_appops() {
     _af_conf="$1"
     _af_pkg="$2"
     [ -z "$_af_pkg" ] && return 1
 
-    backup_fsi_appops "$_af_conf" "$_af_pkg"
+    backup_fsi_appops "$_af_conf" "$_af_pkg" || return 1
     for _af_op in $FSI_APPOPS; do
         cmd appops set "$_af_pkg" "$_af_op" allow 2>/dev/null || true
-    done
-    return 0
-}
-
-# Boot-time re-grant. Only an op that currently reads exactly as it did before
-# the module ever touched it is granted again: that is what a volatile op looks
-# like after it silently reverted. An op sitting at any other mode was set by
-# somebody - the user in Settings, most likely - and is left alone, so a
-# deliberate choice is no longer undone on every boot.
-reapply_fsi_appops() {
-    _rp_conf="$1"
-    _rp_pkg="$2"
-    [ -z "$_rp_pkg" ] && return 1
-
-    # A package listed by a build that predates the recording keeps no record of
-    # its own; capture what is there now so that removal has something to give
-    # back other than a guess.
-    backup_fsi_appops "$_rp_conf" "$_rp_pkg"
-
-    for _rp_op in $FSI_APPOPS; do
-        _rp_live=$(read_appop_mode "$_rp_pkg" "$_rp_op")
-        [ "$_rp_live" = "allow" ] && continue
-        _rp_saved=$(saved_fsi_appop_mode "$_rp_conf" "$_rp_pkg" "$_rp_op")
-        [ "$_rp_live" = "$_rp_saved" ] || continue
-        cmd appops set "$_rp_pkg" "$_rp_op" allow 2>/dev/null || true
     done
     return 0
 }

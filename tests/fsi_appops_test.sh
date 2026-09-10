@@ -80,6 +80,9 @@ check() {
 }
 live()  { read_appop_mode "$1" "$2"; }
 saved() { saved_fsi_appop_mode "$CONF" "$1" "$2"; }
+# The record as written. saved() normalises anything unrecognised to "default",
+# so it cannot show whether "unknown" was stored in the first place.
+raw()   { awk -F= -v k="fsi_appop:$1:$2" '$1 == k { print $2; exit }' "$CONF"; }
 
 echo "== FSI AppOps backup / restore =="
 
@@ -104,36 +107,50 @@ check "10008 OP_AUTO_START untouched" "" "$(grep -c '10008' "$APPOPS_DB" | sed '
 apply_fsi_appops "$CONF" "$PKG"
 check "record survives a second grant" ignore "$(saved "$PKG" 10021)"
 
-# ── 4. The boot re-apply leaves a mode the user changed alone ─────────────────
-cmd appops set "$PKG" 10020 deny          # user turned it off in Settings
-cmd appops set "$PKG" 10021 ignore        # looks exactly like its recorded mode
-reapply_fsi_appops "$CONF" "$PKG"
-check "user's deny is not overwritten" deny  "$(live "$PKG" 10020)"
-check "reverted op is granted again"   allow "$(live "$PKG" 10021)"
-
-# ── 5. Removal gives back what was recorded, and forgets it ──────────────────
-cmd appops set "$PKG" 10020 allow
+# ── 4. Removal gives back what was recorded, and forgets it ──────────────────
 restore_fsi_appops "$CONF" "$PKG"
 check "restored USE_FULL_SCREEN_INTENT" default "$(live "$PKG" USE_FULL_SCREEN_INTENT)"
 check "restored 10020"                  allow   "$(live "$PKG" 10020)"
 check "restored 10021"                  ignore  "$(live "$PKG" 10021)"
 check "records dropped after restore"   0       "$(grep -c "^fsi_appop:$PKG:" "$CONF")"
 
-# ── 6. Re-adding after a restore captures the restored state, not "allow" ────
+# ── 5. Re-adding after a restore captures the restored state, not "allow" ────
 apply_fsi_appops "$CONF" "$PKG"
 check "re-add records the restored mode" ignore "$(saved "$PKG" 10021)"
 
-# ── 7. "keep" leaves the records in place for the boot-time pass ─────────────
+# ── 6. "keep" leaves the records in place for the staged uninstall restore ───
 restore_fsi_appops "$CONF" "$PKG" keep
 check "records kept for staged restore" 3 "$(grep -c "^fsi_appop:$PKG:" "$CONF")"
 forget_fsi_appops "$CONF" "$PKG"
 
-# ── 8. A package with no record at all falls back to default, never ignore ───
+# ── 7. A package with no record at all falls back to default, never ignore ───
 cmd appops set "$OTHER" 10021 allow
 restore_fsi_appops "$CONF" "$OTHER"
 check "unrecorded op falls back to default" default "$(live "$OTHER" 10021)"
 
-# ── 9. Forgetting one package must not take a dot-prefixed neighbour's records ─
+# ── 8. A mode the reader cannot classify is recorded as unknown and restored ──
+# as default. MIUI has modes beyond the five the shell setter takes - MODE_ASK
+# among them - and writing back a mode `cmd appops set` may reject would leave
+# the module's own allow standing, which is worse than the neutral value.
+: > "$CONF"
+cmd appops set "$OTHER" 10021 ask
+apply_fsi_appops "$CONF" "$OTHER"
+check "unclassifiable mode is recorded as unknown" unknown "$(raw "$OTHER" 10021)"
+restore_fsi_appops "$CONF" "$OTHER"
+check "unknown restores as default, not ignore" default "$(live "$OTHER" 10021)"
+
+# ── 9. A grant whose record cannot be written must not happen at all ─────────
+# Granting with no record is how a later removal ends up guessing.
+UNWRITABLE="$WORK/nodir/stock_settings.conf"
+cmd appops set "$OTHER" 10021 ignore
+if apply_fsi_appops "$UNWRITABLE" "$OTHER"; then
+    check "grant refused when the record cannot be written" "refused" "granted"
+else
+    check "grant refused when the record cannot be written" "refused" "refused"
+fi
+check "op untouched after a refused grant" ignore "$(live "$OTHER" 10021)"
+
+# ── 10. Forgetting one package must not take a dot-prefixed neighbour's records ─
 : > "$CONF"
 apply_fsi_appops "$CONF" "$PKG"
 apply_fsi_appops "$CONF" "$OTHER"

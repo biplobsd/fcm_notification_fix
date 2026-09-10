@@ -230,26 +230,29 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 [ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
 
 # ==============================================================================
-# 6. Per-App VoIP FullScreen Intent AppOps (Boot Re-Apply)
+# 6. Per-App VoIP FullScreen Intent AppOps
 # ==============================================================================
-# Re-apply the FSI ops for apps configured with FSI_PKG= in fcm_wake.conf, for
-# the case where a platform drops them across a reboot. reapply_fsi_appops only
-# re-grants an op that still reads exactly as it did before the module first
-# touched it, so a mode the user changed in Settings survives the next boot
-# instead of being silently overwritten.
-apply_fsi_boot() {
-    [ -f "$CONF_FILE" ] || return 0
-    _fsi_pkgs=$(grep "^FSI_PKG=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r' | grep -E '^[a-zA-Z0-9._-]+$')
-    [ -z "$_fsi_pkgs" ] && return 0
+# There is deliberately no boot-time re-grant here.
+#
+# The FSI ops are granted once, when a package is added in the WebUI, and given
+# back when it is removed. They are not re-applied on boot, for two reasons.
+#
+# They do not need it: on HyperOS 3 CN they are ordinary AppOps records in
+# /data/system/appops.xml. Set to deny for a package, reboot, and they read deny
+# still - measured on OS3.0.307.0.WNVCNXM.C11.
+#
+# And a boot pass cannot be made correct even if some platform did drop them. A
+# reverted op and an op the user set by hand are the same value; nothing in
+# AppOps says which happened. Any rule for re-granting therefore overwrites some
+# deliberate choice - including the case where the user restores exactly the
+# mode the module recorded. Better to leave the ops alone than to guess on every
+# boot.
+#
+# If a ROM is found that really does drop them, this belongs back here with that
+# device's evidence, and with a signal that distinguishes a reset from a user
+# change rather than a heuristic over the mode.
 
-    echo "$_fsi_pkgs" | while read -r _fpkg; do
-        [ -z "$_fpkg" ] && continue
-        reapply_fsi_appops "$STOCK_CONF" "$_fpkg"
-    done
-}
-
-# Run PowerKeeper boot disarm, FSI boot re-apply, and channel sync asynchronously on boot completion
+# Run PowerKeeper boot disarm and channel sync asynchronously on boot completion
 apply_pk_boot_disarm &
-apply_fsi_boot &
 sync_notification_channels &
 
