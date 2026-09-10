@@ -117,6 +117,213 @@ restore_powerkeeper_state() {
     return "$_pk_restore_status"
 }
 
+# ==============================================================================
+# Per-app FullScreenIntent AppOps
+# ==============================================================================
+# The ops granted to a package on the FSI list, by name:
+#   USE_FULL_SCREEN_INTENT             AOSP; Settings > Apps > Special app access
+#                                      > Full screen notifications
+#   10020 OP_SHOW_WHEN_LOCKED          MIUI; App info > Other permissions
+#   10021 OP_BACKGROUND_START_ACTIVITY MIUI, same screen. This is the op that
+#                                      NotificationManagerServiceImpl.checkFullScreenIntent
+#                                      passes to noteOpNoThrow before it nulls
+#                                      Notification.fullScreenIntent.
+# The numeric ops are declared in com.miui.internal.os.MiuiHooks inside
+# miui-framework.jar (MIUI_OP_START 10000 .. MIUI_OP_END 10036).
+#
+# 10008 OP_AUTO_START is deliberately absent: checkFullScreenIntent never reads
+# it, so granting it bought nothing for this feature while silently switching on
+# an unrelated permission that users keep off on purpose.
+FSI_APPOPS="USE_FULL_SCREEN_INTENT 10020 10021"
+
+# Resolve the current mode of one AppOps operation for one package. Prints one of
+# allow|ignore|deny|foreground|default, or "unknown" when the op cannot be read -
+# callers treat "unknown" as "restore to default" rather than guessing a mode.
+read_appop_mode() {
+    _ra_pkg="$1"
+    _ra_op="$2"
+    _ra_mode="unknown"
+    if [ -z "$_ra_pkg" ] || [ -z "$_ra_op" ]; then
+        echo "$_ra_mode"
+        return 1
+    fi
+
+    _ra_out=$(cmd appops get "$_ra_pkg" "$_ra_op" 2>/dev/null)
+    _ra_status=$?
+    if [ "$_ra_status" -eq 0 ] && [ -n "$_ra_out" ]; then
+        # Match the name in front of the first colon exactly, rather than by
+        # regex. Two reasons: a MIUI op is printed wrapped, as
+        # "MIUIOP(10021): allow", so anchoring on the bare number never matches
+        # and the mode silently comes back "unknown"; and an op queried for a
+        # package is also echoed once as "Uid mode: <OP>: <mode>", which is a
+        # different record (`cmd appops set <pkg> ...` writes the package mode,
+        # not the uid one) and must not be mistaken for it.
+        _ra_line=$(printf '%s\n' "$_ra_out" | awk -v op="$_ra_op" '
+            {
+                line = $0
+                sub(/^[[:space:]]+/, "", line)
+                if (index(line, "Uid mode:") == 1) next
+                p = index(line, ":")
+                if (p == 0) next
+                name = substr(line, 1, p - 1)
+                sub(/[[:space:]]+$/, "", name)
+                if (name == op || name == "MIUIOP(" op ")") { print line; exit }
+            }
+        ')
+        if [ -n "$_ra_line" ]; then
+            case "$_ra_line" in
+                *": allow"*) _ra_mode="allow" ;;
+                *": ignore"*) _ra_mode="ignore" ;;
+                *": deny"*) _ra_mode="deny" ;;
+                *": foreground"*) _ra_mode="foreground" ;;
+                *": default"*) _ra_mode="default" ;;
+            esac
+        else
+            _ra_default=$(printf '%s\n' "$_ra_out" | awk '
+                /^[[:space:]]*Default mode[[:space:]]*:/ { print; exit }
+            ')
+            case "$_ra_default" in
+                *": allow"*) _ra_mode="allow" ;;
+                *": ignore"*) _ra_mode="ignore" ;;
+                *": deny"*) _ra_mode="deny" ;;
+                *": foreground"*) _ra_mode="foreground" ;;
+                *": default"*) _ra_mode="default" ;;
+                *)
+                    # An op the package has never exercised is reported with no
+                    # records at all, which means it still sits at its default.
+                    case "$_ra_out" in
+                        *"No operations."*) _ra_mode="default" ;;
+                    esac
+                    ;;
+            esac
+        fi
+    fi
+    echo "$_ra_mode"
+}
+
+# Read one recorded FSI mode back out of a backup file, normalising anything
+# missing or unrecognised to "default" - never to "ignore", which is a real mode
+# meaning "denied" and is not where an untouched op sits.
+saved_fsi_appop_mode() {
+    _sf_conf="$1"
+    _sf_pkg="$2"
+    _sf_op="$3"
+    _sf_mode=""
+    if [ -n "$_sf_conf" ] && [ -f "$_sf_conf" ]; then
+        _sf_mode=$(awk -F= -v key="fsi_appop:${_sf_pkg}:${_sf_op}" '
+            $1 == key { print substr($0, index($0, "=") + 1); exit }
+        ' "$_sf_conf" 2>/dev/null)
+    fi
+    case "$_sf_mode" in
+        allow|ignore|deny|foreground|default) echo "$_sf_mode" ;;
+        *) echo "default" ;;
+    esac
+}
+
+# Record the pre-grant mode of every FSI op for a package, once. An existing
+# record is never overwritten: after the first grant the live mode is the
+# module's own "allow", so re-recording would erase the user's real setting.
+backup_fsi_appops() {
+    _bf_conf="$1"
+    _bf_pkg="$2"
+    if [ -z "$_bf_conf" ] || [ -z "$_bf_pkg" ]; then
+        return 1
+    fi
+    [ -f "$_bf_conf" ] || : > "$_bf_conf" 2>/dev/null || return 1
+
+    for _bf_op in $FSI_APPOPS; do
+        # Exact key comparison, not a regex: a package name is full of dots.
+        awk -F= -v key="fsi_appop:${_bf_pkg}:${_bf_op}" '
+            $1 == key { found = 1; exit } END { exit found ? 0 : 1 }
+        ' "$_bf_conf" 2>/dev/null && continue
+        _bf_mode=$(read_appop_mode "$_bf_pkg" "$_bf_op")
+        echo "fsi_appop:${_bf_pkg}:${_bf_op}=${_bf_mode}" >> "$_bf_conf" 2>/dev/null || return 1
+    done
+    chmod 0600 "$_bf_conf" 2>/dev/null || true
+    return 0
+}
+
+# Drop a package's records once its previous state has been put back, so that a
+# later re-add captures the restored state instead of the module's own grant.
+forget_fsi_appops() {
+    _ff_conf="$1"
+    _ff_pkg="$2"
+    if [ -z "$_ff_conf" ] || [ -z "$_ff_pkg" ]; then
+        return 1
+    fi
+    [ -f "$_ff_conf" ] || return 0
+
+    _ff_tmp="${_ff_conf}.tmp.$$"
+    # Drop this package's records by exact key prefix. grep would treat the dots
+    # in a package name as wildcards and could take a neighbour's records with it.
+    if awk -F= -v pfx="fsi_appop:${_ff_pkg}:" '
+        index($1, pfx) == 1 { next } { print }
+    ' "$_ff_conf" > "$_ff_tmp" 2>/dev/null; then
+        chmod 0600 "$_ff_tmp" 2>/dev/null || true
+        mv -f "$_ff_tmp" "$_ff_conf" 2>/dev/null || rm -f "$_ff_tmp" 2>/dev/null
+    else
+        rm -f "$_ff_tmp" 2>/dev/null
+    fi
+    return 0
+}
+
+# Grant the FSI ops, recording what they were beforehand.
+apply_fsi_appops() {
+    _af_conf="$1"
+    _af_pkg="$2"
+    [ -z "$_af_pkg" ] && return 1
+
+    backup_fsi_appops "$_af_conf" "$_af_pkg"
+    for _af_op in $FSI_APPOPS; do
+        cmd appops set "$_af_pkg" "$_af_op" allow 2>/dev/null || true
+    done
+    return 0
+}
+
+# Boot-time re-grant. Only an op that currently reads exactly as it did before
+# the module ever touched it is granted again: that is what a volatile op looks
+# like after it silently reverted. An op sitting at any other mode was set by
+# somebody - the user in Settings, most likely - and is left alone, so a
+# deliberate choice is no longer undone on every boot.
+reapply_fsi_appops() {
+    _rp_conf="$1"
+    _rp_pkg="$2"
+    [ -z "$_rp_pkg" ] && return 1
+
+    # A package listed by a build that predates the recording keeps no record of
+    # its own; capture what is there now so that removal has something to give
+    # back other than a guess.
+    backup_fsi_appops "$_rp_conf" "$_rp_pkg"
+
+    for _rp_op in $FSI_APPOPS; do
+        _rp_live=$(read_appop_mode "$_rp_pkg" "$_rp_op")
+        [ "$_rp_live" = "allow" ] && continue
+        _rp_saved=$(saved_fsi_appop_mode "$_rp_conf" "$_rp_pkg" "$_rp_op")
+        [ "$_rp_live" = "$_rp_saved" ] || continue
+        cmd appops set "$_rp_pkg" "$_rp_op" allow 2>/dev/null || true
+    done
+    return 0
+}
+
+# Put every FSI op back to the mode recorded before the module granted it.
+# Pass "keep" as the third argument to leave the records in place: uninstall
+# needs them to survive into the staged restore conf, so that the boot-time pass
+# can repeat the restoration for anything that could not be set while the module
+# was being removed.
+restore_fsi_appops() {
+    _rf_conf="$1"
+    _rf_pkg="$2"
+    _rf_keep="${3:-}"
+    [ -z "$_rf_pkg" ] && return 1
+
+    for _rf_op in $FSI_APPOPS; do
+        _rf_mode=$(saved_fsi_appop_mode "$_rf_conf" "$_rf_pkg" "$_rf_op")
+        cmd appops set "$_rf_pkg" "$_rf_op" "$_rf_mode" 2>/dev/null || true
+    done
+    [ "$_rf_keep" = "keep" ] || forget_fsi_appops "$_rf_conf" "$_rf_pkg"
+    return 0
+}
+
 # Returns a composite signature that uniquely identifies the OS, partition-level framework jars,
 # and carrier/XMS hotfix sub-versions (e.g. 3.0.307.0.WOKCNXM.C11).
 # Any change to system, system_ext, or OS build triggers a mismatch.

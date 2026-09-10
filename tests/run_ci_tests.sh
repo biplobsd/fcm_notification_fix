@@ -12,6 +12,20 @@ echo "================================================="
 echo " Starting Automated FCM Patcher CI Test Suite    "
 echo "================================================="
 
+# 0. Shell-side tests. No JDK, no fixtures, no device: these run first because
+# they need nothing at all, so a broken AppOps round trip is reported before the
+# suite spends time resolving a toolchain.
+# Run inside the if condition: errexit is suspended there, so a failure reaches
+# the banner instead of terminating the script on the test line itself.
+echo "[0/4] Executing FSI AppOps backup/restore tests"
+if ! bash "$DIR/tests/fsi_appops_test.sh"; then
+    echo "================================================="
+    echo " FSI AppOps backup/restore tests FAILED ✗"
+    echo "================================================="
+    exit 1
+fi
+echo ""
+
 # 1. Resolve Java / JDK Environment
 if [ -z "$JAVA_HOME" ] || [ ! -x "$JAVA_HOME/bin/javac" ]; then
     if [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then

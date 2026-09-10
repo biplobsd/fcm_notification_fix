@@ -70,42 +70,12 @@ if [ ! -f "$STOCK_CONF" ] || ! grep -q '^secure:notification_animation_style=' "
         echo "gms_user_whitelisted=0" >> "$STOCK_TMP"
     fi
 
-    # Backup initial GMS AppOps state for surgical restoration on uninstall
+    # Backup initial GMS AppOps state for surgical restoration on uninstall.
+    # read_appop_mode is the same reader the per-app FSI backup uses, so both
+    # sides record modes by identical rules.
     for op in $GMS_APPOPS; do
         [ -z "$op" ] && continue
-        op_out=$(cmd appops get com.google.android.gms "$op" 2>/dev/null)
-        op_status=$?
-        op_mode="unknown"
-        if [ "$op_status" -eq 0 ] && [ -n "$op_out" ]; then
-            op_line=$(printf '%s\n' "$op_out" | awk -v op="$op" '
-                $0 ~ "^[[:space:]]*" op "[[:space:]]*:" { print; exit }
-            ')
-            if [ -n "$op_line" ]; then
-                case "$op_line" in
-                    *": allow"*) op_mode="allow" ;;
-                    *": ignore"*) op_mode="ignore" ;;
-                    *": deny"*) op_mode="deny" ;;
-                    *": foreground"*) op_mode="foreground" ;;
-                    *": default"*) op_mode="default" ;;
-                esac
-            else
-                default_line=$(printf '%s\n' "$op_out" | awk '
-                    /^[[:space:]]*Default mode[[:space:]]*:/ { print; exit }
-                ')
-                case "$default_line" in
-                    *": allow"*) op_mode="allow" ;;
-                    *": ignore"*) op_mode="ignore" ;;
-                    *": deny"*) op_mode="deny" ;;
-                    *": foreground"*) op_mode="foreground" ;;
-                    *": default"*) op_mode="default" ;;
-                    *)
-                        case "$op_out" in
-                            *"No operations."*) op_mode="default" ;;
-                        esac
-                        ;;
-                esac
-            fi
-        fi
+        op_mode=$(read_appop_mode com.google.android.gms "$op")
         echo "gms_appop:${op}=${op_mode}" >> "$STOCK_TMP"
     done
 
@@ -262,8 +232,11 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 # ==============================================================================
 # 6. Per-App VoIP FullScreen Intent AppOps (Boot Re-Apply)
 # ==============================================================================
-# Re-apply USE_FULL_SCREEN_INTENT and MIUI ops for apps configured with FSI_PKG=
-# in fcm_wake.conf. These AppOps are volatile and must be re-applied after reboot.
+# Re-apply the FSI ops for apps configured with FSI_PKG= in fcm_wake.conf, for
+# the case where a platform drops them across a reboot. reapply_fsi_appops only
+# re-grants an op that still reads exactly as it did before the module first
+# touched it, so a mode the user changed in Settings survives the next boot
+# instead of being silently overwritten.
 apply_fsi_boot() {
     [ -f "$CONF_FILE" ] || return 0
     _fsi_pkgs=$(grep "^FSI_PKG=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r' | grep -E '^[a-zA-Z0-9._-]+$')
@@ -271,10 +244,7 @@ apply_fsi_boot() {
 
     echo "$_fsi_pkgs" | while read -r _fpkg; do
         [ -z "$_fpkg" ] && continue
-        cmd appops set "$_fpkg" USE_FULL_SCREEN_INTENT allow 2>/dev/null || true
-        cmd appops set "$_fpkg" 10008 allow 2>/dev/null || true
-        cmd appops set "$_fpkg" 10020 allow 2>/dev/null || true
-        cmd appops set "$_fpkg" 10021 allow 2>/dev/null || true
+        reapply_fsi_appops "$STOCK_CONF" "$_fpkg"
     done
 }
 
