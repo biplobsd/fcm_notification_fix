@@ -132,14 +132,15 @@ if [ -f "/data/system/fcm_wake.conf" ]; then
     FSI_UNINSTALL_PKGS=$(grep "^FSI_PKG=" "/data/system/fcm_wake.conf" 2>/dev/null | cut -d= -f2 | tr -d '\r')
 fi
 
-# Revoke FSI AppOps granted to user packages before deleting configuration
-if [ -n "$FSI_UNINSTALL_PKGS" ]; then
+# Give the FSI AppOps back to the modes recorded before the module granted them,
+# while the configuration naming the packages still exists. The records are kept
+# rather than dropped: section 4 stages stock_settings.conf as the restore conf,
+# and the boot-time pass repeats this for anything that could not be set here -
+# during removal the framework may already be gone.
+if [ -n "$FSI_UNINSTALL_PKGS" ] && command -v restore_fsi_appops >/dev/null 2>&1; then
     echo "$FSI_UNINSTALL_PKGS" | while read -r _pkg; do
         [ -z "$_pkg" ] && continue
-        cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT default 2>/dev/null || true
-        cmd appops set "$_pkg" 10008 ignore 2>/dev/null || true
-        cmd appops set "$_pkg" 10020 ignore 2>/dev/null || true
-        cmd appops set "$_pkg" 10021 ignore 2>/dev/null || true
+        restore_fsi_appops "$MODDIR/stock_settings.conf" "$_pkg" keep
     done
 fi
 

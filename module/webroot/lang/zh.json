@@ -151,5 +151,7 @@
   "fsi.btn.hint": "启用 VoIP 锁屏来电界面",
   "fsi.btn.active": "VoIP 锁屏已启用 ✓",
   "fsi.toast.enabled": "已为 {pkg} 启用锁屏 VoIP 通话界面。点击“保存更改”以应用。",
-  "fsi.toast.disabled": "已为 {pkg} 禁用锁屏 VoIP 通话界面。点击“保存更改”以应用。"
+  "fsi.toast.disabled": "已为 {pkg} 禁用锁屏 VoIP 通话界面。点击“保存更改”以应用。",
+  "fsi.btn.perms": "将授予：全屏通知、锁屏显示、后台弹出界面。从列表中移除该应用时会恢复原有设置。",
+  "fsi.toast.restored": "已恢复该应用原有的全屏通知、锁屏显示和后台弹出界面设置。"
 }

@@ -1379,7 +1379,7 @@
             : `<span class="status-pill status-running" data-badge-pkg="${pkg}"><span class="skeleton skeleton-text" style="width: 36px; height: 10px;"></span></span>`;
 
         const isFsi = fsiApps.has(pkg);
-        const fsiTitle = isFsi ? t('fsi.btn.active') : t('fsi.btn.hint');
+        const fsiTitle = fsiTitleFor(isFsi);
         const fsiBtnHtml = `<button class="fsi-btn ${isFsi ? 'fsi-active' : ''}" data-fsi-pkg="${pkg}" title="${fsiTitle}" onclick="toggleFsi('${pkg}', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg></button>`;
 
         return `
@@ -1503,6 +1503,14 @@
         checkDraftChanges();
     }
 
+    // The tooltip names the permissions the toggle grants, so that switching an
+    // app on is not a silent change to three per-app settings the user can also
+    // see in Settings. fsi.btn.perms falls back to English when a translation
+    // has not caught up.
+    function fsiTitleFor(isActive) {
+        return (isActive ? t('fsi.btn.active') : t('fsi.btn.hint')) + '\n' + t('fsi.btn.perms');
+    }
+
     function toggleFsi(pkg, event) {
         if (event) event.stopPropagation();
         const wasActive = fsiApps.has(pkg);
@@ -1517,12 +1525,15 @@
         const btn = document.querySelector(`.fsi-btn[data-fsi-pkg="${CSS.escape(pkg)}"]`);
         if (btn) {
             btn.classList.toggle('fsi-active', isActive);
-            btn.title = isActive ? t('fsi.btn.active') : t('fsi.btn.hint');
+            btn.title = fsiTitleFor(isActive);
         }
 
         checkDraftChanges();
 
-        showToast(t(isActive ? 'fsi.toast.enabled' : 'fsi.toast.disabled', { pkg }));
+        // The permission list rides on the toast, not only on the tooltip: the
+        // WebUI is used from the phone, where a title attribute never appears.
+        showToast(t(isActive ? 'fsi.toast.enabled' : 'fsi.toast.disabled', { pkg })
+                  + ' ' + t(isActive ? 'fsi.btn.perms' : 'fsi.toast.restored'));
     }
 
     function copyPkg(event, pkg) {

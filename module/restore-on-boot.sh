@@ -71,14 +71,32 @@ if [ -n "$GMS_UID" ]; then
     cmd greezer monitor "$GMS_UID" 2>/dev/null || true
 fi
 
-# Restore FSI AppOps for user packages if staged by uninstall.sh
+# Restore FSI AppOps for user packages if staged by uninstall.sh. This script is
+# copied to /data/adb/service.d and runs with no module directory to source from,
+# so the op set and the record lookup are spelled out here; they must stay in
+# step with FSI_APPOPS and saved_fsi_appop_mode in common.sh.
+#
+#   USE_FULL_SCREEN_INTENT             AOSP full-screen notification access
+#   10020 OP_SHOW_WHEN_LOCKED          MIUI, App info > Other permissions
+#   10021 OP_BACKGROUND_START_ACTIVITY MIUI, the op checkFullScreenIntent reads
+#
+# A missing or unrecognised record falls back to "default" - the mode an
+# untouched op sits at - and never to "ignore", which actively denies the op.
+FSI_APPOPS="USE_FULL_SCREEN_INTENT 10020 10021"
+
 if [ -f "$RESTORE_CONF" ]; then
     grep "^fsi_pkg:" "$RESTORE_CONF" 2>/dev/null | cut -d: -f2 | tr -d '\r' | while read -r _pkg; do
         [ -z "$_pkg" ] && continue
-        cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT default 2>/dev/null || true
-        cmd appops set "$_pkg" 10008 ignore 2>/dev/null || true
-        cmd appops set "$_pkg" 10020 ignore 2>/dev/null || true
-        cmd appops set "$_pkg" 10021 ignore 2>/dev/null || true
+        for _op in $FSI_APPOPS; do
+            _mode=$(awk -F= -v key="fsi_appop:${_pkg}:${_op}" '
+                $1 == key { print substr($0, index($0, "=") + 1); exit }
+            ' "$RESTORE_CONF" 2>/dev/null)
+            case "$_mode" in
+                allow|ignore|deny|foreground|default) ;;
+                *) _mode="default" ;;
+            esac
+            cmd appops set "$_pkg" "$_op" "$_mode" 2>/dev/null || true
+        done
     done
 fi
 

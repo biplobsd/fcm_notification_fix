@@ -70,42 +70,12 @@ if [ ! -f "$STOCK_CONF" ] || ! grep -q '^secure:notification_animation_style=' "
         echo "gms_user_whitelisted=0" >> "$STOCK_TMP"
     fi
 
-    # Backup initial GMS AppOps state for surgical restoration on uninstall
+    # Backup initial GMS AppOps state for surgical restoration on uninstall.
+    # read_appop_mode is the same reader the per-app FSI backup uses, so both
+    # sides record modes by identical rules.
     for op in $GMS_APPOPS; do
         [ -z "$op" ] && continue
-        op_out=$(cmd appops get com.google.android.gms "$op" 2>/dev/null)
-        op_status=$?
-        op_mode="unknown"
-        if [ "$op_status" -eq 0 ] && [ -n "$op_out" ]; then
-            op_line=$(printf '%s\n' "$op_out" | awk -v op="$op" '
-                $0 ~ "^[[:space:]]*" op "[[:space:]]*:" { print; exit }
-            ')
-            if [ -n "$op_line" ]; then
-                case "$op_line" in
-                    *": allow"*) op_mode="allow" ;;
-                    *": ignore"*) op_mode="ignore" ;;
-                    *": deny"*) op_mode="deny" ;;
-                    *": foreground"*) op_mode="foreground" ;;
-                    *": default"*) op_mode="default" ;;
-                esac
-            else
-                default_line=$(printf '%s\n' "$op_out" | awk '
-                    /^[[:space:]]*Default mode[[:space:]]*:/ { print; exit }
-                ')
-                case "$default_line" in
-                    *": allow"*) op_mode="allow" ;;
-                    *": ignore"*) op_mode="ignore" ;;
-                    *": deny"*) op_mode="deny" ;;
-                    *": foreground"*) op_mode="foreground" ;;
-                    *": default"*) op_mode="default" ;;
-                    *)
-                        case "$op_out" in
-                            *"No operations."*) op_mode="default" ;;
-                        esac
-                        ;;
-                esac
-            fi
-        fi
+        op_mode=$(read_appop_mode com.google.android.gms "$op")
         echo "gms_appop:${op}=${op_mode}" >> "$STOCK_TMP"
     done
 
@@ -260,26 +230,29 @@ chcon u:object_r:system_data_file:s0 "$CONF_FILE" 2>/dev/null
 [ -f "$MODDIR/webroot/cgi-bin/exec" ] && chmod 0755 "$MODDIR/webroot/cgi-bin/exec" 2>/dev/null
 
 # ==============================================================================
-# 6. Per-App VoIP FullScreen Intent AppOps (Boot Re-Apply)
+# 6. Per-App VoIP FullScreen Intent AppOps
 # ==============================================================================
-# Re-apply USE_FULL_SCREEN_INTENT and MIUI ops for apps configured with FSI_PKG=
-# in fcm_wake.conf. These AppOps are volatile and must be re-applied after reboot.
-apply_fsi_boot() {
-    [ -f "$CONF_FILE" ] || return 0
-    _fsi_pkgs=$(grep "^FSI_PKG=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r' | grep -E '^[a-zA-Z0-9._-]+$')
-    [ -z "$_fsi_pkgs" ] && return 0
+# There is deliberately no boot-time re-grant here.
+#
+# The FSI ops are granted once, when a package is added in the WebUI, and given
+# back when it is removed. They are not re-applied on boot, for two reasons.
+#
+# They do not need it: on HyperOS 3 CN they are ordinary AppOps records in
+# /data/system/appops.xml. Set to deny for a package, reboot, and they read deny
+# still - measured on OS3.0.307.0.WNVCNXM.C11.
+#
+# And a boot pass cannot be made correct even if some platform did drop them. A
+# reverted op and an op the user set by hand are the same value; nothing in
+# AppOps says which happened. Any rule for re-granting therefore overwrites some
+# deliberate choice - including the case where the user restores exactly the
+# mode the module recorded. Better to leave the ops alone than to guess on every
+# boot.
+#
+# If a ROM is found that really does drop them, this belongs back here with that
+# device's evidence, and with a signal that distinguishes a reset from a user
+# change rather than a heuristic over the mode.
 
-    echo "$_fsi_pkgs" | while read -r _fpkg; do
-        [ -z "$_fpkg" ] && continue
-        cmd appops set "$_fpkg" USE_FULL_SCREEN_INTENT allow 2>/dev/null || true
-        cmd appops set "$_fpkg" 10008 allow 2>/dev/null || true
-        cmd appops set "$_fpkg" 10020 allow 2>/dev/null || true
-        cmd appops set "$_fpkg" 10021 allow 2>/dev/null || true
-    done
-}
-
-# Run PowerKeeper boot disarm, FSI boot re-apply, and channel sync asynchronously on boot completion
+# Run PowerKeeper boot disarm and channel sync asynchronously on boot completion
 apply_pk_boot_disarm &
-apply_fsi_boot &
 sync_notification_channels &
 

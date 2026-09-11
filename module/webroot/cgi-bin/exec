@@ -106,28 +106,16 @@ read_fsi_packages() {
 format_fsi_packages_json() {
     read_fsi_packages
     FSI_JSON=$(echo "$FSI_PKGS" | awk 'NF{if(n++) printf ","; printf "\"%s\"", $0}' | awk '{printf "[%s]", $0}')
-    [ -z "$FSI_JSON" ] || [ "$FSI_JSON" = "[]" ] && FSI_JSON="[]"
+    # Parenthesised: `A || B && C` parses as `(A || B) && C`, so the guard ran
+    # the assignment in cases it was never meant to.
+    if [ -z "$FSI_JSON" ]; then
+        FSI_JSON="[]"
+    fi
 }
 
-apply_fsi_appops() {
-    _pkg="$1"
-    [ -z "$_pkg" ] && return 1
-    cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT allow 2>/dev/null || true
-    cmd appops set "$_pkg" 10008 allow 2>/dev/null || true
-    cmd appops set "$_pkg" 10020 allow 2>/dev/null || true
-    cmd appops set "$_pkg" 10021 allow 2>/dev/null || true
-    return 0
-}
-
-revoke_fsi_appops() {
-    _pkg="$1"
-    [ -z "$_pkg" ] && return 1
-    cmd appops set "$_pkg" USE_FULL_SCREEN_INTENT default 2>/dev/null || true
-    cmd appops set "$_pkg" 10008 ignore 2>/dev/null || true
-    cmd appops set "$_pkg" 10020 ignore 2>/dev/null || true
-    cmd appops set "$_pkg" 10021 ignore 2>/dev/null || true
-    return 0
-}
+# apply_fsi_appops / restore_fsi_appops live in common.sh so that the WebUI and
+# uninstall grant and give back exactly the same set of ops through the same
+# recorded state.
 
 write_alert_fix_config() {
     TMP_CONF="$CONF_FILE.tmp.$$"
@@ -596,7 +584,7 @@ case "$ACTION" in
             echo "$_NEW_FSI_SET" | while read -r _fpkg; do
                 [ -z "$_fpkg" ] && continue
                 if [ -z "$_OLD_FSI_SET" ] || ! printf '%s\n' "$_OLD_FSI_SET" | grep -Fqx -- "$_fpkg"; then
-                    apply_fsi_appops "$_fpkg"
+                    apply_fsi_appops "$STOCK_CONF" "$_fpkg"
                 fi
             done
         fi
@@ -606,7 +594,7 @@ case "$ACTION" in
             echo "$_OLD_FSI_SET" | while read -r _fpkg; do
                 [ -z "$_fpkg" ] && continue
                 if [ -z "$_NEW_FSI_SET" ] || ! printf '%s\n' "$_NEW_FSI_SET" | grep -Fqx -- "$_fpkg"; then
-                    revoke_fsi_appops "$_fpkg"
+                    restore_fsi_appops "$STOCK_CONF" "$_fpkg"
                 fi
             done
         fi

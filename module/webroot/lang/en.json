@@ -151,5 +151,7 @@
   "fsi.btn.hint": "Enable VoIP lockscreen call UI",
   "fsi.btn.active": "VoIP lockscreen enabled ✓",
   "fsi.toast.enabled": "Lockscreen VoIP call UI enabled for {pkg}. Tap Save Changes to apply.",
-  "fsi.toast.disabled": "Lockscreen VoIP call UI disabled for {pkg}. Tap Save Changes to apply."
+  "fsi.toast.disabled": "Lockscreen VoIP call UI disabled for {pkg}. Tap Save Changes to apply.",
+  "fsi.btn.perms": "Grants: Full screen notifications, Show on lock screen, Background pop-up windows. Their previous values are restored when the app is removed from the list.",
+  "fsi.toast.restored": "Its previous Full screen notifications, Show on lock screen and Background pop-up window settings have been restored."
 }
