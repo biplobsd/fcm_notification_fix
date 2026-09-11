@@ -183,15 +183,9 @@ apply_pk_boot_disarm() {
                 command -v ensure_powerkeeper_backup >/dev/null 2>&1 && ensure_powerkeeper_backup "$STOCK_CONF"
                 content call --uri content://com.miui.powerkeeper.configure/SimpleSettings/misc \
                   --method PUT_misc --arg gms_control --extra value:s:false 2>/dev/null || true
-                for _p in com.google.android.gms com.android.vending; do
-                  content update --uri content://com.miui.powerkeeper.configure/userTable \
-                    --bind bgControl:s:noRestrict --where "pkgName='${_p}' AND userId=0" 2>/dev/null || true
-                  _has_entry=$(content query --uri content://com.miui.powerkeeper.configure/userTable --where "pkgName='${_p}' AND userId=0" 2>/dev/null | grep -o 'pkgName=' | head -n1)
-                  if [ -z "$_has_entry" ]; then
-                    content insert --uri content://com.miui.powerkeeper.configure/userTable \
-                      --bind pkgName:s:"${_p}" --bind userId:i:0 --bind bgControl:s:noRestrict 2>/dev/null || true
-                  fi
-                done
+                # Ensure Play Store uses standard miuiAuto to prevent background connection loops on CN network
+                content update --uri content://com.miui.powerkeeper.configure/userTable \
+                  --bind bgControl:s:miuiAuto --where "pkgName='com.android.vending' AND userId=0" 2>/dev/null || true
                 iptables -F gms_wall 2>/dev/null || true
                 ip6tables -F gms_wall 2>/dev/null || true
             fi

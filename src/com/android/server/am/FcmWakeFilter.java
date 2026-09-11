@@ -46,8 +46,41 @@ public class FcmWakeFilter {
     private static volatile boolean sGroupAlertFixEnabled = true;
     private static volatile boolean sAntiMuteUpdateEnabled = true;
     private static volatile boolean sUnthrottleAlertEnabled = false;
-    private static volatile long sLastCheckTimestamp = 0;
-    private static final long CONFIG_CHECK_INTERVAL_MS = 5000;
+
+    static {
+        syncConfigInternal();
+        startConfigWatcher();
+    }
+
+    private static android.os.FileObserver sFileObserver;
+
+    private static synchronized void startConfigWatcher() {
+        try {
+            if (sFileObserver != null) {
+                sFileObserver.stopWatching();
+                sFileObserver = null;
+            }
+            File confFile = new File(CONF_PATH);
+            if (!confFile.exists()) {
+                return;
+            }
+            sFileObserver = new android.os.FileObserver(confFile,
+                    android.os.FileObserver.CLOSE_WRITE | android.os.FileObserver.MODIFY
+                    | android.os.FileObserver.DELETE_SELF | android.os.FileObserver.MOVE_SELF) {
+                @Override
+                public void onEvent(int event, String path) {
+                    syncConfigInternal();
+                    if ((event & (DELETE_SELF | MOVE_SELF)) != 0) {
+                        // File was replaced (e.g. mv atomic save from WebUI) or deleted: re-arm on new inode
+                        startConfigWatcher();
+                    }
+                }
+            };
+            sFileObserver.startWatching();
+        } catch (Throwable t) {
+            // Failsafe: if inotify watcher fails, syncConfigInternal will be invoked on demand
+        }
+    }
 
     /**
      * Hooked in NotificationAttentionHelper.shouldMuteNotificationLocked(...)
@@ -329,12 +362,9 @@ public class FcmWakeFilter {
     }
 
     private static void checkConfig() {
-        long now = SystemClock.elapsedRealtime();
-        if (now - sLastCheckTimestamp < CONFIG_CHECK_INTERVAL_MS && sLastModified >= 0) {
-            return;
+        if (sLastModified < 0) {
+            syncConfigInternal();
         }
-        sLastCheckTimestamp = now;
-        syncConfigInternal();
     }
 
     private static synchronized void syncConfigInternal() {
@@ -420,9 +450,12 @@ public class FcmWakeFilter {
             sLastModified = modified;
             sGeneration++;
             sDecisionCache.clear();
+            if (sFileObserver == null) {
+                startConfigWatcher();
+            }
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
-            sLastModified = -1; // Force retry on next attempt
+            sLastModified = 0; // Don't spin I/O on error; watcher thread will recheck in background
             sCurrentMode = MODE_ALL;
             sPackageFilterSet = Collections.emptySet();
             sFsiPackageSet = Collections.emptySet();
