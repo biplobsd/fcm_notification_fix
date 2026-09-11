@@ -139,6 +139,20 @@ FSI_APPOPS="USE_FULL_SCREEN_INTENT 10020 10021"
 # Resolve the current mode of one AppOps operation for one package. Prints one of
 # allow|ignore|deny|foreground|default, or "unknown" when the op cannot be read -
 # callers treat "unknown" as "restore to default" rather than guessing a mode.
+# Classify one "<something>: <mode>" line from `cmd appops get` output. Prints
+# the mode, or nothing when the line carries none - an empty result is what the
+# caller uses to fall through to the next source.
+appop_line_mode() {
+    case "$1" in
+        *": allow"*)      echo "allow" ;;
+        *": ignore"*)     echo "ignore" ;;
+        *": deny"*)       echo "deny" ;;
+        *": foreground"*) echo "foreground" ;;
+        *": default"*)    echo "default" ;;
+        *)                echo "" ;;
+    esac
+}
+
 read_appop_mode() {
     _ra_pkg="$1"
     _ra_op="$2"
@@ -151,13 +165,26 @@ read_appop_mode() {
     _ra_out=$(cmd appops get "$_ra_pkg" "$_ra_op" 2>/dev/null)
     _ra_status=$?
     if [ "$_ra_status" -eq 0 ] && [ -n "$_ra_out" ]; then
-        # Match the name in front of the first colon exactly, rather than by
-        # regex. Two reasons: a MIUI op is printed wrapped, as
-        # "MIUIOP(10021): allow", so anchoring on the bare number never matches
-        # and the mode silently comes back "unknown"; and an op queried for a
-        # package is also echoed once as "Uid mode: <OP>: <mode>", which is a
-        # different record (`cmd appops set <pkg> ...` writes the package mode,
-        # not the uid one) and must not be mistaken for it.
+        # Four sources, in falling order of precedence. Each is a line of the
+        # form "<something>: <mode>", so appop_line_mode classifies all of them.
+        #
+        #   1. the package record  - what `cmd appops set <pkg> ...` writes, and
+        #      therefore what a restore puts back;
+        #   2. the uid record, printed as "Uid mode: <OP>: <mode>" - a different
+        #      record, but on some packages it is the ONLY line the framework
+        #      prints, and reading those as "unknown" is how a restore ends up
+        #      writing "default" over a mode the user had set. Measured on
+        #      OS3.0.307.0.WNVCNXM: 6 of 154 third-party packages print only this
+        #      line for USE_FULL_SCREEN_INTENT - com.vkontakte.android among
+        #      them. A restore then writes the uid value as the package mode,
+        #      which is not the same record, but preserves the effective answer
+        #      under either precedence rule and beats guessing;
+        #   3. the op's stated default mode, when the framework prints one;
+        #   4. "No operations." - nothing recorded at all, so it sits at default.
+        #
+        # The name in front of the first colon is compared exactly rather than by
+        # regex: a MIUI op is printed wrapped, as "MIUIOP(10021): allow", so
+        # anchoring on the bare number never matches.
         _ra_line=$(printf '%s\n' "$_ra_out" | awk -v op="$_ra_op" '
             {
                 line = $0
@@ -171,32 +198,38 @@ read_appop_mode() {
             }
         ')
         if [ -n "$_ra_line" ]; then
-            case "$_ra_line" in
-                *": allow"*) _ra_mode="allow" ;;
-                *": ignore"*) _ra_mode="ignore" ;;
-                *": deny"*) _ra_mode="deny" ;;
-                *": foreground"*) _ra_mode="foreground" ;;
-                *": default"*) _ra_mode="default" ;;
-            esac
+            # A package record exists and is authoritative. If its mode is one
+            # this reader cannot classify, the answer is "unknown" - falling
+            # through to the uid record here would restore a value the package
+            # never had.
+            _ra_mode=$(appop_line_mode "$_ra_line")
         else
-            _ra_default=$(printf '%s\n' "$_ra_out" | awk '
-                /^[[:space:]]*Default mode[[:space:]]*:/ { print; exit }
+            _ra_uid=$(printf '%s\n' "$_ra_out" | awk -v op="$_ra_op" '
+                {
+                    line = $0
+                    sub(/^[[:space:]]+/, "", line)
+                    if (index(line, "Uid mode:") != 1) next
+                    if (index(line, op) == 0) next
+                    print line; exit
+                }
             ')
-            case "$_ra_default" in
-                *": allow"*) _ra_mode="allow" ;;
-                *": ignore"*) _ra_mode="ignore" ;;
-                *": deny"*) _ra_mode="deny" ;;
-                *": foreground"*) _ra_mode="foreground" ;;
-                *": default"*) _ra_mode="default" ;;
-                *)
-                    # An op the package has never exercised is reported with no
-                    # records at all, which means it still sits at its default.
-                    case "$_ra_out" in
-                        *"No operations."*) _ra_mode="default" ;;
-                    esac
-                    ;;
-            esac
+            _ra_mode=$(appop_line_mode "$_ra_uid")
+
+            if [ -z "$_ra_mode" ]; then
+                _ra_default=$(printf '%s\n' "$_ra_out" | awk '
+                    /^[[:space:]]*Default mode[[:space:]]*:/ { print; exit }
+                ')
+                _ra_mode=$(appop_line_mode "$_ra_default")
+            fi
+
+            if [ -z "$_ra_mode" ]; then
+                case "$_ra_out" in
+                    *"No operations."*) _ra_mode="default" ;;
+                esac
+            fi
         fi
+
+        [ -z "$_ra_mode" ] && _ra_mode="unknown"
     fi
     echo "$_ra_mode"
 }

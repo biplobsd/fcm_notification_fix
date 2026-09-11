@@ -151,5 +151,7 @@
   "fsi.btn.hint": "VoIP kilit ekranı arama arayüzünü etkinleştir",
   "fsi.btn.active": "VoIP kilit ekranı etkin ✓",
   "fsi.toast.enabled": "{pkg} için kilit ekranı VoIP arama kullanıcı arayüzü etkinleştirildi. Uygulamak için Değişiklikleri Kaydet'e dokunun.",
-  "fsi.toast.disabled": "{pkg} için kilit ekranı VoIP arama kullanıcı arayüzü devre dışı bırakıldı. Uygulamak için Değişiklikleri Kaydet'e dokunun."
+  "fsi.toast.disabled": "{pkg} için kilit ekranı VoIP arama kullanıcı arayüzü devre dışı bırakıldı. Uygulamak için Değişiklikleri Kaydet'e dokunun.",
+  "fsi.btn.perms": "Verilen izinler: tam ekran bildirimler, kilit ekranında gösterme, arka planda açılır pencereler. Uygulama listeden çıkarıldığında önceki değerler geri yüklenir.",
+  "fsi.toast.restored": "Uygulamanın önceki tam ekran bildirim, kilit ekranında gösterme ve arka planda açılır pencere ayarları geri yüklendi."
 }

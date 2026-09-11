@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+### Fixed
+- **Per-App FSI AppOps — Record and Restore Instead of Forcing `ignore`**: adding a package granted four AppOps and removing it forced three of them to `ignore`, a mode meaning "denied" rather than the state an untouched op sits at. On CN HyperOS 3 most packages carry `10020` / `10021` at `allow` out of the box, so the round trip — and uninstall — left apps worse than before the module ran. The prior mode is now recorded as `fsi_appop:<pkg>:<op>` in `stock_settings.conf` and given back on removal, falling back to `default` and never to `ignore`. The grant is refused outright when the record cannot be written.
+- **AppOps Reader — Uid-Only Packages**: `read_appop_mode()` now falls back to the `Uid mode:` line when a package has no package-level record. Measured on `OS3.0.307.0.WNVCNXM`: 6 of 154 third-party packages print only that line for `USE_FULL_SCREEN_INTENT`. Reading them as `unknown` made removal write `default` over a mode the user had set. A package-level record, where one exists, still wins.
+- **`format_fsi_packages_json`**: `A || B && C` parses as `(A || B) && C`; the empty-list guard is now an explicit `if`.
+
+### Changed
+- **`10008 OP_AUTO_START` Dropped From the FSI Set**: `checkFullScreenIntent` passes only `10021` to `noteOpNoThrow`, so granting Autostart bought the feature nothing while switching on an unrelated permission. **Upgrade note**: packages added to the FSI list under v1.4 already have `10008` at `allow` with no record of what it was before. Those are deliberately left untouched rather than set to an invented value — check Autostart by hand on apps you listed under v1.4 if you keep it off on purpose.
+- **No Boot-Time Re-Grant**: `apply_fsi_boot` is removed. The ops are not volatile on `OS3.0.307.0.WNVCNXM` (set to `deny`, reboot, still `deny`), and a boot pass cannot tell a reverted op from one the user changed by hand, so any rule for re-granting overwrites somebody's deliberate choice.
+- **WebUI**: the FSI toggle now names the permissions it grants, in the tooltip and in the toast, and says the previous values are restored on removal. New keys in all 8 languages.
+
+### Tests
+- `tests/fsi_appops_test.sh`: 25 checks over the record / grant / restore state machine against a stub `cmd appops` that reproduces all three real output shapes — uid line plus package line, uid line only, and no records at all. No fixtures, JDK or device; wired into `run_ci_tests.sh` as step 0.
+
 ## v1.4 (versionCode: 5)
 ### Added
 - **Per-App VoIP Full-Screen Intent (FSI) Lockscreen Control**:

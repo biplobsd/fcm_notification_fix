@@ -8,7 +8,8 @@
 #   - the pre-grant mode is recorded once and survives a second grant
 #   - removal gives back exactly what was recorded, never a hardcoded ignore
 #   - a missing record falls back to default, never to ignore
-#   - the boot re-apply leaves a mode the user changed alone
+#   - a package whose only record is the uid one is read, not written off
+#   - a grant is refused outright when its record cannot be written
 #   - 10008 OP_AUTO_START is never written
 # ==============================================================================
 set -u
@@ -35,22 +36,39 @@ case "$action" in
     ;;
   get)
     line=$(grep "^$pkg $op " "$APPOPS_DB" 2>/dev/null | tail -n1)
-    # The framework echoes the uid record first, and it is NOT the package mode
-    # `appops set <pkg>` writes - the reader has to step over it. Reproduced
-    # here with a deliberately different mode so a reader that grabs it fails.
-    echo "Uid mode: $op: foreground"
-    if [ -z "$line" ]; then
-      # Matches the framework's wording for an op with no records at all.
-      echo "No operations."
-    else
-      mode=$(echo "$line" | awk '{print $3}')
-      # A numeric MIUI op is printed wrapped: "MIUIOP(10021): allow". Reading it
-      # as a bare number is how the real device came back "unknown".
-      case "$op" in
-        [0-9]*) echo "  MIUIOP($op): $mode; time=+1d2h3m4s5ms ago" ;;
-        *)      echo "  $op: $mode" ;;
-      esac
-    fi
+    mode=$(echo "$line" | awk '{print $3}')
+    # Three output shapes are modelled, all of them observed on a real device:
+    #
+    #  a) uid line + package line - the common case. The uid line is printed
+    #     first and is NOT the record `appops set <pkg>` writes, so the reader
+    #     has to prefer the package line. Given a deliberately different mode
+    #     here so a reader that grabs the uid line fails the round trip.
+    #  b) uid line ONLY - no package record exists. Measured at 6 of 154
+    #     third-party packages for USE_FULL_SCREEN_INTENT on
+    #     OS3.0.307.0.WNVCNXM. A reader that steps over the uid line without a
+    #     fallback returns "unknown" here, and the restore then writes
+    #     "default" over whatever the user had.
+    #  c) no records at all.
+    #
+    # Shape (b) is selected by storing the mode as "uidonly:<mode>".
+    case "$mode" in
+      uidonly:*)
+        echo "Uid mode: $op: ${mode#uidonly:}"
+        ;;
+      "")
+        echo "Uid mode: $op: foreground"
+        echo "No operations."
+        ;;
+      *)
+        echo "Uid mode: $op: foreground"
+        # A numeric MIUI op is printed wrapped: "MIUIOP(10021): allow". Reading
+        # it as a bare number is how the real device came back "unknown".
+        case "$op" in
+          [0-9]*) echo "  MIUIOP($op): $mode; time=+1d2h3m4s5ms ago" ;;
+          *)      echo "  $op: $mode" ;;
+        esac
+        ;;
+    esac
     ;;
 esac
 exit 0
@@ -139,7 +157,25 @@ check "unclassifiable mode is recorded as unknown" unknown "$(raw "$OTHER" 10021
 restore_fsi_appops "$CONF" "$OTHER"
 check "unknown restores as default, not ignore" default "$(live "$OTHER" 10021)"
 
-# ── 9. A grant whose record cannot be written must not happen at all ─────────
+# ── 9. A package whose only record is the uid one must not read as unknown ───
+# On a real device some packages print nothing but "Uid mode: <OP>: <mode>".
+# Reading those as unknown is how a removal writes "default" over a mode the
+# user had set; the uid value is the only evidence of it there is.
+: > "$CONF"
+cmd appops set "$OTHER" USE_FULL_SCREEN_INTENT uidonly:ignore
+check "uid-only package reads its uid mode" ignore "$(live "$OTHER" USE_FULL_SCREEN_INTENT)"
+apply_fsi_appops "$CONF" "$OTHER"
+check "uid-only mode is recorded, not unknown" ignore "$(raw "$OTHER" USE_FULL_SCREEN_INTENT)"
+restore_fsi_appops "$CONF" "$OTHER"
+check "uid-only package is restored to its uid mode" ignore "$(live "$OTHER" USE_FULL_SCREEN_INTENT)"
+
+# The package line still wins when both are printed - the uid line carries
+# "foreground" in the stub precisely to catch a reader that prefers it.
+: > "$CONF"
+cmd appops set "$OTHER" USE_FULL_SCREEN_INTENT deny
+check "package line wins over the uid line" deny "$(live "$OTHER" USE_FULL_SCREEN_INTENT)"
+
+# ── 10. A grant whose record cannot be written must not happen at all ────────
 # Granting with no record is how a later removal ends up guessing.
 UNWRITABLE="$WORK/nodir/stock_settings.conf"
 cmd appops set "$OTHER" 10021 ignore
@@ -150,7 +186,7 @@ else
 fi
 check "op untouched after a refused grant" ignore "$(live "$OTHER" 10021)"
 
-# ── 10. Forgetting one package must not take a dot-prefixed neighbour's records ─
+# ── 11. Forgetting one package must not take a dot-prefixed neighbour's records ─
 : > "$CONF"
 apply_fsi_appops "$CONF" "$PKG"
 apply_fsi_appops "$CONF" "$OTHER"

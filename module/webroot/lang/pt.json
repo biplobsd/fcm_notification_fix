@@ -151,5 +151,7 @@
   "fsi.btn.hint": "Ativar interface VoIP na tela de bloqueio",
   "fsi.btn.active": "VoIP na tela de bloqueio ativado ✓",
   "fsi.toast.enabled": "UI de chamada VoIP na tela de bloqueio ativada para {pkg}. Toque em Salvar alterações para aplicar.",
-  "fsi.toast.disabled": "UI de chamada VoIP na tela de bloqueio desativada para {pkg}. Toque em Salvar alterações para aplicar."
+  "fsi.toast.disabled": "UI de chamada VoIP na tela de bloqueio desativada para {pkg}. Toque em Salvar alterações para aplicar.",
+  "fsi.btn.perms": "Concede: notificações em tela cheia, exibição na tela de bloqueio, janelas pop-up em segundo plano. Os valores anteriores são restaurados quando o app é removido da lista.",
+  "fsi.toast.restored": "As configurações anteriores de notificações em tela cheia, exibição na tela de bloqueio e janelas pop-up em segundo plano foram restauradas."
 }

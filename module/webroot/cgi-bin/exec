@@ -106,12 +106,16 @@ read_fsi_packages() {
 format_fsi_packages_json() {
     read_fsi_packages
     FSI_JSON=$(echo "$FSI_PKGS" | awk 'NF{if(n++) printf ","; printf "\"%s\"", $0}' | awk '{printf "[%s]", $0}')
-    [ -z "$FSI_JSON" ] || [ "$FSI_JSON" = "[]" ] && FSI_JSON="[]"
+    # Parenthesised: `A || B && C` parses as `(A || B) && C`, so the guard ran
+    # the assignment in cases it was never meant to.
+    if [ -z "$FSI_JSON" ]; then
+        FSI_JSON="[]"
+    fi
 }
 
-# apply_fsi_appops / restore_fsi_appops live in common.sh so that the WebUI, the
-# boot re-apply and uninstall all grant and give back exactly the same set of ops
-# through the same recorded state.
+# apply_fsi_appops / restore_fsi_appops live in common.sh so that the WebUI and
+# uninstall grant and give back exactly the same set of ops through the same
+# recorded state.
 
 write_alert_fix_config() {
     TMP_CONF="$CONF_FILE.tmp.$$"
