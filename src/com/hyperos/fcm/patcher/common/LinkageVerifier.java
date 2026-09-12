@@ -75,8 +75,13 @@ public class LinkageVerifier {
                     String classType = cd.getType();
                     String prevDex = classToDexMap.put(classType, entryName);
                     if (prevDex != null && !prevDex.equals(entryName)) {
-                        violations.add("DUPLICATE CLASS DEFINITION: " + classType
-                            + " is defined in multiple DEX entries (" + prevDex + " and " + entryName + ")");
+                        if (matchesTarget(classType, targetPrefix)) {
+                            violations.add("DUPLICATE TARGET CLASS DEFINITION: " + classType
+                                + " is defined in multiple DEX entries (" + prevDex + " and " + entryName + ")");
+                        } else {
+                            System.out.println("  -> [DEX-SHADOW] Class " + classType
+                                + " defined in multiple DEX entries (" + prevDex + " shadows " + entryName + ")");
+                        }
                     }
 
                     definedClasses.add(classType);

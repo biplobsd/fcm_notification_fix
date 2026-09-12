@@ -78,6 +78,12 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                 for (ClassDef cd : dexFile.getClasses()) {
                     String type = cd.getType();
 
+                    // Strip pre-existing FcmWakeFilter classes (e.g. from previous patch runs)
+                    if (type.equals("Lcom/android/server/am/FcmWakeFilter;") || type.startsWith("Lcom/android/server/am/FcmWakeFilter$")) {
+                        dexModified = true;
+                        continue;
+                    }
+
                     // Vector 2 & 3: GreezeManagerService (Vector 2: Screen-OFF C2DM Thaw, Vector 3: GMS Quick-Freeze Neutralizer)
                     if (type.equals("Lcom/miui/server/greeze/GreezeManagerService;")) {
                         System.out.println("  -> Located GreezeManagerService in " + entryName);
@@ -254,7 +260,29 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                                     result.v4_note = "BroadcastQueueModernStubImpl.checkApplicationAutoStart (IS_INTERNATIONAL_BUILD -> const/4 1)";
                                     dexModified = true;
                                 } else {
-                                    System.err.println("    -> [WARNING] Build.IS_INTERNATIONAL_BUILD instruction not found in BroadcastQueueModernStubImpl#checkApplicationAutoStart");
+                                    // Check if already patched / bypassed (e.g. pre-patched ported ROM or idempotent run)
+                                    boolean alreadyBypassed = false;
+                                    List<BuilderInstruction> insList = mut.getInstructions();
+                                    for (int i = 0; i < insList.size() - 2; i++) {
+                                        BuilderInstruction ins = insList.get(i);
+                                        if (ins instanceof BuilderInstruction11n && ((BuilderInstruction11n) ins).getNarrowLiteral() == 1) {
+                                            BuilderInstruction nextIns = insList.get(i + 1);
+                                            BuilderInstruction nextNext = insList.get(i + 2);
+                                            String nextNextRef = (nextNext instanceof BuilderInstruction21c && ((BuilderInstruction21c) nextNext).getReference() != null)
+                                                ? ((BuilderInstruction21c) nextNext).getReference().toString() : "";
+                                            if (nextIns.getOpcode() == Opcode.IF_EQZ && nextNextRef.contains("c2dm")) {
+                                                alreadyBypassed = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (alreadyBypassed) {
+                                        System.out.println("    -> [PASS] BroadcastQueueModernStubImpl.checkApplicationAutoStart already bypassed (const/4 1)");
+                                        result.v4_autostart_bypass = true;
+                                        result.v4_note = "BroadcastQueueModernStubImpl.checkApplicationAutoStart (Already Bypassed)";
+                                    } else {
+                                        System.err.println("    -> [WARNING] Build.IS_INTERNATIONAL_BUILD instruction not found in BroadcastQueueModernStubImpl#checkApplicationAutoStart");
+                                    }
                                 }
 
                                 methods.add(new ImmutableMethod(

@@ -78,6 +78,12 @@ public class Hyperos3A16CnServicesPatcher {
                 for (ClassDef cd : dexFile.getClasses()) {
                     String type = cd.getType();
 
+                    // Strip pre-existing FcmWakeFilter classes (e.g. from previous patch runs)
+                    if (type.equals("Lcom/android/server/am/FcmWakeFilter;") || type.startsWith("Lcom/android/server/am/FcmWakeFilter$")) {
+                        dexModified = true;
+                        continue;
+                    }
+
                     if (type.equals("Lcom/android/server/am/BroadcastController;")) {
                         targetFound = true;
                         System.out.println("  -> Located BroadcastController in " + entryName);
