@@ -66,7 +66,7 @@ public class FcmWakeFilter {
                 sFileObserver = null;
             }
             File confFile = new File(CONF_PATH);
-            if (!confFile.exists()) {
+            if (!confFile.exists() || !confFile.canRead()) {
                 return;
             }
             android.os.FileObserver observer = new android.os.FileObserver(confFile,
@@ -474,7 +474,7 @@ public class FcmWakeFilter {
             }
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
-            sLastModified = 0; // Don't spin I/O on error; watcher thread will recheck in background
+            sLastModified = -1; // Invalidate cache so checkConfig bounded retry can self-heal once permissions/file recover
             sCurrentMode = MODE_ALL;
             sPackageFilterSet = Collections.emptySet();
             sFsiPackageSet = Collections.emptySet();
