@@ -696,7 +696,7 @@ compile_aot_cache() {
         "/data/misc/apexdata/com.android.art/dalvik-cache" \
         "/system/framework" \
         "/apex/com.android.art/javalib"; do
-        if [ -f "$_base/$_arch/boot.art" ] || [ -f "$_base/boot.art" ]; then
+        if [ -f "$_base/$_arch/boot.art" ]; then
             _boot_image="$_base/boot.art"
             break
         fi

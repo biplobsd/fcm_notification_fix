@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Dynamic FCM Wake-on-Push Filter for HyperOS / Android 16.
@@ -53,20 +54,22 @@ public class FcmWakeFilter {
     }
 
     private static volatile android.os.FileObserver sFileObserver;
-    private static volatile long sLastRetryTimestamp = 0;
+    private static final AtomicLong sLastRetryTimestamp = new AtomicLong(0);
     private static final long RETRY_INTERVAL_MS = 5000;
 
     private static synchronized void startConfigWatcher() {
         try {
             if (sFileObserver != null) {
-                sFileObserver.stopWatching();
+                try {
+                    sFileObserver.stopWatching();
+                } catch (Throwable ignored) {}
                 sFileObserver = null;
             }
             File confFile = new File(CONF_PATH);
             if (!confFile.exists()) {
                 return;
             }
-            sFileObserver = new android.os.FileObserver(confFile,
+            android.os.FileObserver observer = new android.os.FileObserver(confFile,
                     android.os.FileObserver.CLOSE_WRITE | android.os.FileObserver.MODIFY
                     | android.os.FileObserver.DELETE_SELF | android.os.FileObserver.MOVE_SELF) {
                 @Override
@@ -79,9 +82,10 @@ public class FcmWakeFilter {
                     syncConfigInternal();
                 }
             };
-            sFileObserver.startWatching();
+            observer.startWatching();
+            sFileObserver = observer;
         } catch (Throwable t) {
-            // Failsafe: if inotify watcher fails, syncConfigInternal will be invoked on demand
+            sFileObserver = null;
         }
     }
 
@@ -369,10 +373,13 @@ public class FcmWakeFilter {
             return;
         }
         long now = SystemClock.elapsedRealtime();
-        if (sLastRetryTimestamp != 0 && now - sLastRetryTimestamp < RETRY_INTERVAL_MS) {
+        long last = sLastRetryTimestamp.get();
+        if (last != 0 && now - last < RETRY_INTERVAL_MS) {
             return;
         }
-        sLastRetryTimestamp = now;
+        if (!sLastRetryTimestamp.compareAndSet(last, now)) {
+            return;
+        }
         syncConfigInternal();
         if (sFileObserver == null) {
             startConfigWatcher();
