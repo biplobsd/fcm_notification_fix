@@ -52,7 +52,9 @@ public class FcmWakeFilter {
         startConfigWatcher();
     }
 
-    private static android.os.FileObserver sFileObserver;
+    private static volatile android.os.FileObserver sFileObserver;
+    private static volatile long sLastRetryTimestamp = 0;
+    private static final long RETRY_INTERVAL_MS = 5000;
 
     private static synchronized void startConfigWatcher() {
         try {
@@ -69,11 +71,12 @@ public class FcmWakeFilter {
                     | android.os.FileObserver.DELETE_SELF | android.os.FileObserver.MOVE_SELF) {
                 @Override
                 public void onEvent(int event, String path) {
-                    syncConfigInternal();
                     if ((event & (DELETE_SELF | MOVE_SELF)) != 0) {
                         // File was replaced (e.g. mv atomic save from WebUI) or deleted: re-arm on new inode
+                        sLastModified = -1;
                         startConfigWatcher();
                     }
+                    syncConfigInternal();
                 }
             };
             sFileObserver.startWatching();
@@ -362,8 +365,17 @@ public class FcmWakeFilter {
     }
 
     private static void checkConfig() {
-        if (sLastModified < 0) {
-            syncConfigInternal();
+        if (sLastModified >= 0 && sFileObserver != null) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (sLastRetryTimestamp != 0 && now - sLastRetryTimestamp < RETRY_INTERVAL_MS) {
+            return;
+        }
+        sLastRetryTimestamp = now;
+        syncConfigInternal();
+        if (sFileObserver == null) {
+            startConfigWatcher();
         }
     }
 

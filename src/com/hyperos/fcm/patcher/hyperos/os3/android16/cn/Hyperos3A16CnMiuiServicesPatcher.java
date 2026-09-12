@@ -170,27 +170,40 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                         System.out.println("  -> Located AurogonFilterManager in " + entryName);
                         List<Method> methods = new ArrayList<>();
                         for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("filter") && m.getReturnType().equals("Z") && m.getImplementation() != null) {
+                            List<? extends CharSequence> params = m.getParameters();
+                            boolean isTargetFilter = m.getName().equals("filter") && m.getReturnType().equals("Z")
+                                && params != null && params.size() == 3
+                                && "I".equals(params.get(0).toString())
+                                && "Ljava/lang/String;".equals(params.get(1).toString())
+                                && "I".equals(params.get(2).toString())
+                                && m.getImplementation() != null;
+                            if (isTargetFilter) {
                                 MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
                                 int totalRegs = mut.getRegisterCount();
-                                // p0: this, p1: uid (I), p2: packageName (String), p3: policy (I)
-                                int p0 = totalRegs - 4;
-                                int p2 = totalRegs - 2;
+                                int p0 = totalRegs - DexUtils.paramRegCount(m);
+                                int p2 = DexUtils.paramRegister(m, totalRegs, 1);
+                                if (totalRegs < 5 || totalRegs > 16 || p0 < 0 || p2 < 0 || p0 >= 16 || p2 >= 16) {
+                                    System.err.println("    -> [WARNING] AurogonFilterManager.filter has unexpected register configuration: totalRegs=" + totalRegs + ", p0=" + p0 + ", p2=" + p2);
+                                    methods.add(m);
+                                    continue;
+                                }
+                                // Since totalRegs >= 5, v0 is a local register (v0 < p0), guaranteed distinct from this (p0)
+                                int scratchReg = 0;
                                 Label cont = mut.newLabelForIndex(0);
                                 int cur = 0;
-                                mut.addInstruction(cur++, new BuilderInstruction21c(Opcode.CONST_STRING, 0, new ImmutableStringReference("com.google.android.gms")));
-                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, 0, p2, 0, 0, 0,
+                                mut.addInstruction(cur++, new BuilderInstruction21c(Opcode.CONST_STRING, scratchReg, new ImmutableStringReference("com.google.android.gms")));
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, scratchReg, p2, 0, 0, 0,
                                     new ImmutableMethodReference("Ljava/lang/String;", "equals", Collections.singletonList("Ljava/lang/Object;"), "Z")));
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
-                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, cont));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, scratchReg));
+                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, scratchReg, cont));
                                 // Set this.mContinueReason = 64 (isNoRestrictApp / MSG_FILTER_NO_RESTRICT_CASE)
                                 ImmutableFieldReference reasonField = new ImmutableFieldReference(
                                     "Lcom/miui/server/greeze/AurogonFilterManager;", "mContinueReason", "I");
-                                mut.addInstruction(cur++, new BuilderInstruction21s(Opcode.CONST_16, 0, 64));
-                                mut.addInstruction(cur++, new BuilderInstruction22c(Opcode.IPUT, 0, p0, reasonField));
+                                mut.addInstruction(cur++, new BuilderInstruction21s(Opcode.CONST_16, scratchReg, 64));
+                                mut.addInstruction(cur++, new BuilderInstruction22c(Opcode.IPUT, scratchReg, p0, reasonField));
                                 // false = CANNOT_FREEZE in PolicyMaker line 195
-                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, scratchReg, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, scratchReg));
                                 System.out.println("    -> Injected GMS freeze shield into AurogonFilterManager.filter");
                                 result.v9_aurogon_filter = true;
                                 result.v9_note = "AurogonFilterManager.filter: GMS returns false with reason 64 (CANNOT_FREEZE)";

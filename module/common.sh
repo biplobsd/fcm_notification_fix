@@ -687,12 +687,20 @@ compile_aot_cache() {
 
     _threads="$(nproc 2>/dev/null || echo 4)"
 
+    # Locate ART boot image.
+    # Note: ART dex2oat --boot-image requires an image location without ISA (e.g. /system/framework/boot.art).
+    # ART's ImageSpace::ExpandLocationToFilename automatically appends /<isa>/boot.art.
+    # Passing the arch path directly (/system/framework/arm64/boot.art) would break ART expansion.
     _boot_image=""
-    if [ -f "/system/framework/$_arch/boot.art" ] || [ -f "/system/framework/boot.art" ]; then
-        _boot_image="/system/framework/boot.art"
-    elif [ -f "/apex/com.android.art/javalib/$_arch/boot.art" ] || [ -f "/apex/com.android.art/javalib/boot.art" ]; then
-        _boot_image="/apex/com.android.art/javalib/boot.art"
-    fi
+    for _base in \
+        "/data/misc/apexdata/com.android.art/dalvik-cache" \
+        "/system/framework" \
+        "/apex/com.android.art/javalib"; do
+        if [ -f "$_base/$_arch/boot.art" ] || [ -f "$_base/boot.art" ]; then
+            _boot_image="$_base/boot.art"
+            break
+        fi
+    done
 
     _zyg_pid="$(pidof zygote64 2>/dev/null || pidof zygote 2>/dev/null || echo 1)"
     _bcp="$(cat /proc/$_zyg_pid/environ 2>/dev/null | tr '\0' '\n' | grep '^BOOTCLASSPATH=' | cut -d= -f2-)"
