@@ -7,6 +7,8 @@ import com.android.tools.smali.dexlib2.builder.Label;
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction20t;
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21s;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21t;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22c;
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22x;
@@ -267,10 +269,16 @@ public class Hyperos3A16CnServicesPatcher {
                                     }
                                 }
 
-                                if (checkPlayIdx != -1 && deniedIdx != -1) {
+                                if (checkPlayIdx != -1 && deniedIdx != -1 &&
+                                    insns.get(checkPlayIdx) instanceof BuilderInstruction21t &&
+                                    insns.get(deniedIdx) instanceof BuilderInstruction21t) {
+
                                     int recordReg = mut.getRegisterCount() - 2;
-                                    int shouldPlayReg = ((OneRegisterInstruction) insns.get(checkPlayIdx)).getRegisterA();
-                                    int deniedReg = ((OneRegisterInstruction) insns.get(deniedIdx)).getRegisterA();
+                                    Label playLabel = ((BuilderInstruction21t) insns.get(deniedIdx)).getTarget();
+                                    Label focusPassLabel = ((BuilderInstruction21t) insns.get(checkPlayIdx)).getTarget();
+
+                                    int shouldPlayReg = ((BuilderInstruction21t) insns.get(checkPlayIdx)).getRegisterA();
+                                    int deniedReg = ((BuilderInstruction21t) insns.get(deniedIdx)).getRegisterA();
 
                                     ImmutableMethodReference getSbnRef = new ImmutableMethodReference(
                                         "Lcom/android/server/notification/NotificationRecord;", "getSbn",
@@ -282,29 +290,42 @@ public class Hyperos3A16CnServicesPatcher {
                                         "Lcom/android/server/am/FcmWakeFilter;", "shouldBypassAlertRateLimit",
                                         Collections.singletonList("Ljava/lang/String;"), "Z");
 
-                                    // 1. Hook deniedIdx first (so checkPlayIdx doesn't shift)
-                                    Label contDenied = mut.newLabelForIndex(deniedIdx);
-                                    int cur = deniedIdx;
+                                    // 1. Hook deniedIdx return gate first (higher index, so checkPlayIdx remains constant)
+                                    Label condDeniedReturn = mut.newLabelForIndex(deniedIdx + 1);
+                                    int cur = deniedIdx + 1;
                                     mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, recordReg, 0, 0, 0, 0, getSbnRef));
                                     mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
                                     mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getPkgRef));
                                     mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
                                     mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, bypassRef));
                                     mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
-                                    mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, contDenied));
-                                    mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, deniedReg, 0)); // deniedReg = 0 (false = not denied)
+                                    mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, condDeniedReturn));
+                                    mut.addInstruction(cur++, shouldPlayReg < 16
+                                        ? new BuilderInstruction11n(Opcode.CONST_4, shouldPlayReg, 1)
+                                        : new BuilderInstruction21s(Opcode.CONST_16, shouldPlayReg, 1));
+                                    mut.addInstruction(cur++, deniedReg < 16
+                                        ? new BuilderInstruction11n(Opcode.CONST_4, deniedReg, 0)
+                                        : new BuilderInstruction21s(Opcode.CONST_16, deniedReg, 0));
+                                    mut.addInstruction(cur++, new BuilderInstruction20t(Opcode.GOTO_16, playLabel));
 
-                                    // 2. Hook checkPlayIdx
-                                    Label contPlay = mut.newLabelForIndex(checkPlayIdx);
-                                    cur = checkPlayIdx;
-                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, recordReg, 0, 0, 0, 0, getSbnRef));
-                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
-                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getPkgRef));
-                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
-                                    mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, bypassRef));
-                                    mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
-                                    mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, contPlay));
-                                    mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, shouldPlayReg, 1)); // shouldPlayReg = 1 (true = should play)
+                                    // 2. Hook checkPlayIdx gate second (lower index)
+                                    // If focus check failed (v3 == 0), check FCM whitelist before logging/aborting
+                                    Label condFocusFailed = mut.newLabelForIndex(checkPlayIdx + 1);
+                                    int curFocus = checkPlayIdx + 1;
+                                    mut.addInstruction(curFocus++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, recordReg, 0, 0, 0, 0, getSbnRef));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 1, 0, 0, 0, 0, 0, getPkgRef));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, 0));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction35c(Opcode.INVOKE_STATIC, 1, 0, 0, 0, 0, 0, bypassRef));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, condFocusFailed));
+                                    mut.addInstruction(curFocus++, shouldPlayReg < 16
+                                        ? new BuilderInstruction11n(Opcode.CONST_4, shouldPlayReg, 1)
+                                        : new BuilderInstruction21s(Opcode.CONST_16, shouldPlayReg, 1));
+                                    mut.addInstruction(curFocus++, deniedReg < 16
+                                        ? new BuilderInstruction11n(Opcode.CONST_4, deniedReg, 0)
+                                        : new BuilderInstruction21s(Opcode.CONST_16, deniedReg, 0));
+                                    mut.addInstruction(curFocus++, new BuilderInstruction20t(Opcode.GOTO_16, focusPassLabel));
 
                                     methods.add(new ImmutableMethod(
                                         m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
