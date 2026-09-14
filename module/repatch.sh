@@ -174,12 +174,21 @@ cmd_run() {
     fi
 
     # Never patch an already patched jar: that would stack hooks on hooks.
+    SERVICES_READ="$SERVICES_LIVE"
+    MIUI_READ="$MIUI_LIVE"
     if ! is_stock_jar "$SERVICES_LIVE" || ! is_stock_jar "$MIUI_LIVE"; then
-        log "re-patch aborted: live framework jars are not stock (module overlay still active?)"
-        touch "$FLAG_FAILED"
-        notify "Automatic re-patch could not run because the framework is not in its stock state. Re-flash the module zip."
-        echo "RESULT=FAIL"
-        return 1
+        if [ -f "$MODDIR/stock/services.jar" ] && [ -f "$MODDIR/stock/miui-services.jar" ] \
+            && is_stock_jar "$MODDIR/stock/services.jar" && is_stock_jar "$MODDIR/stock/miui-services.jar"; then
+            log "live framework jars are patched; falling back to pristine stock stash"
+            SERVICES_READ="$MODDIR/stock/services.jar"
+            MIUI_READ="$MODDIR/stock/miui-services.jar"
+        else
+            log "re-patch aborted: live framework jars are not stock (module overlay still active?)"
+            touch "$FLAG_FAILED"
+            notify "Automatic re-patch could not run because the framework is not in its stock state. Re-flash the module zip."
+            echo "RESULT=FAIL"
+            return 1
+        fi
     fi
 
     touch "$FLAG_RUNNING"
@@ -193,8 +202,8 @@ cmd_run() {
     log "re-patching for firmware $CUR_DISPLAY (was $STORED_DISPLAY) - profile $ROM_OS/$ROM_REGION, SDK $ROM_SDK"
 
     execute_patcher_engine "$PATCHER_JAR" "$STAGE_DIR" \
-        --services "$SERVICES_LIVE" \
-        --miui-services "$MIUI_LIVE" \
+        --services "$SERVICES_READ" \
+        --miui-services "$MIUI_READ" \
         --patcher "$PATCHER_JAR" \
         --out-dir "$STAGE_DIR" \
         --sdk "$ROM_SDK" \
@@ -255,8 +264,8 @@ cmd_run() {
 
     # Refresh the pristine stock stash so manual upgrades keep working
     if [ -d "$MODDIR/stock" ]; then
-        cp -f "$SERVICES_LIVE" "$MODDIR/stock/services.jar" 2>/dev/null
-        cp -f "$MIUI_LIVE" "$MODDIR/stock/miui-services.jar" 2>/dev/null
+        cp -f "$SERVICES_READ" "$MODDIR/stock/services.jar" 2>/dev/null
+        cp -f "$MIUI_READ" "$MODDIR/stock/miui-services.jar" 2>/dev/null
         echo "$CUR" > "$MODDIR/stock/fingerprint"
     fi
 

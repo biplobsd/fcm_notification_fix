@@ -160,66 +160,53 @@ public class Hyperos3A16CnMiuiServicesPatcher {
                             cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
                             cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
 
-                    // Vector 8: PolicyManager (Force International policy, GMS permanently important)
+                    // Vector 8: PolicyManager (PRESERVED: CN_MODEL remains true to maintain handleCpuHighLoad & FloatWindowScene)
                     } else if (type.equals("Lcom/miui/server/greeze/PolicyManager;")) {
-                        System.out.println("  -> Located PolicyManager in " + entryName);
-                        List<Method> methods = new ArrayList<>();
-                        for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("<clinit>") && m.getImplementation() != null) {
-                                MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
-                                for (int i = 0; i < mut.getInstructions().size(); i++) {
-                                    BuilderInstruction ins = mut.getInstructions().get(i);
-                                    if (ins.getOpcode() == Opcode.SPUT_BOOLEAN) {
-                                        Reference ref = ((ReferenceInstruction) ins).getReference();
-                                        if (ref instanceof FieldReference && ((FieldReference) ref).getName().equals("CN_MODEL")) {
-                                            int reg = ((OneRegisterInstruction) ins).getRegisterA();
-                                            System.out.println("    -> Patching PolicyManager.CN_MODEL to false (reg " + reg + ")");
-                                            if (i > 0 && mut.getInstructions().get(i - 1).getOpcode() == Opcode.MOVE_RESULT) {
-                                                mut.replaceInstruction(i - 1, new BuilderInstruction11n(Opcode.CONST_4, reg, 0));
-                                            } else {
-                                                mut.addInstruction(i, new BuilderInstruction11n(Opcode.CONST_4, reg, 0));
-                                            }
-                                            result.v8_policy_intl = true;
-                                            result.v8_note = "PolicyManager.CN_MODEL -> false (International Policy)";
-                                            dexModified = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                methods.add(new ImmutableMethod(
-                                    m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),
-                                    m.getAccessFlags(), m.getAnnotations(), m.getHiddenApiRestrictions(), mut));
-                            } else {
-                                methods.add(m);
-                            }
-                        }
-                        classesList.add(new ImmutableClassDef(
-                            cd.getType(), cd.getAccessFlags(), cd.getSuperclass(), cd.getInterfaces(),
-                            cd.getSourceFile(), cd.getAnnotations(), cd.getFields(), methods));
+                        System.out.println("  -> Skipping PolicyManager.CN_MODEL modification (preserving native China ROM scheduling)");
+                        classesList.add(cd);
 
                     // Vector 9: AurogonFilterManager (Signal CANNOT_FREEZE for GMS)
                     } else if (type.equals("Lcom/miui/server/greeze/AurogonFilterManager;")) {
                         System.out.println("  -> Located AurogonFilterManager in " + entryName);
                         List<Method> methods = new ArrayList<>();
                         for (Method m : cd.getMethods()) {
-                            if (m.getName().equals("filter") && m.getReturnType().equals("Z") && m.getImplementation() != null) {
+                            List<? extends CharSequence> params = m.getParameters();
+                            boolean isTargetFilter = m.getName().equals("filter") && m.getReturnType().equals("Z")
+                                && params != null && params.size() == 3
+                                && "I".equals(params.get(0).toString())
+                                && "Ljava/lang/String;".equals(params.get(1).toString())
+                                && "I".equals(params.get(2).toString())
+                                && m.getImplementation() != null;
+                            if (isTargetFilter) {
                                 MutableMethodImplementation mut = new MutableMethodImplementation(m.getImplementation());
                                 int totalRegs = mut.getRegisterCount();
-                                // p0: this, p1: uid (I), p2: packageName (String), p3: policy (I)
-                                int p2 = totalRegs - 2;
+                                int p0 = totalRegs - DexUtils.paramRegCount(m);
+                                int p2 = DexUtils.paramRegister(m, totalRegs, 1);
+                                if (totalRegs < 5 || totalRegs > 16 || p0 < 0 || p2 < 0 || p0 >= 16 || p2 >= 16) {
+                                    System.err.println("    -> [WARNING] AurogonFilterManager.filter has unexpected register configuration: totalRegs=" + totalRegs + ", p0=" + p0 + ", p2=" + p2);
+                                    methods.add(m);
+                                    continue;
+                                }
+                                // Since totalRegs >= 5, v0 is a local register (v0 < p0), guaranteed distinct from this (p0)
+                                int scratchReg = 0;
                                 Label cont = mut.newLabelForIndex(0);
                                 int cur = 0;
-                                mut.addInstruction(cur++, new BuilderInstruction21c(Opcode.CONST_STRING, 0, new ImmutableStringReference("com.google.android.gms")));
-                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, 0, p2, 0, 0, 0,
+                                mut.addInstruction(cur++, new BuilderInstruction21c(Opcode.CONST_STRING, scratchReg, new ImmutableStringReference("com.google.android.gms")));
+                                mut.addInstruction(cur++, new BuilderInstruction35c(Opcode.INVOKE_VIRTUAL, 2, scratchReg, p2, 0, 0, 0,
                                     new ImmutableMethodReference("Ljava/lang/String;", "equals", Collections.singletonList("Ljava/lang/Object;"), "Z")));
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, 0));
-                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, 0, cont));
-                                // false = CANNOT_FREEZE in PolicyMaker
-                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, 0, 0));
-                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.MOVE_RESULT, scratchReg));
+                                mut.addInstruction(cur++, new BuilderInstruction21t(Opcode.IF_EQZ, scratchReg, cont));
+                                // Set this.mContinueReason = 64 (isNoRestrictApp / MSG_FILTER_NO_RESTRICT_CASE)
+                                ImmutableFieldReference reasonField = new ImmutableFieldReference(
+                                    "Lcom/miui/server/greeze/AurogonFilterManager;", "mContinueReason", "I");
+                                mut.addInstruction(cur++, new BuilderInstruction21s(Opcode.CONST_16, scratchReg, 64));
+                                mut.addInstruction(cur++, new BuilderInstruction22c(Opcode.IPUT, scratchReg, p0, reasonField));
+                                // false = CANNOT_FREEZE in PolicyMaker line 195
+                                mut.addInstruction(cur++, new BuilderInstruction11n(Opcode.CONST_4, scratchReg, 0));
+                                mut.addInstruction(cur++, new BuilderInstruction11x(Opcode.RETURN, scratchReg));
                                 System.out.println("    -> Injected GMS freeze shield into AurogonFilterManager.filter");
                                 result.v9_aurogon_filter = true;
-                                result.v9_note = "AurogonFilterManager.filter: GMS returns false (CANNOT_FREEZE)";
+                                result.v9_note = "AurogonFilterManager.filter: GMS returns false with reason 64 (CANNOT_FREEZE)";
                                 dexModified = true;
                                 methods.add(new ImmutableMethod(
                                     m.getDefiningClass(), m.getName(), m.getParameters(), m.getReturnType(),

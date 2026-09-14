@@ -687,6 +687,25 @@ compile_aot_cache() {
 
     _threads="$(nproc 2>/dev/null || echo 4)"
 
+    # Locate ART boot image.
+    # Note: ART dex2oat --boot-image requires an image location without ISA (e.g. /system/framework/boot.art).
+    # ART's ImageSpace::ExpandLocationToFilename automatically appends /<isa>/boot.art.
+    # Passing the arch path directly (/system/framework/arm64/boot.art) would break ART expansion.
+    _boot_image=""
+    for _base in \
+        "/data/misc/apexdata/com.android.art/dalvik-cache" \
+        "/system/framework" \
+        "/apex/com.android.art/javalib"; do
+        if [ -f "$_base/$_arch/boot.art" ]; then
+            _boot_image="$_base/boot.art"
+            break
+        fi
+    done
+
+    _zyg_pid="$(pidof zygote64 2>/dev/null || pidof zygote 2>/dev/null || echo 1)"
+    _bcp="$(cat /proc/$_zyg_pid/environ 2>/dev/null | tr '\0' '\n' | grep '^BOOTCLASSPATH=' | cut -d= -f2-)"
+    [ -z "$_bcp" ] && _bcp="$BOOTCLASSPATH"
+
     _services_clc="$(_get_clc "$_target_services")"
     _miui_compile_clc="$(_get_clc "$_target_miui" "$_target_services" "$_staged_services")"
     _miui_stored_clc="$(_get_clc "$_target_miui")"
@@ -704,6 +723,8 @@ compile_aot_cache() {
         --oat-file="$_services_tmp" \
         --compiler-filter=speed \
         --class-loader-context="$_services_clc" \
+        ${_boot_image:+--boot-image="$_boot_image"} \
+        ${_bcp:+--runtime-arg -Xbootclasspath:"$_bcp"} \
         -j"$_threads" \
         --runtime-arg -Xmx512m \
         --generate-mini-debug-info >/dev/null 2>&1 || _services_status=$?
@@ -717,6 +738,8 @@ compile_aot_cache() {
         --compiler-filter=speed \
         --class-loader-context="$_miui_compile_clc" \
         --stored-class-loader-context="$_miui_stored_clc" \
+        ${_boot_image:+--boot-image="$_boot_image"} \
+        ${_bcp:+--runtime-arg -Xbootclasspath:"$_bcp"} \
         -j"$_threads" \
         --runtime-arg -Xmx512m \
         --generate-mini-debug-info >/dev/null 2>&1; then
@@ -730,6 +753,8 @@ compile_aot_cache() {
                 --oat-file='$_miui_tmp' \
                 --compiler-filter=speed \
                 --class-loader-context='$_miui_stored_clc' \
+                ${_boot_image:+--boot-image=\"$_boot_image\"} \
+                ${_bcp:+--runtime-arg -Xbootclasspath:\"$_bcp\"} \
                 -j'$_threads' \
                 --runtime-arg -Xmx512m \
                 --generate-mini-debug-info >/dev/null 2>&1" || _miui_status=$?
@@ -806,6 +831,8 @@ compile_aot_cache() {
                         --compiler-filter=speed \
                         --class-loader-context="PCL[$_clc_compile]" \
                         --stored-class-loader-context="PCL[$_clc_stored]" \
+                        ${_boot_image:+--boot-image="$_boot_image"} \
+                        ${_bcp:+--runtime-arg -Xbootclasspath:"$_bcp"} \
                         -j"$_threads" \
                         --runtime-arg -Xmx512m \
                         --generate-mini-debug-info >/dev/null 2>&1 || _down_status=$?
@@ -821,6 +848,8 @@ compile_aot_cache() {
                                               --oat-file='$_oat_tmp' \
                                               --compiler-filter=speed \
                                               --class-loader-context='PCL[$_clc_stored]' \
+                                              ${_boot_image:+--boot-image=\"$_boot_image\"} \
+                                              ${_bcp:+--runtime-arg -Xbootclasspath:\"$_bcp\"} \
                                               -j'$_threads' \
                                               --runtime-arg -Xmx512m \
                                               --generate-mini-debug-info >/dev/null 2>&1" || true
@@ -891,6 +920,8 @@ compile_aot_cache() {
                         --compiler-filter=speed \
                         --class-loader-context="PCL[];PCL[$_clc_compile]" \
                         --stored-class-loader-context="PCL[];PCL[$_clc_stored]" \
+                        ${_boot_image:+--boot-image="$_boot_image"} \
+                        ${_bcp:+--runtime-arg -Xbootclasspath:"$_bcp"} \
                         -j"$_threads" \
                         --runtime-arg -Xmx512m \
                         --generate-mini-debug-info >/dev/null 2>&1 || _s_status=$?
@@ -906,6 +937,8 @@ compile_aot_cache() {
                                               --oat-file='$_soat_tmp' \
                                               --compiler-filter=speed \
                                               --class-loader-context='PCL[];PCL[$_clc_stored]' \
+                                              ${_boot_image:+--boot-image=\"$_boot_image\"} \
+                                              ${_bcp:+--runtime-arg -Xbootclasspath:\"$_bcp\"} \
                                               -j'$_threads' \
                                               --runtime-arg -Xmx512m \
                                               --generate-mini-debug-info >/dev/null 2>&1" || true

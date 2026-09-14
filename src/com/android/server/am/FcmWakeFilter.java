@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Dynamic FCM Wake-on-Push Filter for HyperOS / Android 16.
@@ -46,8 +47,47 @@ public class FcmWakeFilter {
     private static volatile boolean sGroupAlertFixEnabled = true;
     private static volatile boolean sAntiMuteUpdateEnabled = true;
     private static volatile boolean sUnthrottleAlertEnabled = false;
-    private static volatile long sLastCheckTimestamp = 0;
-    private static final long CONFIG_CHECK_INTERVAL_MS = 5000;
+
+    static {
+        syncConfigInternal();
+        startConfigWatcher();
+    }
+
+    private static volatile android.os.FileObserver sFileObserver;
+    private static final AtomicLong sLastRetryTimestamp = new AtomicLong(0);
+    private static final long RETRY_INTERVAL_MS = 5000;
+
+    private static synchronized void startConfigWatcher() {
+        try {
+            if (sFileObserver != null) {
+                try {
+                    sFileObserver.stopWatching();
+                } catch (Throwable ignored) {}
+                sFileObserver = null;
+            }
+            File confFile = new File(CONF_PATH);
+            if (!confFile.exists() || !confFile.canRead()) {
+                return;
+            }
+            android.os.FileObserver observer = new android.os.FileObserver(confFile,
+                    android.os.FileObserver.CLOSE_WRITE | android.os.FileObserver.MODIFY
+                    | android.os.FileObserver.DELETE_SELF | android.os.FileObserver.MOVE_SELF) {
+                @Override
+                public void onEvent(int event, String path) {
+                    if ((event & (DELETE_SELF | MOVE_SELF)) != 0) {
+                        // File was replaced (e.g. mv atomic save from WebUI) or deleted: re-arm on new inode
+                        sLastModified = -1;
+                        startConfigWatcher();
+                    }
+                    syncConfigInternal();
+                }
+            };
+            observer.startWatching();
+            sFileObserver = observer;
+        } catch (Throwable t) {
+            sFileObserver = null;
+        }
+    }
 
     /**
      * Hooked in NotificationAttentionHelper.shouldMuteNotificationLocked(...)
@@ -329,12 +369,21 @@ public class FcmWakeFilter {
     }
 
     private static void checkConfig() {
-        long now = SystemClock.elapsedRealtime();
-        if (now - sLastCheckTimestamp < CONFIG_CHECK_INTERVAL_MS && sLastModified >= 0) {
+        if (sLastModified >= 0 && sFileObserver != null) {
             return;
         }
-        sLastCheckTimestamp = now;
+        long now = SystemClock.elapsedRealtime();
+        long last = sLastRetryTimestamp.get();
+        if (last != 0 && now - last < RETRY_INTERVAL_MS) {
+            return;
+        }
+        if (!sLastRetryTimestamp.compareAndSet(last, now)) {
+            return;
+        }
         syncConfigInternal();
+        if (sFileObserver == null) {
+            startConfigWatcher();
+        }
     }
 
     private static synchronized void syncConfigInternal() {
@@ -420,9 +469,12 @@ public class FcmWakeFilter {
             sLastModified = modified;
             sGeneration++;
             sDecisionCache.clear();
+            if (sFileObserver == null) {
+                startConfigWatcher();
+            }
         } catch (Throwable t) {
             // Failsafe fallback: never break push delivery on file read errors
-            sLastModified = -1; // Force retry on next attempt
+            sLastModified = -1; // Invalidate cache so checkConfig bounded retry can self-heal once permissions/file recover
             sCurrentMode = MODE_ALL;
             sPackageFilterSet = Collections.emptySet();
             sFsiPackageSet = Collections.emptySet();
