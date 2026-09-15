@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# AOT cache survival tests
+# ==============================================================================
+# ART Service's nightly BackgroundDexoptJob unlinks every /data/dalvik-cache
+# artifact it did not produce - the module's compiled odex included. These
+# tests pin the defence in module/common.sh against a fake dalvik-cache tree:
+#   - compile_aot_cache archives exactly what it published, with a manifest
+#   - the archive shares inodes with dalvik-cache (hard link, no copy)
+#   - after a "cleanup" every name comes back, still the same inode
+#   - restore never touches a name that is present, and is idempotent
+#   - a cross-filesystem archive falls back to a copy and still restores
+#   - forget removes both the archive and the dalvik-cache names it lists
+# ==============================================================================
+set -u
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"; [ -n "${SHM:-}" ] && rm -rf "$SHM"' EXIT
+
+export DALVIK_CACHE_ROOT="$WORK/dalvik-cache"
+ISA="arm64"
+DC="$DALVIK_CACHE_ROOT/$ISA"
+mkdir -p "$DC" "$WORK/bin" "$WORK/mod"
+
+# ── Stubs: the compile path needs a dex2oat, getprop and pidof ────────────────
+cat > "$WORK/bin/dex2oat64" <<'STUB'
+#!/usr/bin/env bash
+# Writes the requested oat file and its vdex; content is the dex-location so
+# a restored artifact can be checked against what was compiled.
+oat=""; loc=""
+for a in "$@"; do
+  case "$a" in
+    --oat-file=*) oat="${a#--oat-file=}" ;;
+    --dex-location=*) loc="${a#--dex-location=}" ;;
+  esac
+done
+[ -n "$oat" ] || exit 1
+printf 'oat:%s\n' "$loc" > "$oat"
+printf 'vdex:%s\n' "$loc" > "${oat%.dex}.vdex"
+exit 0
+STUB
+cat > "$WORK/bin/getprop" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in ro.bionic.arch) echo arm64 ;; *) echo "" ;; esac
+STUB
+cat > "$WORK/bin/pidof" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+for t in chcon restorecon; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$WORK/bin/$t"
+done
+chmod 0755 "$WORK/bin"/*
+PATH="$WORK/bin:$PATH"
+export PATH
+
+# shellcheck source=/dev/null
+. "$DIR/module/common.sh"
+
+FAILURES=0
+check() {
+    local what="$1" expected="$2" actual="$3"
+    if [ "$expected" = "$actual" ]; then
+        printf '  [PASS] %s\n' "$what"
+    else
+        printf '  [FAIL] %s\n         expected %-12s got %s\n' "$what" "$expected" "$actual"
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+ino() { stat -c %i "$1" 2>/dev/null || echo "none"; }
+
+echo "== AOT cache survival =="
+
+# ── 1. compile_aot_cache publishes into dalvik-cache and archives the same set ─
+mkdir -p "$WORK/fw/system/framework" "$WORK/fw/system_ext/framework" "$WORK/fw/apex/x/javalib"
+STAGED_SVC="$WORK/mod/services.jar";      : > "$STAGED_SVC"
+STAGED_MIUI="$WORK/mod/miui-services.jar"; : > "$STAGED_MIUI"
+TARGET_SVC="$WORK/fw/system/framework/services.jar";          : > "$TARGET_SVC"
+TARGET_MIUI="$WORK/fw/system_ext/framework/miui-services.jar"; : > "$TARGET_MIUI"
+DOWNSTREAM="$WORK/fw/apex/x/javalib/service-x.jar";           : > "$DOWNSTREAM"
+STANDALONE="$WORK/fw/apex/x/javalib/service-standalone.jar";  : > "$STANDALONE"
+export SYSTEMSERVERCLASSPATH="$TARGET_SVC:$TARGET_MIUI:$DOWNSTREAM"
+export STANDALONE_SYSTEMSERVER_JARS="$STANDALONE"
+export BOOTCLASSPATH=""   # common.sh reads it unguarded; the device shell has no set -u
+
+CACHE="$WORK/mod/cache"
+compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$CACHE"
+check "compile_aot_cache succeeds against the stub" 0 "$?"
+
+name_of() { echo "$1" | sed 's|^/||; s|/|@|g'; }
+SVC_DEX="$DC/$(name_of "$TARGET_SVC")@classes.dex"
+MIUI_DEX="$DC/$(name_of "$TARGET_MIUI")@classes.dex"
+DOWN_DEX="$DC/$(name_of "$DOWNSTREAM")@classes.dex"
+STAND_DEX="$DC/$(name_of "$STANDALONE")@classes.dex"
+
+check "published artifacts in dalvik-cache" 8 "$(ls "$DC" | wc -l)"
+check "manifest lists every published file" 8 "$(grep -c '' "$CACHE/$ISA/$AOT_CACHE_MANIFEST")"
+check "manifest names match dalvik-cache" "$(ls "$DC" | sort)" "$(sort "$CACHE/$ISA/$AOT_CACHE_MANIFEST")"
+check "archive is a hard link (same inode)" "$(ino "$SVC_DEX")" "$(ino "$CACHE/$ISA/$(basename "$SVC_DEX")")"
+check "downstream artifact archived too"    "$(ino "$DOWN_DEX")" "$(ino "$CACHE/$ISA/$(basename "$DOWN_DEX")")"
+check "standalone artifact archived too"    "$(ino "$STAND_DEX")" "$(ino "$CACHE/$ISA/$(basename "$STAND_DEX")")"
+
+# ── 2. The nightly cleanup takes everything; restore puts it all back ────────
+SVC_INO_BEFORE="$(ino "$SVC_DEX")"
+rm -f "$DC"/*
+check "cleanup emptied dalvik-cache" 0 "$(ls "$DC" | wc -l)"
+
+check "restore reports every artifact" 8 "$(restore_aot_cache "$CACHE" "$ISA")"
+check "dalvik-cache repopulated"       8 "$(ls "$DC" | wc -l)"
+check "restored name is the original inode" "$SVC_INO_BEFORE" "$(ino "$SVC_DEX")"
+check "restored content is what was compiled" "oat:$TARGET_MIUI" "$(cat "$MIUI_DEX")"
+check "vdex restored alongside" "vdex:$TARGET_MIUI" "$(cat "${MIUI_DEX%.dex}.vdex")"
+
+# ── 3. Idempotent, and a present name is never overwritten ───────────────────
+check "second restore does nothing" 0 "$(restore_aot_cache "$CACHE" "$ISA")"
+echo "someone else's" > "$DOWN_DEX.tmp" && mv -f "$DOWN_DEX.tmp" "$DOWN_DEX"
+check "present name with foreign content stays" 0 "$(restore_aot_cache "$CACHE" "$ISA")"
+check "foreign content untouched" "someone else's" "$(cat "$DOWN_DEX")"
+
+# ── 4. Partial loss: only the missing names come back ────────────────────────
+rm -f "$SVC_DEX" "${SVC_DEX%.dex}.vdex"
+check "partial restore counts only the missing pair" 2 "$(restore_aot_cache "$CACHE" "$ISA")"
+check "dalvik-cache complete again" 8 "$(ls "$DC" | wc -l)"
+
+# ── 5. Cross-filesystem archive: copy fallback still restores ────────────────
+SHM=""
+if [ -d /dev/shm ] && [ -w /dev/shm ] && [ "$(stat -c %d /dev/shm)" != "$(stat -c %d "$WORK")" ]; then
+    SHM="$(mktemp -d -p /dev/shm)"
+    archive_aot_cache "$SHM/cache" "$ISA" "$SVC_DEX" "${SVC_DEX%.dex}.vdex"
+    check "cross-fs archive falls back to a copy" 2 "$(grep -c '' "$SHM/cache/$ISA/$AOT_CACHE_MANIFEST")"
+    check "copy is a different inode" 1 "$([ "$(ino "$SVC_DEX")" != "$(ino "$SHM/cache/$ISA/$(basename "$SVC_DEX")")" ] && echo 1 || echo 0)"
+    rm -f "$SVC_DEX" "${SVC_DEX%.dex}.vdex"
+    check "cross-fs restore copies back" 2 "$(restore_aot_cache "$SHM/cache" "$ISA")"
+    check "copied content intact" "oat:$TARGET_SVC" "$(cat "$SVC_DEX")"
+else
+    echo "  [SKIP] cross-filesystem fallback: no second filesystem available here"
+fi
+
+# ── 6. A missing or empty manifest restores nothing, quietly ─────────────────
+check "no manifest -> 0" 0 "$(restore_aot_cache "$WORK/nowhere" "$ISA")"
+
+# ── 7. forget removes the archive and the names it listed ────────────────────
+forget_aot_cache "$CACHE" "$ISA"
+check "archive directory gone" 1 "$([ ! -d "$CACHE" ] && echo 1 || echo 0)"
+check "dalvik-cache names gone" 0 "$(ls "$DC" | wc -l)"
+
+# ── 8. compile without a cache dir archives nothing (old behaviour intact) ───
+compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI"
+check "compile without cache_dir still publishes" 8 "$(ls "$DC" | wc -l)"
+check "and creates no archive" 1 "$([ ! -d "$CACHE" ] && echo 1 || echo 0)"
+
+echo
+if [ "$FAILURES" -eq 0 ]; then
+    echo "AOT cache survival tests PASSED"
+    exit 0
+fi
+echo "AOT cache survival tests FAILED ($FAILURES)"
+exit 1
