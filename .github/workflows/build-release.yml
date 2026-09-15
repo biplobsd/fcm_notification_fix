@@ -37,6 +37,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy 'tools' package the action installs by default is gone
+          # from Google's repository; sdkmanager exits 1 on it. Only
+          # platform-tools is wanted here - build-tools and the platform are
+          # installed explicitly in the next step.
+          packages: platform-tools
 
       - name: Install Android Build Tools & Platform
         run: |
