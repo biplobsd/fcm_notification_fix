@@ -661,10 +661,23 @@ AOT_CACHE_MANIFEST=".manifest"
 #
 # The replacement is staged: the new archive is built under <isa>.tmp.<pid>,
 # the manifest is written last, and only then is the previous archive moved
-# aside and the new one renamed into place. A reboot or power loss at any
-# point leaves either the old archive or the new one intact - never neither.
+# aside and the new one renamed into place. Files and directories are fsync'd
+# before and after the renames where toybox provides fsync (it does on
+# Android), so a power loss at any point leaves either the old archive or the
+# new one intact - never neither. Without fsync the same holds for a process
+# interruption; a power loss may then lose writes the kernel had not flushed.
 # The one window between the two renames leaves <isa>.old, which
 # restore_aot_cache recovers from.
+
+# _aot_sync <path>...: flushes each path to disk when an fsync command exists.
+_aot_sync() {
+    command -v fsync >/dev/null 2>&1 || return 0
+    for _as_p in "$@"; do
+        [ -e "$_as_p" ] && fsync "$_as_p" 2>/dev/null
+    done
+    return 0
+}
+
 archive_aot_cache() {
     _ac_dir="$1/$2"
     _ac_tmp="$1/$2.tmp.$$"
@@ -672,9 +685,9 @@ archive_aot_cache() {
     shift 2
     AOT_ARCHIVED=0
     AOT_ARCHIVE_EXPECTED=0
-    for _ac_f in "$@"; do
-        [ -s "$_ac_f" ] && AOT_ARCHIVE_EXPECTED=$((AOT_ARCHIVE_EXPECTED + 1))
-    done
+    # Every recorded path counts, present or not: a publish that lost its vdex
+    # must show up as a shortfall, not vanish from both sides of the tally.
+    AOT_ARCHIVE_EXPECTED=$#
     rm -rf "$1/$2".tmp.* 2>/dev/null
     mkdir -p "$_ac_tmp" 2>/dev/null || return 1
     : > "$_ac_tmp/$AOT_CACHE_MANIFEST.part" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
@@ -687,19 +700,26 @@ archive_aot_cache() {
         echo "$_ac_name" >> "$_ac_tmp/$AOT_CACHE_MANIFEST.part"
         AOT_ARCHIVED=$((AOT_ARCHIVED + 1))
     done
-    # The manifest appears only once every listed file is in place.
+    # The manifest appears only once every listed file is in place, and the
+    # staged tree is flushed before anything is renamed over the old archive.
+    _aot_sync "$_ac_tmp"/* "$_ac_tmp/$AOT_CACHE_MANIFEST.part"
     mv -f "$_ac_tmp/$AOT_CACHE_MANIFEST.part" "$_ac_tmp/$AOT_CACHE_MANIFEST" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+    _aot_sync "$_ac_tmp"
     rm -rf "$_ac_old" 2>/dev/null
     if [ -d "$_ac_dir" ]; then
         mv "$_ac_dir" "$_ac_old" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+        _aot_sync "$1"
     fi
     if ! mv "$_ac_tmp" "$_ac_dir" 2>/dev/null; then
         # Put the previous archive back rather than leave nothing in place.
         [ -d "$_ac_old" ] && mv "$_ac_old" "$_ac_dir" 2>/dev/null
+        _aot_sync "$1"
         rm -rf "$_ac_tmp" 2>/dev/null
         return 1
     fi
+    _aot_sync "$1"
     rm -rf "$_ac_old" 2>/dev/null
+    _aot_sync "$1"
     [ "$AOT_ARCHIVED" -eq "$AOT_ARCHIVE_EXPECTED" ]
 }
 
@@ -716,11 +736,16 @@ restore_aot_cache() {
     _rc_n=0
     rm -rf "$1/$2".tmp.* 2>/dev/null
     if [ ! -s "$_rc_dir/$AOT_CACHE_MANIFEST" ] && [ -s "$1/$2.old/$AOT_CACHE_MANIFEST" ]; then
-        rm -rf "$_rc_dir" 2>/dev/null
-        mv "$1/$2.old" "$_rc_dir" 2>/dev/null
+        # Recover the archive a crash left as .old. Should either step fail,
+        # .old stays where it is: it is the only complete archive there is.
+        if rm -rf "$_rc_dir" 2>/dev/null && mv "$1/$2.old" "$_rc_dir" 2>/dev/null; then
+            _aot_sync "$1"
+        fi
     fi
-    rm -rf "$1/$2.old" 2>/dev/null
-    if [ ! -s "$_rc_dir/$AOT_CACHE_MANIFEST" ]; then
+    # A leftover .old is dropped only once a complete archive is in place.
+    if [ -s "$_rc_dir/$AOT_CACHE_MANIFEST" ]; then
+        rm -rf "$1/$2.old" 2>/dev/null
+    else
         echo 0
         return 0
     fi

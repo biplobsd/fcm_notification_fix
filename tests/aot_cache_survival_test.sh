@@ -204,6 +204,28 @@ mkdir -p "$CACHE/$ISA.old"; echo stale > "$CACHE/$ISA.old/$AOT_CACHE_MANIFEST"
 check "complete archive wins over a leftover .old" 0 "$(restore_aot_cache "$CACHE" "$ISA")"
 check "leftover .old removed" 0 "$([ -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
 
+# ── 11. Every recorded path counts towards the expected total ────────────────
+# A publish that lost its vdex must show up as a shortfall; skipping missing
+# paths on both sides of the tally would hide it.
+archive_aot_cache "$CACHE" "$ISA" "$SVC_DEX" "${SVC_DEX%.dex}.vdex" "$DC/never-published@classes.vdex"
+check "missing recorded path is a shortfall" 1 "$?"
+check "expected counts every recorded path" 3 "$AOT_ARCHIVE_EXPECTED"
+check "archived counts only what exists" 2 "$AOT_ARCHIVED"
+
+# ── 12. Recovery keeps .old until a complete archive is in place ─────────────
+compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$CACHE"
+mv "$CACHE/$ISA" "$CACHE/$ISA.old"
+mkdir -p "$CACHE/$ISA"                          # canonical exists but has no manifest
+rm -f "$DC"/*
+check "manifest-less canonical dir is replaced by .old" 8 "$(restore_aot_cache "$CACHE" "$ISA")"
+check ".old consumed after successful recovery" 0 "$([ -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
+# An .old that is itself unusable is left alone rather than deleted on a guess.
+rm -rf "$CACHE/$ISA"
+mkdir -p "$CACHE/$ISA.old"; : > "$CACHE/$ISA.old/$AOT_CACHE_MANIFEST"
+check "nothing restorable -> 0" 0 "$(restore_aot_cache "$CACHE" "$ISA")"
+check "unusable .old is not deleted when nothing replaces it" 1 "$([ -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
+rm -rf "$CACHE"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
     echo "AOT cache survival tests PASSED"
