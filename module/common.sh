@@ -654,13 +654,21 @@ AOT_CACHE_MANIFEST=".manifest"
 # archive_aot_cache <cache_dir> <isa> <published file>...
 # Rebuilds <cache_dir>/<isa> from the given dalvik-cache artifacts and writes a
 # manifest of their names. A file that can be neither linked nor copied is left
-# out of the manifest rather than recorded half-done.
+# out of the manifest rather than recorded half-done. Sets AOT_ARCHIVED and
+# AOT_ARCHIVE_EXPECTED to the counts and returns 1 when any artifact is missing
+# from the archive - a partial archive still restores what it lists, but the
+# caller must say so, because whatever is missing will not survive ART's cleanup.
 archive_aot_cache() {
     _ac_dir="$1/$2"
     shift 2
+    AOT_ARCHIVED=0
+    AOT_ARCHIVE_EXPECTED=0
+    for _ac_f in "$@"; do
+        [ -s "$_ac_f" ] && AOT_ARCHIVE_EXPECTED=$((AOT_ARCHIVE_EXPECTED + 1))
+    done
     rm -rf "$_ac_dir" 2>/dev/null
     mkdir -p "$_ac_dir" 2>/dev/null || return 1
-    : > "$_ac_dir/$AOT_CACHE_MANIFEST" || return 1
+    : > "$_ac_dir/$AOT_CACHE_MANIFEST" 2>/dev/null || return 1
     for _ac_f in "$@"; do
         [ -s "$_ac_f" ] || continue
         _ac_name="${_ac_f##*/}"
@@ -668,8 +676,9 @@ archive_aot_cache() {
             cp -f "$_ac_f" "$_ac_dir/$_ac_name" 2>/dev/null || continue
         fi
         echo "$_ac_name" >> "$_ac_dir/$AOT_CACHE_MANIFEST"
+        AOT_ARCHIVED=$((AOT_ARCHIVED + 1))
     done
-    return 0
+    [ "$AOT_ARCHIVED" -eq "$AOT_ARCHIVE_EXPECTED" ]
 }
 
 # restore_aot_cache <cache_dir> <isa>
@@ -729,7 +738,8 @@ forget_aot_cache() {
 # Usage: compile_aot_cache <staged_services> <target_services> <staged_miui> <target_miui> [cache_dir]
 # With a cache_dir, every artifact published into /data/dalvik-cache is also
 # archived there (see archive_aot_cache) so post-fs-data can put it back after
-# ART's nightly cleanup removes it.
+# ART's nightly cleanup removes it. Returns 0 when the compile itself succeeded;
+# AOT_ARCHIVE_WARNING is then non-empty if the archive is incomplete.
 compile_aot_cache() {
     _staged_services="$1"
     _target_services="$2"
@@ -1078,13 +1088,22 @@ ${1%.dex}.vdex"
         [ "$_downstream_compiled" -gt 0 ] && export COMPILED_DOWNSTREAM_COUNT="$_downstream_compiled"
     fi
 
+    # Archive what was published so post-fs-data can put it back after ART's
+    # nightly cleanup. An incomplete archive is reported, not treated as a
+    # failed compile: failing here would make the callers wipe a cache that
+    # works until the first cleanup, which is strictly worse than keeping it
+    # and saying that it will not survive the night.
+    AOT_ARCHIVE_WARNING=""
     if [ -n "$_cache_dir" ]; then
         _old_ifs="$IFS"
         IFS='
 '
         # shellcheck disable=SC2086
-        archive_aot_cache "$_cache_dir" "$_arch" $_AOT_PUBLISHED
+        if ! archive_aot_cache "$_cache_dir" "$_arch" $_AOT_PUBLISHED; then
+            AOT_ARCHIVE_WARNING="archived ${AOT_ARCHIVED:-0} of ${AOT_ARCHIVE_EXPECTED:-0} artifacts under $_cache_dir/$_arch"
+        fi
         IFS="$_old_ifs"
+        export AOT_ARCHIVE_WARNING
     fi
 
     return 0

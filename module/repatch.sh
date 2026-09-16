@@ -276,6 +276,9 @@ cmd_run() {
         else
             log "native AOT speed compilation complete"
         fi
+        if [ -n "$AOT_ARCHIVE_WARNING" ]; then
+            log "WARNING: AOT cache archive incomplete ($AOT_ARCHIVE_WARNING): the compiled cache will not survive ART's nightly cleanup"
+        fi
         rm -f "$MODDIR/wipe_cache_once"
     else
         # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot.

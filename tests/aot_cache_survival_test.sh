@@ -59,6 +59,7 @@ export PATH
 . "$DIR/module/common.sh"
 
 FAILURES=0
+# check <what> <expected> <actual>: prints PASS/FAIL and counts the failures.
 check() {
     local what="$1" expected="$2" actual="$3"
     if [ "$expected" = "$actual" ]; then
@@ -68,6 +69,7 @@ check() {
         FAILURES=$((FAILURES + 1))
     fi
 }
+# ino <path>: the inode number, or "none" when the path does not exist.
 ino() { stat -c %i "$1" 2>/dev/null || echo "none"; }
 
 echo "== AOT cache survival =="
@@ -88,6 +90,7 @@ CACHE="$WORK/mod/cache"
 compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$CACHE"
 check "compile_aot_cache succeeds against the stub" 0 "$?"
 
+# name_of <jar path>: the dalvik-cache name ART derives from a jar location.
 name_of() { echo "$1" | sed 's|^/||; s|/|@|g'; }
 SVC_DEX="$DC/$(name_of "$TARGET_SVC")@classes.dex"
 MIUI_DEX="$DC/$(name_of "$TARGET_MIUI")@classes.dex"
@@ -149,6 +152,21 @@ check "dalvik-cache names gone" 0 "$(ls "$DC" | wc -l)"
 compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI"
 check "compile without cache_dir still publishes" 8 "$(ls "$DC" | wc -l)"
 check "and creates no archive" 1 "$([ ! -d "$CACHE" ] && echo 1 || echo 0)"
+check "no archive requested, no warning" "" "${AOT_ARCHIVE_WARNING:-}"
+check "a complete archive raises no warning either" "" "$(compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$CACHE" >/dev/null; echo "$AOT_ARCHIVE_WARNING")"
+rm -rf "$CACHE"
+
+# ── 9. An archive that cannot be written is reported, and the compile stands ─
+# Failing the compile would make the callers wipe a cache that works until the
+# first cleanup; the right outcome is a working cache plus a loud warning that
+# it will not survive the night.
+BLOCKED="$WORK/blocked"
+: > "$BLOCKED"                       # a file where the cache directory should go
+compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$BLOCKED/cache"
+check "compile still succeeds when the archive cannot be created" 0 "$?"
+check "artifacts are still published" 8 "$(ls "$DC" | wc -l)"
+check "warning names the shortfall" "archived 0 of 8 artifacts under $BLOCKED/cache/$ISA" "$AOT_ARCHIVE_WARNING"
+check "nothing to restore from a failed archive" 0 "$(restore_aot_cache "$BLOCKED/cache" "$ISA")"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

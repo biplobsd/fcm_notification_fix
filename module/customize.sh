@@ -302,6 +302,10 @@ if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPA
     else
         ui_print "- [PASS] Native AOT speed compilation complete."
     fi
+    if [ -n "$AOT_ARCHIVE_WARNING" ]; then
+        ui_print "- [WARN] AOT cache archive incomplete ($AOT_ARCHIVE_WARNING):"
+        ui_print "         the compiled cache will not survive ART's nightly cleanup."
+    fi
     rm -f "$MODPATH/wipe_cache_once"
 else
     # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot.
