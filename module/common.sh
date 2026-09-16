@@ -658,26 +658,48 @@ AOT_CACHE_MANIFEST=".manifest"
 # AOT_ARCHIVE_EXPECTED to the counts and returns 1 when any artifact is missing
 # from the archive - a partial archive still restores what it lists, but the
 # caller must say so, because whatever is missing will not survive ART's cleanup.
+#
+# The replacement is staged: the new archive is built under <isa>.tmp.<pid>,
+# the manifest is written last, and only then is the previous archive moved
+# aside and the new one renamed into place. A reboot or power loss at any
+# point leaves either the old archive or the new one intact - never neither.
+# The one window between the two renames leaves <isa>.old, which
+# restore_aot_cache recovers from.
 archive_aot_cache() {
     _ac_dir="$1/$2"
+    _ac_tmp="$1/$2.tmp.$$"
+    _ac_old="$1/$2.old"
     shift 2
     AOT_ARCHIVED=0
     AOT_ARCHIVE_EXPECTED=0
     for _ac_f in "$@"; do
         [ -s "$_ac_f" ] && AOT_ARCHIVE_EXPECTED=$((AOT_ARCHIVE_EXPECTED + 1))
     done
-    rm -rf "$_ac_dir" 2>/dev/null
-    mkdir -p "$_ac_dir" 2>/dev/null || return 1
-    : > "$_ac_dir/$AOT_CACHE_MANIFEST" 2>/dev/null || return 1
+    rm -rf "$1/$2".tmp.* 2>/dev/null
+    mkdir -p "$_ac_tmp" 2>/dev/null || return 1
+    : > "$_ac_tmp/$AOT_CACHE_MANIFEST.part" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
     for _ac_f in "$@"; do
         [ -s "$_ac_f" ] || continue
         _ac_name="${_ac_f##*/}"
-        if ! ln -f "$_ac_f" "$_ac_dir/$_ac_name" 2>/dev/null; then
-            cp -f "$_ac_f" "$_ac_dir/$_ac_name" 2>/dev/null || continue
+        if ! ln -f "$_ac_f" "$_ac_tmp/$_ac_name" 2>/dev/null; then
+            cp -f "$_ac_f" "$_ac_tmp/$_ac_name" 2>/dev/null || continue
         fi
-        echo "$_ac_name" >> "$_ac_dir/$AOT_CACHE_MANIFEST"
+        echo "$_ac_name" >> "$_ac_tmp/$AOT_CACHE_MANIFEST.part"
         AOT_ARCHIVED=$((AOT_ARCHIVED + 1))
     done
+    # The manifest appears only once every listed file is in place.
+    mv -f "$_ac_tmp/$AOT_CACHE_MANIFEST.part" "$_ac_tmp/$AOT_CACHE_MANIFEST" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+    rm -rf "$_ac_old" 2>/dev/null
+    if [ -d "$_ac_dir" ]; then
+        mv "$_ac_dir" "$_ac_old" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+    fi
+    if ! mv "$_ac_tmp" "$_ac_dir" 2>/dev/null; then
+        # Put the previous archive back rather than leave nothing in place.
+        [ -d "$_ac_old" ] && mv "$_ac_old" "$_ac_dir" 2>/dev/null
+        rm -rf "$_ac_tmp" 2>/dev/null
+        return 1
+    fi
+    rm -rf "$_ac_old" 2>/dev/null
     [ "$AOT_ARCHIVED" -eq "$AOT_ARCHIVE_EXPECTED" ]
 }
 
@@ -686,10 +708,18 @@ archive_aot_cache() {
 # the number restored. Names that are present are left alone whatever their
 # content: a re-patch or install writes both places at once, so a present
 # name is either ours already or something newer that owns the slot.
+# An archive interrupted between its two renames (see archive_aot_cache) is
+# recovered from <isa>.old first; a stale staging directory is discarded.
 restore_aot_cache() {
     _rc_dir="$1/$2"
     _rc_dst="$DALVIK_CACHE_ROOT/$2"
     _rc_n=0
+    rm -rf "$1/$2".tmp.* 2>/dev/null
+    if [ ! -s "$_rc_dir/$AOT_CACHE_MANIFEST" ] && [ -s "$1/$2.old/$AOT_CACHE_MANIFEST" ]; then
+        rm -rf "$_rc_dir" 2>/dev/null
+        mv "$1/$2.old" "$_rc_dir" 2>/dev/null
+    fi
+    rm -rf "$1/$2.old" 2>/dev/null
     if [ ! -s "$_rc_dir/$AOT_CACHE_MANIFEST" ]; then
         echo 0
         return 0

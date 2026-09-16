@@ -11,6 +11,7 @@
 #   - restore never touches a name that is present, and is idempotent
 #   - a cross-filesystem archive falls back to a copy and still restores
 #   - forget removes both the archive and the dalvik-cache names it lists
+#   - the archive is swapped atomically; an interrupted swap still restores
 # ==============================================================================
 set -u
 
@@ -167,6 +168,41 @@ check "compile still succeeds when the archive cannot be created" 0 "$?"
 check "artifacts are still published" 8 "$(ls "$DC" | wc -l)"
 check "warning names the shortfall" "archived 0 of 8 artifacts under $BLOCKED/cache/$ISA" "$AOT_ARCHIVE_WARNING"
 check "nothing to restore from a failed archive" 0 "$(restore_aot_cache "$BLOCKED/cache" "$ISA")"
+
+# ── 10. The archive is replaced atomically, and an interrupted swap recovers ─
+# archive_aot_cache builds <isa>.tmp.<pid>, writes the manifest last, moves the
+# old archive to <isa>.old and renames the new one into place. Whatever the
+# interruption leaves behind, restore must find a usable archive.
+compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$CACHE"
+check "clean swap leaves no staging directory" 0 "$(ls -d "$CACHE/$ISA".tmp.* 2>/dev/null | wc -l)"
+check "clean swap leaves no .old directory"    0 "$([ -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
+check "no partial manifest in the archive"     0 "$([ -e "$CACHE/$ISA/$AOT_CACHE_MANIFEST.part" ] && echo 1 || echo 0)"
+# Rebuild over an existing archive: the previous inodes are replaced, nothing else is left.
+OLD_INO="$(ino "$CACHE/$ISA/$(basename "$SVC_DEX")")"
+compile_aot_cache "$STAGED_SVC" "$TARGET_SVC" "$STAGED_MIUI" "$TARGET_MIUI" "$CACHE"
+check "rebuild over an existing archive succeeds" 8 "$(grep -c '' "$CACHE/$ISA/$AOT_CACHE_MANIFEST")"
+check "rebuild replaced the archived inode" 1 "$([ "$OLD_INO" != "$(ino "$CACHE/$ISA/$(basename "$SVC_DEX")")" ] && echo 1 || echo 0)"
+check "rebuild leaves no .old directory" 0 "$([ -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
+
+# (a) interrupted while staging: a half-built .tmp next to an intact archive
+mkdir -p "$CACHE/$ISA.tmp.999"
+echo junk > "$CACHE/$ISA.tmp.999/$(basename "$SVC_DEX")"
+rm -f "$DC"/*
+check "stale staging dir is ignored, intact archive restores" 8 "$(restore_aot_cache "$CACHE" "$ISA")"
+check "stale staging dir is discarded" 0 "$(ls -d "$CACHE/$ISA".tmp.* 2>/dev/null | wc -l)"
+check "restored content came from the real archive" "oat:$TARGET_SVC" "$(cat "$SVC_DEX")"
+
+# (b) interrupted between the two renames: only <isa>.old exists
+mv "$CACHE/$ISA" "$CACHE/$ISA.old"
+rm -f "$DC"/*
+check "archive recovered from .old" 8 "$(restore_aot_cache "$CACHE" "$ISA")"
+check ".old renamed back into place" 1 "$([ -s "$CACHE/$ISA/$AOT_CACHE_MANIFEST" ] && [ ! -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
+check "dalvik-cache complete after recovery" 8 "$(ls "$DC" | wc -l)"
+
+# (c) a leftover .old next to a complete archive is simply dropped
+mkdir -p "$CACHE/$ISA.old"; echo stale > "$CACHE/$ISA.old/$AOT_CACHE_MANIFEST"
+check "complete archive wins over a leftover .old" 0 "$(restore_aot_cache "$CACHE" "$ISA")"
+check "leftover .old removed" 0 "$([ -d "$CACHE/$ISA.old" ] && echo 1 || echo 0)"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
