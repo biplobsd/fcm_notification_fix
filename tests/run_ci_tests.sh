@@ -25,6 +25,14 @@ if ! bash "$DIR/tests/fsi_appops_test.sh"; then
     exit 1
 fi
 echo ""
+echo "[0/4] Executing AOT cache survival tests"
+if ! bash "$DIR/tests/aot_cache_survival_test.sh"; then
+    echo "================================================="
+    echo " AOT cache survival tests FAILED ✗"
+    echo "================================================="
+    exit 1
+fi
+echo ""
 
 # 1. Resolve Java / JDK Environment
 if [ -z "$JAVA_HOME" ] || [ ! -x "$JAVA_HOME/bin/javac" ]; then

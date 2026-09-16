@@ -17,6 +17,7 @@ if [ -f "$MODDIR/wipe_cache_once" ]; then
     rm -rf /data/dalvik-cache/*/*miui-services* 2>/dev/null
     rm -rf /data/dalvik-cache/*/*apprecovery* 2>/dev/null
     rm -rf /data/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
+    rm -rf "$MODDIR/cache" 2>/dev/null
     rm -f "$MODDIR/wipe_cache_once"
 fi
 
@@ -65,6 +66,20 @@ fi
 
 # Clear transient state flags
 rm -f "$MODDIR/repatch_pending" "$MODDIR/repatch_reboot" "$MODDIR/repatch_failed"
+
+# 2.5 Put the AOT cache back if ART's nightly cleanup took it
+# BackgroundDexoptJob unlinks every /data/dalvik-cache artifact ART did not
+# produce, ours included; the archive under $MODDIR/cache keeps the inodes and
+# this restores the names before zygote starts (see restore_aot_cache).
+if command -v restore_aot_cache >/dev/null 2>&1 && [ -d "$MODDIR/cache" ]; then
+    _isa="$(resolve_isa 2>/dev/null)"
+    if [ -n "$_isa" ]; then
+        _restored="$(restore_aot_cache "$MODDIR/cache" "$_isa")"
+        if [ "${_restored:-0}" -gt 0 ] 2>/dev/null; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] restored $_restored AOT artifact(s) removed from /data/dalvik-cache/$_isa" >> "$MODDIR/repatch.log"
+        fi
+    fi
+fi
 
 # 3. Anonymous In-Memory tmpfs Stealth Mounts
 # Files are staged in a transient private tmpfs in RAM, verified, bind-mounted

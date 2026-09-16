@@ -296,15 +296,21 @@ fi
 
 # 7.5 Pre-compile system_server AOT cache (dex2oat)
 ui_print "- Pre-compiling system_server native AOT cache (dex2oat)..."
-if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK"; then
+if compile_aot_cache "$MODPATH/framework/services.jar" "$SERVICES_STOCK" "$MODPATH/framework/miui-services.jar" "$MIUI_SERVICES_STOCK" "$MODPATH/cache"; then
     if [ -n "$COMPILED_DOWNSTREAM_COUNT" ] && [ "$COMPILED_DOWNSTREAM_COUNT" -gt 0 ]; then
         ui_print "- [PASS] Native AOT speed compilation complete (services + $COMPILED_DOWNSTREAM_COUNT downstream components)."
     else
         ui_print "- [PASS] Native AOT speed compilation complete."
     fi
+    if [ -n "$AOT_ARCHIVE_WARNING" ]; then
+        ui_print "- [WARN] AOT cache archive incomplete ($AOT_ARCHIVE_WARNING):"
+        ui_print "         the compiled cache will not survive ART's nightly cleanup."
+    fi
     rm -f "$MODPATH/wipe_cache_once"
 else
-    # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot
+    # Fallback: signal post-fs-data to purge stale dalvik-cache on first boot.
+    # No archive either - a half-built cache must not be restored at boot.
+    rm -rf "$MODPATH/cache" 2>/dev/null
     touch "$MODPATH/wipe_cache_once"
 fi
 

@@ -629,23 +629,198 @@ verify_patched_jars() {
     return "$_vp_status"
 }
 
+# Root of the legacy dalvik-cache tree. Only tests override this.
+DALVIK_CACHE_ROOT="${DALVIK_CACHE_ROOT:-/data/dalvik-cache}"
+AOT_CACHE_MANIFEST=".manifest"
+
+# ── AOT cache survival ────────────────────────────────────────────────────────
+# ART Service's BackgroundDexoptJob (periodic, charging + idle) ends with a
+# cleanup pass that unlinks every artifact under /data/dalvik-cache it did not
+# produce - which is every artifact compile_aot_cache writes. The running
+# system_server keeps the mapped inodes, so nothing is felt until the next
+# reboot, which then starts with no odex at all and system_server drops to JIT.
+# Measured on goku / OS3.0.309.0.WNVCNXM: deleted between 02:25 and 02:31, two
+# nights, two builds (biplobsd/fcm_notification_fix#24).
+#
+# The defence is to keep a second directory entry for every artifact under the
+# module directory and to put the dalvik-cache name back at each boot, before
+# zygote. A hard link shares the inode - no copy, no extra space; when the
+# module directory is on another filesystem (classic KernelSU keeps modules in
+# an ext4 image) ln fails with EXDEV and a copy is made instead. Nothing here
+# outlives the module: the archive is a plain directory removed with it, and
+# the dalvik-cache names are plain files that any wipe, cleanup or recovery
+# removes as before. No mounts, no immutable flags.
+
+# archive_aot_cache <cache_dir> <isa> <published file>...
+# Rebuilds <cache_dir>/<isa> from the given dalvik-cache artifacts and writes a
+# manifest of their names. A file that can be neither linked nor copied is left
+# out of the manifest rather than recorded half-done. Sets AOT_ARCHIVED and
+# AOT_ARCHIVE_EXPECTED to the counts and returns 1 when any artifact is missing
+# from the archive - a partial archive still restores what it lists, but the
+# caller must say so, because whatever is missing will not survive ART's cleanup.
+#
+# The replacement is staged: the new archive is built under <isa>.tmp.<pid>,
+# the manifest is written last, and only then is the previous archive moved
+# aside and the new one renamed into place. Files and directories are fsync'd
+# before and after the renames where toybox provides fsync (it does on
+# Android), so a power loss at any point leaves either the old archive or the
+# new one intact - never neither. Without fsync the same holds for a process
+# interruption; a power loss may then lose writes the kernel had not flushed.
+# The one window between the two renames leaves <isa>.old, which
+# restore_aot_cache recovers from.
+
+# _aot_sync <path>...: flushes each path to disk when an fsync command exists.
+_aot_sync() {
+    command -v fsync >/dev/null 2>&1 || return 0
+    for _as_p in "$@"; do
+        [ -e "$_as_p" ] && fsync "$_as_p" 2>/dev/null
+    done
+    return 0
+}
+
+archive_aot_cache() {
+    _ac_dir="$1/$2"
+    _ac_tmp="$1/$2.tmp.$$"
+    _ac_old="$1/$2.old"
+    shift 2
+    AOT_ARCHIVED=0
+    AOT_ARCHIVE_EXPECTED=0
+    # Every recorded path counts, present or not: a publish that lost its vdex
+    # must show up as a shortfall, not vanish from both sides of the tally.
+    AOT_ARCHIVE_EXPECTED=$#
+    rm -rf "$1/$2".tmp.* 2>/dev/null
+    mkdir -p "$_ac_tmp" 2>/dev/null || return 1
+    : > "$_ac_tmp/$AOT_CACHE_MANIFEST.part" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+    for _ac_f in "$@"; do
+        [ -s "$_ac_f" ] || continue
+        _ac_name="${_ac_f##*/}"
+        if ! ln -f "$_ac_f" "$_ac_tmp/$_ac_name" 2>/dev/null; then
+            cp -f "$_ac_f" "$_ac_tmp/$_ac_name" 2>/dev/null || continue
+        fi
+        echo "$_ac_name" >> "$_ac_tmp/$AOT_CACHE_MANIFEST.part"
+        AOT_ARCHIVED=$((AOT_ARCHIVED + 1))
+    done
+    # The manifest appears only once every listed file is in place, and the
+    # staged tree is flushed before anything is renamed over the old archive.
+    _aot_sync "$_ac_tmp"/* "$_ac_tmp/$AOT_CACHE_MANIFEST.part"
+    mv -f "$_ac_tmp/$AOT_CACHE_MANIFEST.part" "$_ac_tmp/$AOT_CACHE_MANIFEST" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+    _aot_sync "$_ac_tmp"
+    rm -rf "$_ac_old" 2>/dev/null
+    if [ -d "$_ac_dir" ]; then
+        mv "$_ac_dir" "$_ac_old" 2>/dev/null || { rm -rf "$_ac_tmp"; return 1; }
+        _aot_sync "$1"
+    fi
+    if ! mv "$_ac_tmp" "$_ac_dir" 2>/dev/null; then
+        # Put the previous archive back rather than leave nothing in place.
+        [ -d "$_ac_old" ] && mv "$_ac_old" "$_ac_dir" 2>/dev/null
+        _aot_sync "$1"
+        rm -rf "$_ac_tmp" 2>/dev/null
+        return 1
+    fi
+    _aot_sync "$1"
+    rm -rf "$_ac_old" 2>/dev/null
+    _aot_sync "$1"
+    [ "$AOT_ARCHIVED" -eq "$AOT_ARCHIVE_EXPECTED" ]
+}
+
+# restore_aot_cache <cache_dir> <isa>
+# Puts back every manifest entry missing from /data/dalvik-cache/<isa>. Prints
+# the number restored. Names that are present are left alone whatever their
+# content: a re-patch or install writes both places at once, so a present
+# name is either ours already or something newer that owns the slot.
+# An archive interrupted between its two renames (see archive_aot_cache) is
+# recovered from <isa>.old first; a stale staging directory is discarded.
+restore_aot_cache() {
+    _rc_dir="$1/$2"
+    _rc_dst="$DALVIK_CACHE_ROOT/$2"
+    _rc_n=0
+    rm -rf "$1/$2".tmp.* 2>/dev/null
+    if [ ! -s "$_rc_dir/$AOT_CACHE_MANIFEST" ] && [ -s "$1/$2.old/$AOT_CACHE_MANIFEST" ]; then
+        # Recover the archive a crash left as .old. Should either step fail,
+        # .old stays where it is: it is the only complete archive there is.
+        if rm -rf "$_rc_dir" 2>/dev/null && mv "$1/$2.old" "$_rc_dir" 2>/dev/null; then
+            _aot_sync "$1"
+        fi
+    fi
+    # A leftover .old is dropped only once a complete archive is in place.
+    if [ -s "$_rc_dir/$AOT_CACHE_MANIFEST" ]; then
+        rm -rf "$1/$2.old" 2>/dev/null
+    else
+        echo 0
+        return 0
+    fi
+    mkdir -p "$_rc_dst" 2>/dev/null
+    while IFS= read -r _rc_name; do
+        [ -n "$_rc_name" ] || continue
+        case "$_rc_name" in */*|.*) continue ;; esac
+        _rc_src="$_rc_dir/$_rc_name"
+        _rc_tgt="$_rc_dst/$_rc_name"
+        [ -s "$_rc_src" ] || continue
+        [ -e "$_rc_tgt" ] && continue
+        if ! ln "$_rc_src" "$_rc_tgt" 2>/dev/null; then
+            if cp -f "$_rc_src" "$_rc_tgt.tmp.$$" 2>/dev/null && mv -f "$_rc_tgt.tmp.$$" "$_rc_tgt" 2>/dev/null; then
+                :
+            else
+                rm -f "$_rc_tgt.tmp.$$" 2>/dev/null
+                continue
+            fi
+        fi
+        chmod 0644 "$_rc_tgt" 2>/dev/null || true
+        chown root:root "$_rc_tgt" 2>/dev/null || true
+        chcon u:object_r:dalvikcache_data_file:s0 "$_rc_tgt" 2>/dev/null || true
+        _rc_n=$((_rc_n + 1))
+    done < "$_rc_dir/$AOT_CACHE_MANIFEST"
+    echo "$_rc_n"
+    return 0
+}
+
+# forget_aot_cache <cache_dir> <isa>
+# Removes the archived artifacts and, by manifest name, their dalvik-cache
+# entries. Used by the install-failure and uninstall paths.
+forget_aot_cache() {
+    _fc_dir="$1/$2"
+    if [ -s "$_fc_dir/$AOT_CACHE_MANIFEST" ]; then
+        while IFS= read -r _fc_name; do
+            [ -n "$_fc_name" ] || continue
+            case "$_fc_name" in */*|.*) continue ;; esac
+            rm -f "$DALVIK_CACHE_ROOT/$2/$_fc_name" 2>/dev/null
+        done < "$_fc_dir/$AOT_CACHE_MANIFEST"
+    fi
+    rm -rf "$1" 2>/dev/null
+    return 0
+}
+
+# Usage: compile_aot_cache <staged_services> <target_services> <staged_miui> <target_miui> [cache_dir]
+# With a cache_dir, every artifact published into /data/dalvik-cache is also
+# archived there (see archive_aot_cache) so post-fs-data can put it back after
+# ART's nightly cleanup removes it. Returns 0 when the compile itself succeeded;
+# AOT_ARCHIVE_WARNING is then non-empty if the archive is incomplete.
 compile_aot_cache() {
     _staged_services="$1"
     _target_services="$2"
     _staged_miui="$3"
     _target_miui="$4"
+    _cache_dir="${5:-}"
+    _AOT_PUBLISHED=""
 
     _dex2oat="$(resolve_dex2oat)"
     [ -z "$_dex2oat" ] && return 1
 
     _arch="$(resolve_isa)"
-    mkdir -p "/data/dalvik-cache/$_arch"
+    mkdir -p "$DALVIK_CACHE_ROOT/$_arch"
 
-    _services_oat="/data/dalvik-cache/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.dex"
-    _miui_oat="/data/dalvik-cache/$_arch/$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.dex"
+    # Remembers a published artifact (and its vdex) for the archive step.
+    _aot_record() {
+        _AOT_PUBLISHED="${_AOT_PUBLISHED}${_AOT_PUBLISHED:+
+}$1
+${1%.dex}.vdex"
+    }
 
-    _services_tmp="/data/dalvik-cache/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.tmp.$$.dex"
-    _miui_tmp="/data/dalvik-cache/$_arch/$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.tmp.$$.dex"
+    _services_oat="$DALVIK_CACHE_ROOT/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.dex"
+    _miui_oat="$DALVIK_CACHE_ROOT/$_arch/$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.dex"
+
+    _services_tmp="$DALVIK_CACHE_ROOT/$_arch/$(echo "$_target_services" | sed 's|^/||; s|/|@|g')@classes.tmp.$$.dex"
+    _miui_tmp="$DALVIK_CACHE_ROOT/$_arch/$(echo "$_target_miui" | sed 's|^/||; s|/|@|g')@classes.tmp.$$.dex"
 
     _sscp="$SYSTEMSERVERCLASSPATH"
     if [ -z "$_sscp" ]; then
@@ -660,8 +835,8 @@ compile_aot_cache() {
     # Generates ClassLoaderContext, optionally substituting a target jar with its staged counterpart
     _get_clc() {
         _tgt="$1"
-        _sub_tgt="$2"
-        _sub_rep="$3"
+        _sub_tgt="${2:-}"
+        _sub_rep="${3:-}"
         _res=""
         _old_ifs="$IFS"
         IFS=:
@@ -782,7 +957,7 @@ compile_aot_cache() {
     # deliberately left alone: clearing its system-server artifacts without
     # replacing them forces odrefresh to rebuild the boot classpath and the whole
     # system-server classpath on the next boot, stalling it for minutes.
-    _clean_dir="/data/dalvik-cache/$_arch"
+    _clean_dir="$DALVIK_CACHE_ROOT/$_arch"
     if [ -d "$_clean_dir" ]; then
         for _f in "$_clean_dir"/*services*; do
             [ -e "$_f" ] || continue
@@ -799,10 +974,12 @@ compile_aot_cache() {
     mv -f "$_miui_tmp" "$_miui_oat" 2>/dev/null
     mv -f "${_miui_tmp%.dex}.vdex" "${_miui_oat%.dex}.vdex" 2>/dev/null
 
-    chmod 0644 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
-    chown root:root /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
-    chcon u:object_r:dalvikcache_data_file:s0 /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
-    restorecon -F /data/dalvik-cache/"$_arch"/*services* 2>/dev/null || true
+    chmod 0644 "$DALVIK_CACHE_ROOT/$_arch"/*services* 2>/dev/null || true
+    chown root:root "$DALVIK_CACHE_ROOT/$_arch"/*services* 2>/dev/null || true
+    chcon u:object_r:dalvikcache_data_file:s0 "$DALVIK_CACHE_ROOT/$_arch"/*services* 2>/dev/null || true
+    restorecon -F "$DALVIK_CACHE_ROOT/$_arch"/*services* 2>/dev/null || true
+    _aot_record "$_services_oat"
+    _aot_record "$_miui_oat"
 
     # ── Downstream SYSTEMSERVERCLASSPATH AOT Compilation ──
     # All jars subsequent to miui-services.jar suffer from rejected factory .odex
@@ -819,8 +996,8 @@ compile_aot_cache() {
             if [ "$_downstream_active" -eq 1 ]; then
                 if [ -f "$_j" ]; then
                     _oat_name="$(echo "$_j" | sed 's|^/||; s|/|@|g')@classes.dex"
-                    _oat_target="/data/dalvik-cache/$_arch/$_oat_name"
-                    _oat_tmp="/data/dalvik-cache/$_arch/$_oat_name.tmp.$$.dex"
+                    _oat_target="$DALVIK_CACHE_ROOT/$_arch/$_oat_name"
+                    _oat_tmp="$DALVIK_CACHE_ROOT/$_arch/$_oat_name.tmp.$$.dex"
 
                     _down_status=0
                     "$_dex2oat" \
@@ -862,6 +1039,7 @@ compile_aot_cache() {
                         chown root:root "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
                         chcon u:object_r:dalvikcache_data_file:s0 "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
                         restorecon -F "$_oat_target" "${_oat_target%.dex}.vdex" 2>/dev/null || true
+                        _aot_record "$_oat_target"
                         _downstream_compiled=$((_downstream_compiled + 1))
                     else
                         rm -f "$_oat_tmp" "${_oat_tmp%.dex}.vdex" 2>/dev/null
@@ -908,8 +1086,8 @@ compile_aot_cache() {
             for _sjar in $_standalone; do
                 if [ -f "$_sjar" ]; then
                     _soat_name="$(echo "$_sjar" | sed 's|^/||; s|/|@|g')@classes.dex"
-                    _soat_target="/data/dalvik-cache/$_arch/$_soat_name"
-                    _soat_tmp="/data/dalvik-cache/$_arch/$_soat_name.tmp.$$.dex"
+                    _soat_target="$DALVIK_CACHE_ROOT/$_arch/$_soat_name"
+                    _soat_tmp="$DALVIK_CACHE_ROOT/$_arch/$_soat_name.tmp.$$.dex"
 
                     _s_status=0
                     "$_dex2oat" \
@@ -951,6 +1129,7 @@ compile_aot_cache() {
                         chown root:root "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
                         chcon u:object_r:dalvikcache_data_file:s0 "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
                         restorecon -F "$_soat_target" "${_soat_target%.dex}.vdex" 2>/dev/null || true
+                        _aot_record "$_soat_target"
                         _downstream_compiled=$((_downstream_compiled + 1))
                     else
                         rm -f "$_soat_tmp" "${_soat_tmp%.dex}.vdex" 2>/dev/null
@@ -962,6 +1141,24 @@ compile_aot_cache() {
         IFS="$_old_ifs"
 
         [ "$_downstream_compiled" -gt 0 ] && export COMPILED_DOWNSTREAM_COUNT="$_downstream_compiled"
+    fi
+
+    # Archive what was published so post-fs-data can put it back after ART's
+    # nightly cleanup. An incomplete archive is reported, not treated as a
+    # failed compile: failing here would make the callers wipe a cache that
+    # works until the first cleanup, which is strictly worse than keeping it
+    # and saying that it will not survive the night.
+    AOT_ARCHIVE_WARNING=""
+    if [ -n "$_cache_dir" ]; then
+        _old_ifs="$IFS"
+        IFS='
+'
+        # shellcheck disable=SC2086
+        if ! archive_aot_cache "$_cache_dir" "$_arch" $_AOT_PUBLISHED; then
+            AOT_ARCHIVE_WARNING="archived ${AOT_ARCHIVED:-0} of ${AOT_ARCHIVE_EXPECTED:-0} artifacts under $_cache_dir/$_arch"
+        fi
+        IFS="$_old_ifs"
+        export AOT_ARCHIVE_WARNING
     fi
 
     return 0

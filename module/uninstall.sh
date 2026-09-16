@@ -123,6 +123,16 @@ rm -rf /data/dalvik-cache/*/*miui-services.jar@classes.* 2>/dev/null
 rm -rf /data/dalvik-cache/*/*apprecovery* 2>/dev/null
 rm -rf /data/dalvik-cache/*/apex@*@javalib@service-* 2>/dev/null
 find /data/dalvik-cache -name "*services*" -exec rm -rf {} + 2>/dev/null || true
+# The archive under $MODDIR/cache and every name it lists, by manifest, so the
+# module leaves no artifact behind whatever the patterns above missed.
+if command -v forget_aot_cache >/dev/null 2>&1 && [ -d "$MODDIR/cache" ]; then
+    for _isa_dir in "$MODDIR"/cache/*/; do
+        [ -d "$_isa_dir" ] || continue
+        _isa="$(basename "$_isa_dir")"
+        forget_aot_cache "$MODDIR/cache" "$_isa"
+    done
+fi
+rm -rf "$MODDIR/cache" 2>/dev/null
 
 # ==============================================================================
 # 3. Remove FCM Wake Filter Configuration and Staging Artifacts
