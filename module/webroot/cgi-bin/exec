@@ -516,10 +516,11 @@ case "$ACTION" in
     stopped|capabilities)
         # Fetch stopped packages and FSI/lockscreen capable packages in a single dumpsys package pass
         DUMPSYS_OUT=$(dumpsys package 2>/dev/null | awk '
-          /Package \[/ { sub(/.*Package \[/, ""); sub(/\].*/, ""); p = $0; }
+          /Package \[/ { sub(/.*Package \[/, ""); sub(/\].*/, ""); p = $0; count++; }
           /stopped=true/ { if (p != "") stopped[p] = 1; }
           /android\.permission\.USE_FULL_SCREEN_INTENT/ { if (p != "") fsi[p] = 1; }
           END {
+            if (!count) exit 1;
             printf "{\"status\":\"ok\",\"stopped\":[";
             first = 1;
             for (pkg in stopped) {
@@ -537,12 +538,13 @@ case "$ACTION" in
             printf "]}\n";
           }
         ')
-        if [ -n "$DUMPSYS_OUT" ]; then
+        if [ $? -eq 0 ] && [ -n "$DUMPSYS_OUT" ]; then
             echo "$DUMPSYS_OUT"
         else
-            echo '{"status":"ok","stopped":[],"fsi_capable":[]}'
+            echo '{"status":"error","message":"Failed to read package status"}'
         fi
         ;;
+
 
 
     save_config)

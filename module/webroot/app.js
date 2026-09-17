@@ -1214,18 +1214,18 @@
     async function loadStoppedStatusAsync() {
         try {
             const res = await execAction('stopped');
-            if (res.data) {
-                if (res.data.stopped) {
+            if (res.success && res.data) {
+                if (Array.isArray(res.data.stopped)) {
                     stoppedApps = new Set(res.data.stopped);
+                    hasLoadedStoppedStatus = true;
                 }
-                if (res.data.fsi_capable) {
+                if (Array.isArray(res.data.fsi_capable)) {
                     fsiCapableApps = new Set(res.data.fsi_capable);
                     for (const pkg of fsiApps) {
                         fsiCapableApps.add(pkg);
                     }
                     hasLoadedFsiCapable = true;
                 }
-                hasLoadedStoppedStatus = true;
                 updateCounts();
                 updateStoppedBadgesInDOM();
                 updateFsiButtonsInDOM();
@@ -1240,6 +1240,7 @@
             updateFsiButtonsInDOM();
         }
     }
+
 
     function updateStoppedBadgesInDOM() {
         document.querySelectorAll('[data-badge-pkg]').forEach(badge => {
