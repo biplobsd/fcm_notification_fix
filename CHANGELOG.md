@@ -1,18 +1,27 @@
 # Changelog
 
-## Unreleased
-### Fixed
-- **AOT cache survival**: ART's nightly `BackgroundDexoptJob` cleanup removed the module's compiled odex from `/data/dalvik-cache`, leaving `system_server` in JIT after the next reboot. Artifacts are now archived under `$MODDIR/cache` (hard link, copy fallback) and restored in `post-fs-data`. No mounts, no immutable flags. (#24, #26)
-- **Per-app FSI AppOps**: the previous mode of each op is recorded and given back on removal instead of forcing `ignore`; uid-only packages are read correctly. (#22, #23)
-- `format_fsi_packages_json`: empty-list guard precedence. (#23)
+## v1.5 (versionCode: 6)
+### Added
+- **Conditional FSI button**: WebUI conditionally displays the VoIP / lockscreen button only for apps requesting `USE_FULL_SCREEN_INTENT`. (#27)
 
 ### Changed
-- `10008 OP_AUTO_START` no longer granted with the FSI set; no boot-time re-grant. Packages listed under v1.4 keep their `10008` as is — check Autostart by hand if you rely on it being off. (#23)
-- WebUI: FSI toggle names the permissions it grants and says they are restored on removal; 8 languages. (#23)
-- CI: `setup-android` asks only for `platform-tools` (the retired `tools` package broke every workflow). (#26)
+- **Dumpsys optimization**: Combined package stopped state and FSI capability checks into a single `dumpsys package` pass. (#27)
+- **FSI AppOps scope**: Dropped `10008 OP_AUTO_START` from FSI grants and removed boot-time re-granting. (#23)
+- **WebUI FSI info**: Explicitly displays granted and restored permissions in FSI tooltips and toasts across 8 languages. (#23)
+- **PowerKeeper policy**: Set Google Play Store (`com.android.vending`) to `miuiAuto` to eliminate background network loops. (#24)
+- **CI Android SDK**: Switched workflow to request `platform-tools` instead of the retired `tools` package. (#26)
+
+### Fixed
+- **AOT cache survival**: Archive compiled artifacts under `$MODDIR/cache` and restore on boot to survive ART nightly cleanup. (#26)
+- **FSI AppOps restoration**: Save prior AppOps modes on grant and restore them on removal instead of forcing `ignore`, with UID fallback. (#23)
+- **CPU & refresh rate**: Reverted Vector 8 to preserve native China ROM CPU throttling and 120Hz dynamic refresh rate scaling. (#24)
+- **Lock-free config monitoring**: Converted `FcmWakeFilter` to zero-I/O in-memory cache with `FileObserver` inotify events, eliminating lock contention. (#24)
+- **Native AOT compilation**: Passed `--boot-image` and `-Xbootclasspath` to `dex2oat` in `common.sh` to prevent JIT fallbacks. (#24)
+- **Bytecode patcher stability**: Fixed Vector 9 continue reason for GMS and prevented register clobbering in Vector 14 `playSound`. (#24)
+- **Config parser**: Fixed empty-list guard operator precedence in `format_fsi_packages_json`. (#23)
 
 ### Tests
-- `tests/aot_cache_survival_test.sh` (54 checks) and `tests/fsi_appops_test.sh` (25 checks), both run as step 0 of `run_ci_tests.sh`.
+- Added automated unit tests for AOT cache survival (`aot_cache_survival_test.sh`) and FSI AppOps state machine (`fsi_appops_test.sh`). (#23, #26)
 
 ## v1.4 (versionCode: 5)
 ### Added
