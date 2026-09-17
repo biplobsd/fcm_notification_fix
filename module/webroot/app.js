@@ -982,6 +982,7 @@
     let currentMode = null;
     let savedMode = null;
     let hasLoadedStoppedStatus = false;
+    let hasLoadedFsiCapable = false;
     let viewFilter = 'ALL'; // 'ALL' | 'ENABLED' | 'DISABLED' | 'ACTIVE' | 'STOPPED'
     let installedApps = [];
     let stoppedApps = new Set();
@@ -989,6 +990,7 @@
     let savedApps = new Set();
     let fsiApps = new Set();
     let savedFsiApps = new Set();
+    let fsiCapableApps = new Set();
 
     function checkDraftChanges() {
         let isDirty = false;
@@ -1039,6 +1041,7 @@
                 mode: savedMode,
                 packages: Array.from(savedApps),
                 fsi_packages: Array.from(savedFsiApps),
+                fsi_capable: Array.from(fsiCapableApps),
                 installed: installedApps,
                 stopped: Array.from(stoppedApps),
                 sound_active: soundFixActive,
@@ -1071,6 +1074,10 @@
             if (Array.isArray(cache.fsi_packages)) {
                 savedFsiApps = new Set(cache.fsi_packages);
                 fsiApps = new Set(cache.fsi_packages);
+            }
+            if (Array.isArray(cache.fsi_capable) && cache.fsi_capable.length) {
+                fsiCapableApps = new Set(cache.fsi_capable);
+                hasLoadedFsiCapable = true;
             }
             if (Array.isArray(cache.installed) && cache.installed.length) {
                 installedApps = cache.installed;
@@ -1184,6 +1191,9 @@
             if (Array.isArray(data.fsi_packages)) {
                 savedFsiApps = new Set(data.fsi_packages);
                 fsiApps = new Set(data.fsi_packages);
+                for (const pkg of fsiApps) {
+                    fsiCapableApps.add(pkg);
+                }
             }
             filterApps();
             checkDraftChanges();
@@ -1204,20 +1214,33 @@
     async function loadStoppedStatusAsync() {
         try {
             const res = await execAction('stopped');
-            if (res.data && res.data.stopped) {
-                stoppedApps = new Set(res.data.stopped);
-                hasLoadedStoppedStatus = true;
+            if (res.success && res.data) {
+                if (Array.isArray(res.data.stopped)) {
+                    stoppedApps = new Set(res.data.stopped);
+                    hasLoadedStoppedStatus = true;
+                }
+                if (Array.isArray(res.data.fsi_capable)) {
+                    fsiCapableApps = new Set(res.data.fsi_capable);
+                    for (const pkg of fsiApps) {
+                        fsiCapableApps.add(pkg);
+                    }
+                    hasLoadedFsiCapable = true;
+                }
                 updateCounts();
                 updateStoppedBadgesInDOM();
+                updateFsiButtonsInDOM();
                 saveStateCache();
             }
         } catch (e) {
             console.warn('Background stopped state fetch skipped:', e);
             hasLoadedStoppedStatus = true;
+            hasLoadedFsiCapable = true;
             updateCounts();
             updateStoppedBadgesInDOM();
+            updateFsiButtonsInDOM();
         }
     }
+
 
     function updateStoppedBadgesInDOM() {
         document.querySelectorAll('[data-badge-pkg]').forEach(badge => {
@@ -1225,6 +1248,36 @@
             const isStopped = stoppedApps.has(pkg);
             badge.className = `status-pill ${isStopped ? 'status-stopped' : 'status-running'}`;
             badge.textContent = isStopped ? t('pill.stopped') : t('pill.active');
+        });
+    }
+
+    function updateFsiButtonsInDOM() {
+        document.querySelectorAll('.app-item').forEach(item => {
+            const pkg = item.getAttribute('data-pkg');
+            if (!pkg) return;
+            const actions = item.querySelector('.app-actions');
+            if (!actions) return;
+            let btn = actions.querySelector(`.fsi-btn[data-fsi-pkg="${CSS.escape(pkg)}"]`);
+            const canFsi = fsiCapableApps.has(pkg) || fsiApps.has(pkg);
+            if (canFsi) {
+                const isFsi = fsiApps.has(pkg);
+                if (!btn) {
+                    const switchEl = actions.querySelector('.switch');
+                    const fsiTitle = fsiTitleFor(isFsi);
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = `<button class="fsi-btn ${isFsi ? 'fsi-active' : ''}" data-fsi-pkg="${pkg}" title="${fsiTitle}" onclick="toggleFsi('${pkg}', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg></button>`;
+                    if (switchEl) {
+                        actions.insertBefore(tmp.firstElementChild, switchEl);
+                    } else {
+                        actions.appendChild(tmp.firstElementChild);
+                    }
+                } else {
+                    btn.classList.toggle('fsi-active', isFsi);
+                    btn.title = fsiTitleFor(isFsi);
+                }
+            } else if (btn) {
+                btn.remove();
+            }
         });
     }
 
@@ -1378,9 +1431,13 @@
             ? `<span class="status-pill ${isStopped ? 'status-stopped' : 'status-running'}" data-badge-pkg="${pkg}">${isStopped ? t('pill.stopped') : t('pill.active')}</span>`
             : `<span class="status-pill status-running" data-badge-pkg="${pkg}"><span class="skeleton skeleton-text" style="width: 36px; height: 10px;"></span></span>`;
 
-        const isFsi = fsiApps.has(pkg);
-        const fsiTitle = fsiTitleFor(isFsi);
-        const fsiBtnHtml = `<button class="fsi-btn ${isFsi ? 'fsi-active' : ''}" data-fsi-pkg="${pkg}" title="${fsiTitle}" onclick="toggleFsi('${pkg}', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg></button>`;
+        const canFsi = fsiCapableApps.has(pkg) || fsiApps.has(pkg);
+        let fsiBtnHtml = '';
+        if (canFsi) {
+            const isFsi = fsiApps.has(pkg);
+            const fsiTitle = fsiTitleFor(isFsi);
+            fsiBtnHtml = `<button class="fsi-btn ${isFsi ? 'fsi-active' : ''}" data-fsi-pkg="${pkg}" title="${fsiTitle}" onclick="toggleFsi('${pkg}', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg></button>`;
+        }
 
         return `
             <div class="app-item ${isChecked ? 'selected' : ''}" data-pkg="${pkg}">
@@ -1518,6 +1575,7 @@
             fsiApps.delete(pkg);
         } else {
             fsiApps.add(pkg);
+            fsiCapableApps.add(pkg);
         }
         const isActive = !wasActive;
 

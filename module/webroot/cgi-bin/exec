@@ -513,12 +513,39 @@ case "$ACTION" in
             "$MODE" "$PACKAGES" "$USER_PKGS" "$PRESTART" "$SOUND_ACTIVE" "$SOUND_BACKUP" "$FEAT_MIUI" "$FEAT_A15" "$FEAT_OFFBODY" "$SYNC_BOOT" "$SYNC_SOUND" "$SYNC_VIB" "$SYNC_LOCK" "$SYNC_FLOAT" "$ALERT_GROUP_FIX" "$ALERT_ANTI_MUTE_UPDATE" "$ALERT_UNTHROTTLE_ALERT" "$PK_GMS_CTRL" "$PK_GMS_BOOT" "$V18_ACTIVE" "$FSI_JSON"
         ;;
 
-    stopped)
-        # Fetch stopped packages list
-        STOPPED_PKGS=$(dumpsys package 2>/dev/null | awk '/Package \[/{sub(/.*Package \[/, ""); sub(/\].*/, ""); p=$0} /stopped=true/{if(p!="") print p; p=""}' | awk 'BEGIN{first=1; printf "["}{if(!first) printf ","; printf "\"%s\"", $0; first=0}END{printf "]"}')
-        [ -z "$STOPPED_PKGS" ] && STOPPED_PKGS="[]"
-        printf '{"status":"ok","stopped":%s}\n' "$STOPPED_PKGS"
+    stopped|capabilities)
+        # Fetch stopped packages and FSI/lockscreen capable packages in a single dumpsys package pass
+        DUMPSYS_OUT=$(dumpsys package 2>/dev/null | awk '
+          /Package \[/ { sub(/.*Package \[/, ""); sub(/\].*/, ""); p = $0; count++; }
+          /stopped=true/ { if (p != "") stopped[p] = 1; }
+          /android\.permission\.USE_FULL_SCREEN_INTENT/ { if (p != "") fsi[p] = 1; }
+          END {
+            if (!count) exit 1;
+            printf "{\"status\":\"ok\",\"stopped\":[";
+            first = 1;
+            for (pkg in stopped) {
+              if (!first) printf ",";
+              printf "\"%s\"", pkg;
+              first = 0;
+            }
+            printf "],\"fsi_capable\":[";
+            first = 1;
+            for (pkg in fsi) {
+              if (!first) printf ",";
+              printf "\"%s\"", pkg;
+              first = 0;
+            }
+            printf "]}\n";
+          }
+        ')
+        if [ $? -eq 0 ] && [ -n "$DUMPSYS_OUT" ]; then
+            echo "$DUMPSYS_OUT"
+        else
+            echo '{"status":"error","message":"Failed to read package status"}'
+        fi
         ;;
+
+
 
     save_config)
         if [ -n "$2" ]; then
