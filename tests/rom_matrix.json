@@ -3,7 +3,7 @@
     {
       "codename": "zorn",
       "device": "Redmi K80",
-      "version": "OS3.0.307.0.WOKCNXM.C11",
+      "version": "OS3.0.308.0.WOKCNXM",
       "sdk": 36,
       "region": "cn",
       "track_latest": true
@@ -19,7 +19,7 @@
     {
       "codename": "goku",
       "device": "Xiaomi MIX Fold 4",
-      "version": "OS3.0.307.0.WNVCNXM",
+      "version": "OS3.0.309.0.WNVCNXM",
       "sdk": 36,
       "region": "cn",
       "track_latest": true
